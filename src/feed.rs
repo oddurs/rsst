@@ -1,3 +1,5 @@
+use std::cmp::Reverse;
+
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 
@@ -74,7 +76,7 @@ pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
         .collect();
 
     // Newest first; undated entries sink to the bottom.
-    entries.sort_by(|a, b| b.published.cmp(&a.published));
+    entries.sort_by_key(|entry| Reverse(entry.published));
 
     Ok(Feed {
         title,
