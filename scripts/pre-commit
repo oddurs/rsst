@@ -1,0 +1,11 @@
+#!/bin/sh
+# Fast local mirror of the CI `check` job. Install with:
+#   ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
+set -e
+
+if ! cargo fmt --all --check; then
+    echo "error: formatting issues. Run 'cargo fmt --all'." >&2
+    exit 1
+fi
+
+cargo clippy --all-targets -- -D warnings

@@ -1,0 +1,27 @@
+[package]
+name = "rsst"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+description = "A terminal RSS/Atom feed reader"
+license = "MIT"
+repository = "https://github.com/oddurs/rsst"
+readme = "README.md"
+keywords = ["rss", "atom", "tui", "feed-reader", "terminal"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+crossterm = "0.29"
+directories = "6"
+feed-rs = "2"
+ratatui = "0.29"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "gzip", "http2", "charset"] }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+toml = "0.9"
+
+[profile.release]
+lto = "thin"
+strip = true
