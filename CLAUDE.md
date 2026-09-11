@@ -19,7 +19,9 @@ cargo build --release
 ```
 
 Run `cargo fmt --all && cargo clippy --all-targets -- -D warnings && cargo test`
-before proposing a change is done. CI runs exactly these.
+before proposing a change is done. CI runs exactly these — but on the latest
+stable toolchain, which can flag lints an older local `rustc` doesn't. A green
+local clippy is necessary, not sufficient; check the CI run too.
 
 ## Layout
 

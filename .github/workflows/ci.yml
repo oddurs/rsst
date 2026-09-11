@@ -54,6 +54,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      # A prebuilt binary, rather than rustsec/audit-check: that action spends
+      # three minutes compiling cargo-audit from source and needs `checks: write`
+      # to publish its results.
+      - uses: taiki-e/install-action@cargo-audit
+      # Vulnerabilities fail the build. Informational advisories (unmaintained,
+      # unsound) are reported but don't, since they usually land on transitive
+      # deps we can't patch on our own schedule.
+      - run: cargo audit
