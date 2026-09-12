@@ -41,6 +41,7 @@ KEYS:
   j / down             next item, or scroll the detail pane
   k / up               previous item, or scroll back
   Tab                  cycle feeds / entries / detail
+  /                    search every feed; n and N step through matches
   u                    show only unread entries
   o                    open the selected entry in your browser
   y                    copy its link to the clipboard

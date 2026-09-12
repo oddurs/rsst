@@ -25,6 +25,22 @@ pub struct App {
     /// Inner size of the detail pane, written back by the renderer each frame.
     /// Scrolling needs to know how much fits, and only the renderer knows.
     pub detail_viewport: (u16, u16),
+    /// Active search, if any.
+    pub search: Option<Search>,
+}
+
+/// A search over every entry in every feed.
+#[derive(Debug, Default, Clone)]
+pub struct Search {
+    pub query: String,
+    /// True while the query is still being typed.
+    pub typing: bool,
+    /// Matches, as (feed, entry) indices.
+    pub results: Vec<(usize, usize)>,
+    /// Which match is selected.
+    pub selected: usize,
+    /// Where the cursor was before the search, to restore on Esc.
+    saved: (usize, usize),
 }
 
 impl App {
@@ -46,6 +62,106 @@ impl App {
         };
         if let Some(entry) = feed.entries.get(self.selected_entry) {
             self.read.mark_read(entry);
+        }
+    }
+
+    /// Opens a search, remembering where the cursor was.
+    pub fn start_search(&mut self) {
+        self.search = Some(Search {
+            typing: true,
+            saved: (self.selected_feed, self.selected_entry),
+            ..Default::default()
+        });
+        self.recompute_search();
+    }
+
+    /// Adds a character to the query and re-runs it.
+    pub fn push_search(&mut self, ch: char) {
+        if let Some(search) = &mut self.search {
+            search.query.push(ch);
+        }
+        self.recompute_search();
+    }
+
+    /// Removes the last character and re-runs the query.
+    pub fn pop_search(&mut self) {
+        if let Some(search) = &mut self.search {
+            search.query.pop();
+        }
+        self.recompute_search();
+    }
+
+    /// Leaves the text field but keeps the results, so n/N can walk them.
+    pub fn confirm_search(&mut self) {
+        if let Some(search) = &mut self.search {
+            search.typing = false;
+        }
+    }
+
+    /// Abandons the search and puts the cursor back where it was.
+    pub fn cancel_search(&mut self) {
+        if let Some(search) = self.search.take() {
+            let (feed, entry) = search.saved;
+            self.selected_feed = feed;
+            self.selected_entry = entry;
+            self.detail_scroll = 0;
+        }
+    }
+
+    /// Moves to the next or previous match, wrapping.
+    pub fn step_match(&mut self, delta: isize) {
+        let Some(search) = &mut self.search else {
+            return;
+        };
+        if search.results.is_empty() {
+            return;
+        }
+        search.selected = step(search.selected, search.results.len(), delta);
+        let (feed, entry) = search.results[search.selected];
+        self.selected_feed = feed;
+        self.selected_entry = entry;
+        self.detail_scroll = 0;
+        self.mark_current_read();
+    }
+
+    /// Re-runs the query over every feed and moves to the first match.
+    ///
+    /// Called on every keystroke, which is what makes results update as you
+    /// type rather than on Enter.
+    fn recompute_search(&mut self) {
+        let Some(search) = &self.search else {
+            return;
+        };
+        let needle = search.query.to_lowercase();
+        let results = if needle.is_empty() {
+            Vec::new()
+        } else {
+            self.feeds
+                .iter()
+                .enumerate()
+                .flat_map(|(f, feed)| {
+                    let needle = &needle;
+                    feed.entries
+                        .iter()
+                        .enumerate()
+                        .filter_map(move |(e, entry)| {
+                            let matches = entry.title.to_lowercase().contains(needle)
+                                || entry.summary.to_lowercase().contains(needle);
+                            matches.then_some((f, e))
+                        })
+                })
+                .collect()
+        };
+
+        if let Some(search) = &mut self.search {
+            search.results = results;
+            search.selected = 0;
+        }
+        // Follow the first match so the detail pane shows what was found.
+        if let Some(&(feed, entry)) = self.search.as_ref().and_then(|s| s.results.first()) {
+            self.selected_feed = feed;
+            self.selected_entry = entry;
+            self.detail_scroll = 0;
         }
     }
 
@@ -450,6 +566,143 @@ mod tests {
         assert!(app.read.unread_only);
         app.toggle_unread_only();
         assert!(!app.read.unread_only);
+    }
+
+    fn two_feeds() -> App {
+        App::new(
+            vec![
+                Feed {
+                    title: "Alpha".into(),
+                    url: "https://a.example".into(),
+                    status: crate::feed::Status::Idle,
+                    entries: vec![entry("Rust release notes"), entry("Cooking with gas")],
+                },
+                Feed {
+                    title: "Beta".into(),
+                    url: "https://b.example".into(),
+                    status: crate::feed::Status::Idle,
+                    entries: vec![entry("Rusty pipes"), entry("Nothing relevant")],
+                },
+            ],
+            ReadState::default(),
+        )
+    }
+
+    #[test]
+    fn search_matches_across_every_feed() {
+        let mut app = two_feeds();
+        app.start_search();
+        for ch in "rust".chars() {
+            app.push_search(ch);
+        }
+        let results = &app.search.as_ref().expect("searching").results;
+        assert_eq!(results, &[(0, 0), (1, 0)], "matched in both feeds");
+    }
+
+    #[test]
+    fn search_is_case_insensitive() {
+        let mut app = two_feeds();
+        app.start_search();
+        for ch in "RUST".chars() {
+            app.push_search(ch);
+        }
+        assert_eq!(app.search.as_ref().expect("searching").results.len(), 2);
+    }
+
+    #[test]
+    fn results_narrow_as_the_query_grows() {
+        let mut app = two_feeds();
+        app.start_search();
+        for ch in "rust".chars() {
+            app.push_search(ch);
+        }
+        assert_eq!(app.search.as_ref().expect("searching").results.len(), 2);
+
+        app.push_search('y'); // "rusty"
+        assert_eq!(
+            app.search.as_ref().expect("searching").results,
+            vec![(1, 0)]
+        );
+
+        app.pop_search(); // back to "rust"
+        assert_eq!(app.search.as_ref().expect("searching").results.len(), 2);
+    }
+
+    #[test]
+    fn search_also_looks_in_the_summary() {
+        let mut app = two_feeds();
+        app.feeds[0].entries[1].summary = "a distinctive phrase".into();
+        app.start_search();
+        for ch in "distinctive".chars() {
+            app.push_search(ch);
+        }
+        assert_eq!(
+            app.search.as_ref().expect("searching").results,
+            vec![(0, 1)]
+        );
+    }
+
+    #[test]
+    fn escape_restores_the_selection_the_search_started_from() {
+        let mut app = two_feeds();
+        app.selected_feed = 1;
+        app.selected_entry = 1;
+
+        app.start_search();
+        for ch in "rust".chars() {
+            app.push_search(ch);
+        }
+        assert_eq!((app.selected_feed, app.selected_entry), (0, 0));
+
+        app.cancel_search();
+        assert!(app.search.is_none());
+        assert_eq!((app.selected_feed, app.selected_entry), (1, 1));
+    }
+
+    #[test]
+    fn stepping_through_matches_wraps_and_crosses_feeds() {
+        let mut app = two_feeds();
+        app.start_search();
+        for ch in "rust".chars() {
+            app.push_search(ch);
+        }
+        app.confirm_search();
+
+        app.step_match(1);
+        assert_eq!((app.selected_feed, app.selected_entry), (1, 0));
+        app.step_match(1);
+        assert_eq!((app.selected_feed, app.selected_entry), (0, 0), "wrapped");
+    }
+
+    #[test]
+    fn an_empty_query_matches_nothing_rather_than_everything() {
+        let mut app = two_feeds();
+        app.start_search();
+        assert!(app.search.as_ref().expect("searching").results.is_empty());
+    }
+
+    #[test]
+    fn stepping_with_no_matches_is_harmless() {
+        let mut app = two_feeds();
+        app.start_search();
+        for ch in "zzzz".chars() {
+            app.push_search(ch);
+        }
+        app.step_match(1);
+        assert_eq!(app.search.as_ref().expect("searching").selected, 0);
+    }
+
+    #[test]
+    fn confirming_leaves_the_text_field_but_keeps_the_results() {
+        let mut app = two_feeds();
+        app.start_search();
+        for ch in "rust".chars() {
+            app.push_search(ch);
+        }
+        app.confirm_search();
+        let search = app.search.as_ref().expect("searching");
+        assert!(!search.typing);
+        assert_eq!(search.results.len(), 2);
     }
 
     #[test]

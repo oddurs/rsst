@@ -2,9 +2,10 @@
 id: 21
 title: Search and filter entries
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p1
 effort: m
 area: ui
@@ -21,7 +22,7 @@ Finding an article you remember reading means scrolling every feed by hand.
 
 ## Acceptance criteria
 
-- [ ] Search matches across every feed, not just the selected one.
-- [ ] Results update as the query is typed.
-- [ ] Esc restores the previous selection.
-- [ ] Search is case-insensitive.
+- [x] Search matches across every feed, not just the selected one.
+- [x] Results update as the query is typed.
+- [x] Esc restores the previous selection.
+- [x] Search is case-insensitive.

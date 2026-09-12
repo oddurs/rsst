@@ -54,6 +54,7 @@ max_concurrent_fetches = 8
 | `j` / `↓`      | Next item, or scroll the detail pane |
 | `k` / `↑`      | Previous item, or scroll back |
 | `Tab`          | Cycle feeds → entries → detail |
+| `/`            | Search every feed (`n`/`N` step matches, `Esc` cancels) |
 | `u`            | Show only unread entries  |
 | `o`            | Open the entry in your browser |
 | `y`            | Copy its link to the clipboard |
