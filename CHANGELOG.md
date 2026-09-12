@@ -21,6 +21,8 @@ still needs.
   a reference list; `f` fetches the full text behind a teaser
 - A reading mode (`z`) that gives the article the whole screen, pages with
   `Space`, and returns to each article where you left it
+- Following a link from inside an article: type its number, or click the link
+  itself or its line in the reference list
 - **Mouse-first interaction** — click a feed, entry or group heading; wheel over
   any pane to scroll it; click a link to open it; the status hints are buttons.
   `mouse = false` gives the terminal its selection back

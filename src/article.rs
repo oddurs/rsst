@@ -92,7 +92,6 @@ pub struct Article {
     pub links: Vec<String>,
 }
 
-/// Reads an entry's HTML.
 /// A table being gathered as the document is walked.
 #[derive(Default)]
 struct Gathering {
@@ -100,6 +99,7 @@ struct Gathering {
     rows: Vec<Vec<String>>,
 }
 
+/// Reads an entry's HTML.
 pub fn parse(html: &str) -> Article {
     let mut article = Article::default();
     let mut inlines: Vec<Inline> = Vec::new();
@@ -566,10 +566,12 @@ pub fn layout(article: &Article, width: usize, measure: Measure) -> Vec<Row> {
                 rows.push(Row {
                     kind: Kind::Reference,
                     indent: if line == 0 { margin } else { margin + indent },
+                    // The URL is a link span, not plain text, so the reference
+                    // list is as clickable as the marker in the prose.
                     spans: if line == 0 {
-                        vec![Inline::Text(label.clone()), Inline::Text(text)]
+                        vec![Inline::Text(label.clone()), Inline::Link(text, index)]
                     } else {
-                        vec![Inline::Text(text)]
+                        vec![Inline::Link(text, index)]
                     },
                 });
             }

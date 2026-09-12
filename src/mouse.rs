@@ -33,6 +33,9 @@ pub struct Hits {
     /// The rows the article's link occupies, as (row, first column, last
     /// column). A long URL wraps, so clicking its tail must work too.
     pub link_rows: Vec<(u16, u16, u16)>,
+    /// Where each of the article's own links was drawn, and which one it is:
+    /// row, first column, last column, link number counting from zero.
+    pub article_links: Vec<(u16, u16, u16, usize)>,
     /// Status-bar hints, as (first column, last column, what they do).
     pub buttons: Vec<(u16, u16, Action)>,
     /// The overlay covers everything, so it takes every click.
@@ -44,10 +47,21 @@ pub struct Hits {
 pub enum Hit {
     SelectFeed(usize),
     ToggleFolder(Vec<String>),
-    SelectEntry { feed: usize, entry: usize },
-    OpenEntry { feed: usize, entry: usize },
+    SelectEntry {
+        feed: usize,
+        entry: usize,
+    },
+    OpenEntry {
+        feed: usize,
+        entry: usize,
+    },
     OpenLink,
-    Scroll { pane: Pane, delta: isize },
+    /// One of the article's numbered links, counting from zero.
+    OpenArticleLink(usize),
+    Scroll {
+        pane: Pane,
+        delta: isize,
+    },
     Focus(Pane),
     Run(Action),
     CloseHelp,
@@ -156,6 +170,15 @@ fn click(hits: &Hits, column: u16, row: u16, double: bool) -> Hit {
             None => Hit::Focus(Pane::Entries),
         },
         Some(Pane::Detail) => {
+            // The article's own links first: they are drawn inside the pane
+            // the entry's URL heads, so the narrower target wins.
+            let article = hits
+                .article_links
+                .iter()
+                .find(|(y, from, to, _)| *y == row && column >= *from && column <= *to);
+            if let Some((.., index)) = article {
+                return Hit::OpenArticleLink(*index);
+            }
             let on_link = hits
                 .link_rows
                 .iter()
@@ -185,6 +208,12 @@ pub fn apply(app: &mut crate::app::App, hit: Hit) -> Option<Action> {
             return Some(Action::Open);
         }
         Hit::OpenLink => return Some(Action::Open),
+        Hit::OpenArticleLink(index) => {
+            // Open already knows how to open a chosen link; choosing one is
+            // all a click has to do.
+            app.following = Some((index + 1).to_string());
+            return Some(Action::Open);
+        }
         Hit::Focus(pane) => {
             app.focus = pane;
             if pane == Pane::Entries {
@@ -271,6 +300,8 @@ mod tests {
             ],
             entry_rows: vec![(1, (0, 5)), (2, (0, 6))],
             link_rows: vec![(12, 22, 40), (13, 22, 30)],
+            // An inline link on row 15, columns 24..=31.
+            article_links: vec![(15, 24, 31, 0)],
             buttons: vec![(0, 6, Action::Help), (8, 14, Action::Quit)],
             help_open: false,
         }
@@ -443,5 +474,38 @@ mod tests {
         ] {
             assert_eq!(resolve(&hits, at(kind, 5, 3), false), Hit::Nothing);
         }
+    }
+
+    #[test]
+    fn clicking_a_link_in_the_article_opens_that_link() {
+        assert_eq!(
+            resolve(&hits(), down(26, 15), false),
+            Hit::OpenArticleLink(0),
+            "a click on the link text did not reach the link"
+        );
+    }
+
+    #[test]
+    fn clicking_beside_a_link_only_focuses_the_pane() {
+        assert_eq!(
+            resolve(&hits(), down(23, 15), false),
+            Hit::Focus(Pane::Detail)
+        );
+        assert_eq!(
+            resolve(&hits(), down(32, 15), false),
+            Hit::Focus(Pane::Detail)
+        );
+    }
+
+    #[test]
+    fn a_clicked_link_is_the_one_open_then_opens() {
+        let mut app = crate::app::App::new(Vec::new(), crate::state::ReadState::default());
+        let action = apply(&mut app, Hit::OpenArticleLink(4));
+        assert_eq!(action, Some(Action::Open));
+        assert_eq!(
+            app.following.as_deref(),
+            Some("5"),
+            "the click chose the wrong link, or none"
+        );
     }
 }
