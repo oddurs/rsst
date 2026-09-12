@@ -176,11 +176,29 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
         }
 
         app.status = None;
+
+        // While the query is being typed the keyboard belongs to the text
+        // field, or every letter would also be a command.
+        if app.search.as_ref().is_some_and(|s| s.typing) {
+            match key.code {
+                KeyCode::Esc => app.cancel_search(),
+                KeyCode::Enter => app.confirm_search(),
+                KeyCode::Backspace => app.pop_search(),
+                KeyCode::Char(ch) => app.push_search(ch),
+                _ => {}
+            }
+            continue;
+        }
+
         match key.code {
+            KeyCode::Esc if app.search.is_some() => app.cancel_search(),
             KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
             KeyCode::Tab | KeyCode::BackTab => app.toggle_focus(),
             KeyCode::Char('j') | KeyCode::Down => app.select_next(),
             KeyCode::Char('k') | KeyCode::Up => app.select_previous(),
+            KeyCode::Char('/') => app.start_search(),
+            KeyCode::Char('n') if app.search.is_some() => app.step_match(1),
+            KeyCode::Char('N') if app.search.is_some() => app.step_match(-1),
             KeyCode::Char('u') => {
                 app.toggle_unread_only();
                 let _ = app.read.save(&session.state_path);

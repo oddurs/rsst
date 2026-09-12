@@ -6,7 +6,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use crate::app::{App, Pane};
 
-const HELP: &str = " q quit · Tab pane · j/k move · u unread · o open · y copy · r refresh ";
+const HELP: &str = " q quit · Tab pane · j/k move · / search · u unread · o open · r refresh ";
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let rows = Layout::default()
@@ -76,6 +76,10 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
+    if let Some(search) = app.search.clone() {
+        draw_search_results(frame, app, &search, area);
+        return;
+    }
     let title = app
         .current_feed()
         .map(|feed| feed.url.clone())
@@ -124,6 +128,62 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_stateful_widget(
         List::new(items)
             .block(block(&title, app.focus == Pane::Entries))
+            .highlight_style(highlight())
+            .highlight_symbol("› "),
+        area,
+        &mut state,
+    );
+}
+
+/// The entries pane, showing matches from every feed rather than one.
+fn draw_search_results(frame: &mut Frame, app: &App, search: &crate::app::Search, area: Rect) {
+    let items: Vec<ListItem> = search
+        .results
+        .iter()
+        .filter_map(|(f, e)| {
+            let feed = app.feeds.get(*f)?;
+            let entry = feed.entries.get(*e)?;
+            Some(ListItem::new(Line::from(vec![
+                // Matches span feeds, so each result has to say which one.
+                Span::styled(
+                    format!("{}  ", feed.title),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::raw(entry.title.clone()),
+            ])))
+        })
+        .collect();
+
+    let title = if search.typing {
+        format!("Search: {}_", search.query)
+    } else {
+        format!(
+            "Search: {}  ({} matches)",
+            search.query,
+            search.results.len()
+        )
+    };
+
+    let items = if items.is_empty() {
+        let message = if search.query.is_empty() {
+            "Type to search every feed."
+        } else {
+            "No matches."
+        };
+        vec![ListItem::new(Line::from(Span::styled(
+            message,
+            Style::default().fg(Color::DarkGray),
+        )))]
+    } else {
+        items
+    };
+
+    let mut state = ListState::default();
+    state.select((!search.results.is_empty()).then_some(search.selected));
+
+    frame.render_stateful_widget(
+        List::new(items)
+            .block(block(&title, true))
             .highlight_style(highlight())
             .highlight_symbol("› "),
         area,
