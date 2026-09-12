@@ -2,9 +2,10 @@
 id: 30
 title: Reload the config without restarting
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p3
 effort: s
 area: config
@@ -21,6 +22,6 @@ Adding a feed means quitting, editing TOML, and starting over.
 
 ## Acceptance criteria
 
-- [ ] Adding a feed and pressing `R` picks it up without a restart.
-- [ ] Read state survives the reload.
-- [ ] A config that fails to parse leaves the running state untouched and reports the error.
+- [x] Adding a feed and pressing `R` picks it up without a restart.
+- [x] Read state survives the reload.
+- [x] A config that fails to parse leaves the running state untouched and reports the error.

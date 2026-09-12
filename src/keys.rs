@@ -34,6 +34,7 @@ pub enum Action {
     Open,
     CopyLink,
     Refresh,
+    ReloadConfig,
     Help,
     Quit,
 }
@@ -149,6 +150,12 @@ const ACTIONS: &[(Action, &str, &str, &str)] = &[
     ),
     (Action::CopyLink, "copy_link", "Doing", "copy its link"),
     (Action::Refresh, "refresh", "Doing", "refresh all feeds"),
+    (
+        Action::ReloadConfig,
+        "reload_config",
+        "Doing",
+        "re-read the config file",
+    ),
     (Action::Help, "help", "Doing", "show this help"),
     (Action::Quit, "quit", "Doing", "quit"),
 ];
@@ -199,6 +206,7 @@ const DEFAULTS: &[(&str, Action)] = &[
     ("o", Action::Open),
     ("y", Action::CopyLink),
     ("r", Action::Refresh),
+    ("R", Action::ReloadConfig),
     ("?", Action::Help),
     ("q", Action::Quit),
 ];
@@ -242,9 +250,10 @@ impl Keymap {
 
     /// What this keystroke means, if anything.
     pub fn action(&self, code: KeyCode, mods: KeyModifiers) -> Option<Action> {
+        let mods = normalise(code, mods);
         self.bindings
             .iter()
-            .find(|(c, m, _)| *c == code && *m == mods)
+            .find(|(c, m, _)| *c == code && normalise(*c, *m) == mods)
             .map(|(.., a)| *a)
     }
 
@@ -272,6 +281,19 @@ impl Keymap {
             }
         }
         out
+    }
+}
+
+/// Drops Shift from a character key, where it is already in the character.
+///
+/// Terminals report Shift+r as `Char('R')` *with* the Shift modifier set. A
+/// binding written `A` parses to `Char('A')` with no modifiers, so comparing
+/// modifiers literally would leave every capital-letter binding dead. Shift
+/// still matters for keys with no character of their own, like Shift+Tab.
+fn normalise(code: KeyCode, mods: KeyModifiers) -> KeyModifiers {
+    match code {
+        KeyCode::Char(_) => mods & !KeyModifiers::SHIFT,
+        _ => mods,
     }
 }
 
@@ -405,6 +427,47 @@ mod tests {
             map.action(KeyCode::Char('A'), KeyModifiers::NONE),
             Some(Action::MarkAllRead)
         );
+    }
+
+    #[test]
+    fn a_capital_letter_binding_matches_the_shift_the_terminal_reports() {
+        // Terminals send Shift+a as Char('A') WITH the Shift modifier; a
+        // binding written `A` has none. Every capital binding depends on this.
+        let map = Keymap::default();
+        assert_eq!(
+            map.action(KeyCode::Char('A'), KeyModifiers::SHIFT),
+            Some(Action::MarkAllRead)
+        );
+        assert_eq!(
+            map.action(KeyCode::Char('G'), KeyModifiers::SHIFT),
+            Some(Action::Last)
+        );
+        assert_eq!(
+            map.action(KeyCode::Char('R'), KeyModifiers::SHIFT),
+            Some(Action::ReloadConfig)
+        );
+    }
+
+    #[test]
+    fn shift_still_matters_for_keys_without_a_character() {
+        let map = Keymap::default();
+        // Tab is bound; Shift+Tab is a different keystroke and is not.
+        assert_eq!(
+            map.action(KeyCode::Tab, KeyModifiers::NONE),
+            Some(Action::CyclePane)
+        );
+        assert_eq!(map.action(KeyCode::Tab, KeyModifiers::SHIFT), None);
+    }
+
+    #[test]
+    fn control_is_still_required_where_it_is_bound() {
+        let map = Keymap::default();
+        assert_eq!(
+            map.action(KeyCode::Char('d'), KeyModifiers::CONTROL),
+            Some(Action::HalfPageDown)
+        );
+        // Plain `d` is not bound to anything.
+        assert_eq!(map.action(KeyCode::Char('d'), KeyModifiers::NONE), None);
     }
 
     #[test]
