@@ -2,9 +2,10 @@
 id: 23
 title: Star entries and keep them
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p2
 effort: m
 area: storage
@@ -21,6 +22,6 @@ Entries disappear as they age out of the feed. Anything worth returning to has t
 
 ## Acceptance criteria
 
-- [ ] A starred entry survives falling out of the upstream feed.
-- [ ] Starred entries are listed in their own view.
-- [ ] Starring persists across restarts.
+- [x] A starred entry survives falling out of the upstream feed.
+- [x] Starred entries are listed in their own view.
+- [x] Starring persists across restarts.

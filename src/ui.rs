@@ -78,7 +78,41 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
 
 fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
     if let Some(search) = app.search.clone() {
-        draw_search_results(frame, app, &search, area);
+        draw_cross_feed(
+            frame,
+            app,
+            &search.results,
+            search.selected,
+            &if search.typing {
+                format!("Search: {}_", search.query)
+            } else {
+                format!(
+                    "Search: {}  ({} matches)",
+                    search.query,
+                    search.results.len()
+                )
+            },
+            if search.query.is_empty() {
+                "Type to search every feed."
+            } else {
+                "No matches."
+            },
+            area,
+        );
+        return;
+    }
+    if app.starred_view {
+        let results = app.starred_results();
+        let title = format!("Starred  ({})", results.len());
+        draw_cross_feed(
+            frame,
+            app,
+            &results,
+            0,
+            &title,
+            "Nothing starred yet.",
+            area,
+        );
         return;
     }
     let title = app
@@ -100,9 +134,15 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
                     Style::default().add_modifier(Modifier::BOLD),
                 )
             };
+            let star = if app.is_starred(entry) {
+                Span::styled("★ ", Style::default().fg(Color::Yellow))
+            } else {
+                Span::raw("  ")
+            };
             ListItem::new(Line::from(vec![
                 Span::styled(entry.date_label(), Style::default().fg(Color::DarkGray)),
                 Span::raw("  "),
+                star,
                 title,
             ]))
         })
@@ -136,16 +176,23 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
     );
 }
 
-/// The entries pane, showing matches from every feed rather than one.
-fn draw_search_results(frame: &mut Frame, app: &App, search: &crate::app::Search, area: Rect) {
-    let items: Vec<ListItem> = search
-        .results
+/// The entries pane, listing entries drawn from every feed rather than one.
+fn draw_cross_feed(
+    frame: &mut Frame,
+    app: &App,
+    results: &[(usize, usize)],
+    selected: usize,
+    title: &str,
+    empty_message: &str,
+    area: Rect,
+) {
+    let items: Vec<ListItem> = results
         .iter()
         .filter_map(|(f, e)| {
             let feed = app.feeds.get(*f)?;
             let entry = feed.entries.get(*e)?;
             Some(ListItem::new(Line::from(vec![
-                // Matches span feeds, so each result has to say which one.
+                // Results span feeds, so each row has to say which one.
                 Span::styled(
                     format!("{}  ", feed.title),
                     Style::default().fg(Color::DarkGray),
@@ -155,24 +202,10 @@ fn draw_search_results(frame: &mut Frame, app: &App, search: &crate::app::Search
         })
         .collect();
 
-    let title = if search.typing {
-        format!("Search: {}_", search.query)
-    } else {
-        format!(
-            "Search: {}  ({} matches)",
-            search.query,
-            search.results.len()
-        )
-    };
-
-    let items = if items.is_empty() {
-        let message = if search.query.is_empty() {
-            "Type to search every feed."
-        } else {
-            "No matches."
-        };
+    let empty = items.is_empty();
+    let items = if empty {
         vec![ListItem::new(Line::from(Span::styled(
-            message,
+            empty_message,
             Style::default().fg(Color::DarkGray),
         )))]
     } else {
@@ -180,11 +213,11 @@ fn draw_search_results(frame: &mut Frame, app: &App, search: &crate::app::Search
     };
 
     let mut state = ListState::default();
-    state.select((!search.results.is_empty()).then_some(search.selected));
+    state.select((!empty).then_some(selected));
 
     frame.render_stateful_widget(
         List::new(items)
-            .block(block(&title, true))
+            .block(block(title, true))
             .highlight_style(highlight())
             .highlight_symbol("› "),
         area,

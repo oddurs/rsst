@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::FeedSource;
 use crate::feed::Feed;
+use crate::state::ReadState;
 
 /// How many entries are kept per feed.
 ///
@@ -68,12 +69,39 @@ impl Cache {
         fs::rename(&tmp, path).with_context(|| format!("replacing {}", path.display()))
     }
 
-    /// Records a feed's contents, trimming it to the per-feed cap.
-    pub fn put(&mut self, feed: &Feed) {
-        let mut feed = feed.clone();
-        feed.status = crate::feed::Status::Idle;
-        feed.entries.truncate(MAX_ENTRIES_PER_FEED);
-        self.feeds.insert(feed.url.clone(), feed);
+    /// Records a feed's contents, keeping starred entries the feed has dropped.
+    ///
+    /// A publisher's feed is a rolling window; starring is the reader saying
+    /// they want something after it rolls out. Those entries are carried
+    /// forward and are exempt from the per-feed cap, since capping them away
+    /// would defeat the point of starring.
+    pub fn put(&mut self, feed: &Feed, state: &ReadState) {
+        let mut next = feed.clone();
+        next.status = crate::feed::Status::Idle;
+        next.entries.truncate(MAX_ENTRIES_PER_FEED);
+
+        if let Some(previous) = self.feeds.get(&next.url) {
+            let kept: Vec<_> = previous
+                .entries
+                .iter()
+                .filter(|entry| {
+                    state.any_starred(&entry.keys)
+                        && !next
+                            .entries
+                            .iter()
+                            .any(|e| e.keys.iter().any(|key| entry.keys.contains(key)))
+                })
+                .cloned()
+                .collect();
+            next.entries.extend(kept);
+        }
+
+        self.feeds.insert(next.url.clone(), next);
+    }
+
+    #[cfg(test)]
+    fn put_test(&mut self, feed: &Feed) {
+        self.put(feed, &ReadState::default());
     }
 
     /// The cached contents of `source`, if any, ready to display.
@@ -193,7 +221,7 @@ mod tests {
     #[test]
     fn a_stored_feed_comes_back() {
         let mut cache = Cache::default();
-        cache.put(&feed("https://a.example/feed", 3));
+        cache.put_test(&feed("https://a.example/feed", 3));
         let restored = cache
             .get(&source("https://a.example/feed"))
             .expect("cached");
@@ -212,7 +240,7 @@ mod tests {
     #[test]
     fn a_restored_feed_is_marked_fetching_because_a_refresh_is_coming() {
         let mut cache = Cache::default();
-        cache.put(&feed("https://a.example/feed", 1));
+        cache.put_test(&feed("https://a.example/feed", 1));
         assert_eq!(
             cache
                 .get(&source("https://a.example/feed"))
@@ -225,7 +253,7 @@ mod tests {
     #[test]
     fn the_configured_title_overrides_the_cached_one() {
         let mut cache = Cache::default();
-        cache.put(&feed("https://a.example/feed", 1));
+        cache.put_test(&feed("https://a.example/feed", 1));
         let mut source = source("https://a.example/feed");
         source.title = Some("My Name".into());
         assert_eq!(cache.get(&source).expect("cached").title, "My Name");
@@ -234,7 +262,7 @@ mod tests {
     #[test]
     fn entries_are_capped_so_the_cache_cannot_grow_without_bound() {
         let mut cache = Cache::default();
-        cache.put(&feed("https://a.example/feed", MAX_ENTRIES_PER_FEED + 250));
+        cache.put_test(&feed("https://a.example/feed", MAX_ENTRIES_PER_FEED + 250));
         assert_eq!(
             cache
                 .get(&source("https://a.example/feed"))
@@ -248,8 +276,8 @@ mod tests {
     #[test]
     fn feeds_removed_from_the_config_are_dropped() {
         let mut cache = Cache::default();
-        cache.put(&feed("https://a.example/feed", 1));
-        cache.put(&feed("https://b.example/feed", 1));
+        cache.put_test(&feed("https://a.example/feed", 1));
+        cache.put_test(&feed("https://b.example/feed", 1));
         assert_eq!(cache.len(), 2);
 
         cache.retain_configured(&[source("https://a.example/feed")]);
@@ -313,7 +341,7 @@ mod tests {
     fn the_cache_round_trips_through_a_file() {
         let path = tmpdir().join("round-trip.toml");
         let mut cache = Cache::default();
-        cache.put(&feed("https://a.example/feed", 2));
+        cache.put_test(&feed("https://a.example/feed", 2));
         cache.save(&path).expect("save");
 
         let loaded = Cache::load(&path);
@@ -322,6 +350,45 @@ mod tests {
             .expect("cached");
         assert_eq!(restored.entries.len(), 2);
         assert_eq!(restored.entries[0].title, "e0");
+    }
+
+    #[test]
+    fn a_starred_entry_survives_falling_out_of_the_feed() {
+        let mut state = ReadState::default();
+        let mut cache = Cache::default();
+
+        let original = feed("https://a.example/feed", 3);
+        state.toggle_star(&original.entries[1]);
+        cache.put(&original, &state);
+
+        // The publisher rolls the window: only a brand new entry remains.
+        let mut rolled = feed("https://a.example/feed", 0);
+        rolled.entries = vec![entry("brand-new")];
+        cache.put(&rolled, &state);
+
+        let restored = cache
+            .get(&source("https://a.example/feed"))
+            .expect("cached");
+        let titles: Vec<_> = restored.entries.iter().map(|e| e.title.as_str()).collect();
+        assert!(titles.contains(&"brand-new"));
+        assert!(titles.contains(&"e1"), "the starred entry was kept");
+        assert!(!titles.contains(&"e0"), "unstarred entries rolled away");
+    }
+
+    #[test]
+    fn a_starred_entry_still_present_is_not_duplicated() {
+        let mut state = ReadState::default();
+        let mut cache = Cache::default();
+        let original = feed("https://a.example/feed", 2);
+        state.toggle_star(&original.entries[0]);
+
+        cache.put(&original, &state);
+        cache.put(&original, &state);
+
+        let restored = cache
+            .get(&source("https://a.example/feed"))
+            .expect("cached");
+        assert_eq!(restored.entries.len(), 2);
     }
 
     #[test]
@@ -335,7 +402,7 @@ mod tests {
     fn a_truncated_cache_is_discarded_rather_than_fatal() {
         let path = tmpdir().join("truncated.toml");
         let mut cache = Cache::default();
-        cache.put(&feed("https://a.example/feed", 5));
+        cache.put_test(&feed("https://a.example/feed", 5));
         cache.save(&path).expect("save");
 
         let full = fs::read_to_string(&path).expect("read");

@@ -18,6 +18,8 @@ use crate::feed::Entry;
 #[derive(Debug, Default)]
 pub struct ReadState {
     keys: HashSet<String>,
+    /// Entries the reader has starred, by the same candidate keys.
+    starred: HashSet<String>,
     /// Whether the entry list is filtered to unread. Kept here because it is
     /// the same kind of thing — what the reader remembers between runs.
     pub unread_only: bool,
@@ -27,6 +29,8 @@ pub struct ReadState {
 struct OnDisk {
     #[serde(default)]
     read: Vec<String>,
+    #[serde(default)]
+    starred: Vec<String>,
     #[serde(default)]
     unread_only: bool,
 }
@@ -43,6 +47,7 @@ impl ReadState {
         let parsed: OnDisk = toml::from_str(&raw).unwrap_or_default();
         Self {
             keys: parsed.read.into_iter().collect(),
+            starred: parsed.starred.into_iter().collect(),
             unread_only: parsed.unread_only,
         }
     }
@@ -61,8 +66,12 @@ impl ReadState {
 
         let mut read: Vec<&String> = self.keys.iter().collect();
         read.sort(); // stable on disk, so the file diffs cleanly and tests can compare
+        let mut starred: Vec<&String> = self.starred.iter().collect();
+        starred.sort();
+
         let body = toml::to_string_pretty(&OnDisk {
             read: read.into_iter().cloned().collect(),
+            starred: starred.into_iter().cloned().collect(),
             unread_only: self.unread_only,
         })
         .context("serializing read state")?;
@@ -89,6 +98,31 @@ impl ReadState {
         for key in &entry.keys {
             self.keys.remove(key);
         }
+    }
+
+    pub fn is_starred(&self, entry: &Entry) -> bool {
+        entry.keys.iter().any(|key| self.starred.contains(key))
+    }
+
+    /// Stars an entry, or unstars it if it already was.
+    pub fn toggle_star(&mut self, entry: &Entry) -> bool {
+        if self.is_starred(entry) {
+            for key in &entry.keys {
+                self.starred.remove(key);
+            }
+            false
+        } else {
+            self.starred.extend(entry.keys.iter().cloned());
+            true
+        }
+    }
+
+    /// Whether any of these keys is starred.
+    ///
+    /// Takes raw keys rather than an entry so the cache can ask about entries
+    /// it is about to drop.
+    pub fn any_starred(&self, keys: &[String]) -> bool {
+        keys.iter().any(|key| self.starred.contains(key))
     }
 
     #[cfg(test)]
@@ -212,6 +246,34 @@ mod tests {
         };
         state.save(&path).expect("save");
         assert!(ReadState::load(&path).unread_only);
+    }
+
+    #[test]
+    fn starring_toggles_and_is_independent_of_read_state() {
+        let mut state = ReadState::default();
+        assert!(state.toggle_star(&entry(&["a", "b"])));
+        assert!(state.is_starred(&entry(&["a"])));
+        assert!(!state.is_read(&entry(&["a"])), "starring is not reading");
+
+        assert!(!state.toggle_star(&entry(&["a", "b"])));
+        assert!(!state.is_starred(&entry(&["a"])));
+    }
+
+    #[test]
+    fn stars_survive_a_restart() {
+        let path = tmpdir().join("stars.toml");
+        let mut state = ReadState::default();
+        state.toggle_star(&entry(&["a", "b"]));
+        state.save(&path).expect("save");
+        assert!(ReadState::load(&path).is_starred(&entry(&["b"])));
+    }
+
+    #[test]
+    fn raw_keys_can_be_checked_for_stars() {
+        let mut state = ReadState::default();
+        state.toggle_star(&entry(&["a"]));
+        assert!(state.any_starred(&["a".to_string()]));
+        assert!(!state.any_starred(&["z".to_string()]));
     }
 
     #[test]

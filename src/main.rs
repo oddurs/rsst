@@ -138,7 +138,7 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                     etag,
                     last_modified,
                 }) => {
-                    session.cache.put(&feed);
+                    session.cache.put(&feed, &app.read);
                     session.cache.set_validators(&url, etag, last_modified);
                     *slot = *feed;
                 }
@@ -213,6 +213,16 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
             KeyCode::Char('j') | KeyCode::Down => app.select_next(),
             KeyCode::Char('k') | KeyCode::Up => app.select_previous(),
             KeyCode::Char('/') => app.start_search(),
+            KeyCode::Char('s') => {
+                let starred = app.toggle_star();
+                let _ = app.read.save(&session.state_path);
+                app.status = Some(if starred {
+                    " Starred. ".into()
+                } else {
+                    " Unstarred. ".into()
+                });
+            }
+            KeyCode::Char('S') => app.toggle_starred_view(),
             KeyCode::Char('m') => {
                 app.toggle_current_read();
                 let _ = app.read.save(&session.state_path);

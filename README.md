@@ -55,6 +55,7 @@ max_concurrent_fetches = 8
 | `k` / `↑`      | Previous item, or scroll back |
 | `Tab`          | Cycle feeds → entries → detail |
 | `/`            | Search every feed (`n`/`N` step matches, `Esc` cancels) |
+| `s` / `S`      | Star the entry / show only starred |
 | `m`            | Toggle read on the selected entry |
 | `a` / `A`      | Mark this feed / every feed read (asks first) |
 | `u`            | Show only unread entries  |
@@ -62,6 +63,9 @@ max_concurrent_fetches = 8
 | `y`            | Copy its link to the clipboard |
 | `r`            | Refresh all feeds         |
 | `q` / `Esc`    | Quit                      |
+
+Starred entries are kept even after they fall out of the upstream feed, which is
+the point of starring them.
 
 Feeds are cached on disk, so launching is instant and a reader with no network
 still shows the last entries it fetched.
