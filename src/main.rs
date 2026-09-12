@@ -138,11 +138,13 @@ async fn run(
             KeyCode::Char('y') => copy_selected(app),
             KeyCode::Char('r') => {
                 let _ = app.read.save(state_path);
-                for feed in app.feeds.iter_mut() {
-                    feed.loading = true;
-                }
-                spawn_fetches(client, config, tx);
-                app.status = Some(" Refreshing… ".into());
+                let starting = app.begin_refresh();
+                app.status = Some(if starting.is_empty() {
+                    " Already refreshing… ".into()
+                } else {
+                    format!(" Refreshing {} feed(s)… ", starting.len())
+                });
+                spawn_some(client, config, tx, starting);
             }
             _ => {}
         }
@@ -159,7 +161,20 @@ fn spawn_fetches(
     config: &Config,
     tx: &tokio::sync::mpsc::UnboundedSender<Fetched>,
 ) {
-    for (index, source) in config.feeds.iter().cloned().enumerate() {
+    spawn_some(client, config, tx, 0..config.feeds.len());
+}
+
+/// Starts a fetch for each of `indices`.
+fn spawn_some(
+    client: &reqwest::Client,
+    config: &Config,
+    tx: &tokio::sync::mpsc::UnboundedSender<Fetched>,
+    indices: impl IntoIterator<Item = usize>,
+) {
+    for index in indices {
+        let Some(source) = config.feeds.get(index).cloned() else {
+            continue;
+        };
         let client = client.clone();
         let tx = tx.clone();
         tokio::spawn(async move {

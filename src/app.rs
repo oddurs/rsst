@@ -66,6 +66,22 @@ impl App {
         self.read.is_read(entry)
     }
 
+    /// Marks every idle feed as loading and reports which ones to fetch.
+    ///
+    /// A feed already in flight is skipped, so leaning on `r` cannot stack up
+    /// duplicate requests for the same URL — the `loading` flag is both the
+    /// indicator in the feed list and the guard.
+    pub fn begin_refresh(&mut self) -> Vec<usize> {
+        let mut starting = Vec::new();
+        for (index, feed) in self.feeds.iter_mut().enumerate() {
+            if !feed.loading {
+                feed.loading = true;
+                starting.push(index);
+            }
+        }
+        starting
+    }
+
     pub fn current_feed(&self) -> Option<&Feed> {
         self.feeds.get(self.selected_feed)
     }
@@ -270,6 +286,39 @@ mod tests {
         assert_eq!(app.unread(0), 2);
         assert_eq!(app.unread(1), 1);
         assert_eq!(app.unread(99), 0);
+    }
+
+    #[test]
+    fn refreshing_starts_every_idle_feed() {
+        let mut app = app();
+        assert_eq!(app.begin_refresh(), vec![0, 1]);
+        assert!(app.feeds.iter().all(|f| f.loading));
+    }
+
+    #[test]
+    fn refreshing_again_while_in_flight_starts_nothing() {
+        let mut app = app();
+        app.begin_refresh();
+        assert!(
+            app.begin_refresh().is_empty(),
+            "a second refresh queued duplicate fetches"
+        );
+    }
+
+    #[test]
+    fn a_feed_that_has_landed_can_be_refreshed_again() {
+        let mut app = app();
+        app.begin_refresh();
+        app.feeds[1].loading = false; // this one came back
+        assert_eq!(app.begin_refresh(), vec![1]);
+    }
+
+    #[test]
+    fn entries_stay_readable_while_a_feed_is_refreshing() {
+        let mut app = app();
+        app.begin_refresh();
+        assert_eq!(app.current_feed().map(|f| f.entries.len()), Some(2));
+        assert!(app.current_entry().is_some());
     }
 
     #[test]

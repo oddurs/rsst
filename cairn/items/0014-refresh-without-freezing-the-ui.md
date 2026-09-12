@@ -2,9 +2,10 @@
 id: 14
 title: Refresh without freezing the UI
 type: feature
-status: planned
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p1
 effort: m
 area: net
@@ -21,6 +22,6 @@ Move fetching onto a task that reports back over a channel the event loop drains
 
 ## Acceptance criteria
 
-- [ ] The UI stays responsive during a refresh and `q` still quits.
-- [ ] Entries remain readable while their feed is refreshing.
-- [ ] Pressing `r` repeatedly does not spawn overlapping refreshes of the same feed.
+- [x] The UI stays responsive during a refresh and `q` still quits.
+- [x] Entries remain readable while their feed is refreshing.
+- [x] Pressing `r` repeatedly does not spawn overlapping refreshes of the same feed.
