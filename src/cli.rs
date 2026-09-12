@@ -42,6 +42,7 @@ KEYS:
   k / up               previous item, or scroll back
   Tab                  cycle feeds / entries / detail
   /                    search every feed; n and N step through matches
+  s / S                star the entry / show only starred
   m                    toggle read on the selected entry
   a / A                mark this feed / every feed read (asks first)
   u                    show only unread entries

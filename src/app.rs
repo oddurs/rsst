@@ -29,6 +29,8 @@ pub struct App {
     pub search: Option<Search>,
     /// A bulk action waiting for the user to say yes.
     pub pending: Option<Bulk>,
+    /// Showing only starred entries, across every feed.
+    pub starred_view: bool,
 }
 
 /// A marking action that affects more than one entry, so it is worth a prompt.
@@ -73,6 +75,46 @@ impl App {
         };
         if let Some(entry) = feed.entries.get(self.selected_entry) {
             self.read.mark_read(entry);
+        }
+    }
+
+    /// Stars the selected entry, or unstars it. Reports the new state.
+    pub fn toggle_star(&mut self) -> bool {
+        let Some(entry) = self.current_entry().cloned() else {
+            return false;
+        };
+        self.read.toggle_star(&entry)
+    }
+
+    pub fn is_starred(&self, entry: &Entry) -> bool {
+        self.read.is_starred(entry)
+    }
+
+    /// Every starred entry, across all feeds, as (feed, entry) indices.
+    pub fn starred_results(&self) -> Vec<(usize, usize)> {
+        self.feeds
+            .iter()
+            .enumerate()
+            .flat_map(|(f, feed)| {
+                feed.entries
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, entry)| self.read.is_starred(entry))
+                    .map(move |(e, _)| (f, e))
+            })
+            .collect()
+    }
+
+    /// Shows or hides the starred-only view.
+    pub fn toggle_starred_view(&mut self) {
+        self.starred_view = !self.starred_view;
+        // Land on the first starred entry so the detail pane is not stale.
+        if self.starred_view
+            && let Some(&(feed, entry)) = self.starred_results().first()
+        {
+            self.selected_feed = feed;
+            self.selected_entry = entry;
+            self.detail_scroll = 0;
         }
     }
 
@@ -831,6 +873,50 @@ mod tests {
         app.toggle_current_read(); // one already read
         app.request_bulk(Bulk::Everything);
         assert_eq!(app.confirm_bulk(), 2);
+    }
+
+    #[test]
+    fn starring_is_reflected_in_the_starred_view() {
+        let mut app = two_feeds();
+        assert!(app.starred_results().is_empty());
+
+        app.toggle_star();
+        assert_eq!(app.starred_results(), vec![(0, 0)]);
+
+        app.selected_feed = 1;
+        app.selected_entry = 1;
+        app.toggle_star();
+        assert_eq!(app.starred_results(), vec![(0, 0), (1, 1)]);
+    }
+
+    #[test]
+    fn unstarring_removes_it_from_the_view() {
+        let mut app = two_feeds();
+        assert!(app.toggle_star());
+        assert!(!app.toggle_star());
+        assert!(app.starred_results().is_empty());
+    }
+
+    #[test]
+    fn opening_the_starred_view_selects_the_first_starred_entry() {
+        let mut app = two_feeds();
+        app.selected_feed = 1;
+        app.selected_entry = 1;
+        app.toggle_star();
+
+        app.selected_feed = 0;
+        app.selected_entry = 0;
+        app.toggle_starred_view();
+        assert_eq!((app.selected_feed, app.selected_entry), (1, 1));
+    }
+
+    #[test]
+    fn the_starred_view_toggles_off_again() {
+        let mut app = two_feeds();
+        app.toggle_starred_view();
+        assert!(app.starred_view);
+        app.toggle_starred_view();
+        assert!(!app.starred_view);
     }
 
     #[test]
