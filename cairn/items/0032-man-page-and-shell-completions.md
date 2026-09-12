@@ -2,9 +2,10 @@
 id: 32
 title: Man page and shell completions
 type: docs
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p1
 effort: s
 area: docs
@@ -21,6 +22,6 @@ Generate both from the CLI definition at build time and ship them in the release
 
 ## Acceptance criteria
 
-- [ ] `man rsst` works after install.
-- [ ] Completions work in fish, bash and zsh.
-- [ ] Both are generated, not hand-written.
+- [x] `man rsst` works after install.
+- [x] Completions work in fish, bash and zsh.
+- [x] Both are generated, not hand-written.

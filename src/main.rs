@@ -3,6 +3,7 @@ mod cache;
 mod cli;
 mod config;
 mod feed;
+mod generate;
 mod keys;
 mod launch;
 mod limit;
@@ -65,6 +66,14 @@ async fn main() -> Result<()> {
         }
         Action::Version => {
             println!("rsst {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        Action::Man => {
+            print!("{}", generate::man(&keys::Keymap::default()));
+            return Ok(());
+        }
+        Action::Completions(shell) => {
+            print!("{}", generate::completions(&shell)?);
             return Ok(());
         }
         Action::Import { path, config } => return import(&path, config),
