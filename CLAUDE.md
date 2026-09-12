@@ -70,7 +70,13 @@ pinned to the features we use for the same reason; its defaults add the calendar
 widget and `ratatui-macros`, which this app never touches.
 
 MSRV is 1.90, checked in CI. Don't reach for newer language features without
-raising it in `Cargo.toml` and `clippy.toml` together.
+raising it in `Cargo.toml` and `clippy.toml` together — and note that raising it
+is a minor release, per `docs/stability.md`.
+
+**The on-disk formats are versioned.** `read.toml` and `feeds.toml` both carry a
+`version`. An older file is migrated forward; a newer one is discarded rather
+than misread. Changing either format means bumping the constant, adding a branch
+to `migrate`, and a test that the old format still loads.
 
 ## Git workflow
 

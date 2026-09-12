@@ -19,8 +19,17 @@ use crate::state::ReadState;
 /// convenience, not an archive — entries beyond this are re-fetchable.
 const MAX_ENTRIES_PER_FEED: usize = 500;
 
+/// The format version written to the cache file.
+///
+/// A cache from a newer rsst is discarded, which costs one refetch and nothing
+/// else — the cache is a convenience, never the only copy of anything.
+pub const FORMAT: u32 = 1;
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Cache {
+    /// Absent in files written before versioning; treated as version 1.
+    #[serde(default = "one")]
+    version: u32,
     /// Keyed by feed URL, which is what identifies a feed in the config.
     #[serde(default)]
     feeds: HashMap<String, Feed>,
@@ -43,6 +52,10 @@ pub struct FeedMeta {
     pub retry_after: Option<DateTime<Utc>>,
 }
 
+fn one() -> u32 {
+    1
+}
+
 impl Cache {
     /// Reads the cache, treating anything unreadable as simply absent.
     ///
@@ -52,7 +65,11 @@ impl Cache {
         let Ok(raw) = fs::read_to_string(path) else {
             return Self::default();
         };
-        toml::from_str(&raw).unwrap_or_default()
+        let cache: Self = toml::from_str(&raw).unwrap_or_default();
+        if cache.version > FORMAT {
+            return Self::default();
+        }
+        cache
     }
 
     /// Writes the cache atomically, so a crash mid-write cannot corrupt it.
@@ -63,7 +80,13 @@ impl Cache {
         fs::create_dir_all(parent)
             .with_context(|| format!("creating cache directory {}", parent.display()))?;
 
-        let body = toml::to_string(self).context("serializing cache")?;
+        let mut current = Self {
+            version: FORMAT,
+            feeds: self.feeds.clone(),
+            meta: self.meta.clone(),
+        };
+        current.version = FORMAT;
+        let body = toml::to_string(&current).context("serializing cache")?;
         let tmp = path.with_extension("toml.tmp");
         fs::write(&tmp, body).with_context(|| format!("writing {}", tmp.display()))?;
         fs::rename(&tmp, path).with_context(|| format!("replacing {}", path.display()))
@@ -393,6 +416,33 @@ mod tests {
     }
 
     #[test]
+    fn the_cache_records_its_format_version() {
+        let path = tmpdir().join("versioned.toml");
+        Cache::default().save(&path).expect("save");
+        let raw = fs::read_to_string(&path).expect("read");
+        assert!(raw.contains(&format!("version = {FORMAT}")));
+    }
+
+    #[test]
+    fn a_cache_from_a_newer_rsst_is_discarded() {
+        let path = tmpdir().join("from-the-future.toml");
+        let mut cache = Cache::default();
+        cache.put_test(&feed("https://a.example/feed", 2));
+        cache.save(&path).expect("save");
+        let raw = fs::read_to_string(&path).expect("read");
+        fs::write(
+            &path,
+            raw.replace(
+                &format!("version = {FORMAT}"),
+                &format!("version = {}", FORMAT + 1),
+            ),
+        )
+        .expect("write");
+
+        assert_eq!(Cache::load(&path).len(), 0);
+    }
+
+    #[test]
     fn a_corrupt_cache_is_discarded_rather_than_fatal() {
         let path = tmpdir().join("corrupt.toml");
         fs::write(&path, "{{{ not toml at all").expect("write");
@@ -406,8 +456,11 @@ mod tests {
         cache.put_test(&feed("https://a.example/feed", 5));
         cache.save(&path).expect("save");
 
+        // Cut inside a quoted value, which is what a partial write looks like
+        // and which no amount of TOML tolerance can recover.
         let full = fs::read_to_string(&path).expect("read");
-        fs::write(&path, &full[..full.len() / 2]).expect("truncate");
+        let cut = full.find("title = \"").expect("a quoted value") + 9;
+        fs::write(&path, &full[..cut]).expect("truncate");
 
         assert_eq!(Cache::load(&path).len(), 0);
     }

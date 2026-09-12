@@ -55,6 +55,12 @@ Breaking changes get a `!` (`feat!: …`) and a `BREAKING CHANGE:` footer.
 5. Squash-merge. The PR title becomes the commit message, so it follows the
    Conventional Commits format too.
 
+## Stability
+
+`docs/stability.md` says what semver covers, how the on-disk formats are
+versioned, and when the MSRV may be raised. Read it before changing the config
+schema, a default key binding, or either state file's format.
+
 ## Releasing
 
 ```sh
