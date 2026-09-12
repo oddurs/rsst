@@ -86,6 +86,8 @@ pub struct App {
     pub moving: Option<Move>,
     /// The full article fetched for the selected entry, if one has been.
     pub article: Option<String>,
+    /// The URL being typed into the "add a feed" prompt, if it is open.
+    pub adding: Option<String>,
 }
 
 /// A marking action that affects more than one entry, so it is worth a prompt.
@@ -463,6 +465,36 @@ impl App {
     /// Flips between newest-first and oldest-first.
     pub fn toggle_sort(&mut self) {
         self.read.oldest_first = !self.read.oldest_first;
+    }
+
+    /// Opens the prompt for adding a feed.
+    pub fn start_add(&mut self) {
+        self.adding = Some(String::new());
+    }
+
+    pub fn cancel_add(&mut self) {
+        self.adding = None;
+    }
+
+    pub fn type_add(&mut self, ch: char) {
+        if let Some(url) = &mut self.adding {
+            url.push(ch);
+        }
+    }
+
+    pub fn backspace_add(&mut self) {
+        if let Some(url) = &mut self.adding {
+            url.pop();
+        }
+    }
+
+    /// The URL as typed, once it is worth trying.
+    ///
+    /// A bare word is not a URL, and guessing a scheme for it would mean
+    /// fetching something the reader never asked for.
+    pub fn add_url(&self) -> Option<String> {
+        let typed = self.adding.as_ref()?.trim();
+        (typed.starts_with("http://") || typed.starts_with("https://")).then(|| typed.to_string())
     }
 
     /// Opens the picker for moving the selected feed.
@@ -1956,6 +1988,38 @@ mod tests {
         assert!(lines.iter().any(|line| line.contains("Intro.")));
         assert!(lines.iter().any(|line| line.trim_end() == "  one"));
         assert!(lines.iter().any(|line| line.trim_end() == "    two"));
+    }
+
+    #[test]
+    fn a_typed_url_is_only_offered_once_it_looks_like_one() {
+        // Guessing a scheme would mean fetching something nobody asked for.
+        let mut app = app();
+        app.start_add();
+        for ch in "example".chars() {
+            app.type_add(ch);
+        }
+        assert_eq!(app.add_url(), None);
+
+        app.cancel_add();
+        app.start_add();
+        for ch in "https://example.com/feed".chars() {
+            app.type_add(ch);
+        }
+        assert_eq!(app.add_url().as_deref(), Some("https://example.com/feed"));
+    }
+
+    #[test]
+    fn the_add_prompt_can_be_corrected_and_cancelled() {
+        let mut app = app();
+        app.start_add();
+        for ch in "https://a.example/x".chars() {
+            app.type_add(ch);
+        }
+        app.backspace_add();
+        assert_eq!(app.add_url().as_deref(), Some("https://a.example/"));
+
+        app.cancel_add();
+        assert!(app.adding.is_none());
     }
 
     #[test]

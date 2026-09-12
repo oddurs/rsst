@@ -44,6 +44,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, keymap: &crate::keys::Keymap) {
     app.hits.buttons = draw_status(frame, app, rows[1]);
 
     // Last, so they cover everything else.
+    if let Some(typed) = app.adding.clone() {
+        draw_add(frame, app, &typed, frame.area());
+    }
     if let Some(moving) = app.moving.clone() {
         draw_move(frame, app, &moving, frame.area());
     }
@@ -358,6 +361,41 @@ fn border_set(theme: &crate::theme::Theme) -> ratatui::symbols::border::Set<'sta
     } else {
         ratatui::symbols::border::PLAIN
     }
+}
+
+/// The "add a feed" prompt.
+fn draw_add(frame: &mut Frame, app: &App, typed: &str, area: Rect) {
+    let width = 60.min(area.width.saturating_sub(4));
+    let popup = Rect {
+        x: area.x + area.width.saturating_sub(width) / 2,
+        y: area.y + area.height.saturating_sub(5) / 2,
+        width,
+        height: 5.min(area.height),
+    };
+
+    let hint = if typed.is_empty() {
+        Span::styled("https://…", app.theme.dim)
+    } else {
+        Span::raw(typed.to_string())
+    };
+
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(vec![hint, Span::styled("_", app.theme.accent)]),
+            Line::raw(""),
+            Line::from(Span::styled("Enter to add · Esc to cancel", app.theme.dim)),
+        ])
+        .block(
+            Block::default()
+                .border_set(border_set(&app.theme))
+                .borders(Borders::ALL)
+                .border_style(app.theme.accent)
+                .padding(ratatui::widgets::Padding::horizontal(1))
+                .title(" Add a feed "),
+        ),
+        popup,
+    );
 }
 
 /// The "move to folder" picker.

@@ -170,6 +170,43 @@ pub fn set_feed_tags(path: &Path, url: &str, tags: &[String]) -> Result<()> {
     fs::rename(&temporary, path).with_context(|| format!("replacing {}", path.display()))
 }
 
+/// Appends a feed to the config file.
+///
+/// Through `toml_edit` for the same reason moving a feed is: the file is
+/// hand-written, and a round-trip through a serialiser would return it without
+/// its comments.
+pub fn add_feed(path: &Path, url: &str, title: Option<&str>) -> Result<()> {
+    let raw = fs::read_to_string(path).unwrap_or_default();
+    let mut document = raw
+        .parse::<toml_edit::DocumentMut>()
+        .with_context(|| format!("parsing config at {}", path.display()))?;
+
+    let feeds = document
+        .entry("feeds")
+        .or_insert_with(|| toml_edit::Item::ArrayOfTables(toml_edit::ArrayOfTables::new()))
+        .as_array_of_tables_mut()
+        .context("`feeds` in the config is not a list of feeds")?;
+
+    if feeds
+        .iter()
+        .any(|table| table.get("url").and_then(|u| u.as_str()) == Some(url))
+    {
+        anyhow::bail!("that feed is already in the config");
+    }
+
+    let mut table = toml_edit::Table::new();
+    table["url"] = toml_edit::value(url);
+    if let Some(title) = title.filter(|title| !title.trim().is_empty()) {
+        table["title"] = toml_edit::value(title);
+    }
+    feeds.push(table);
+
+    let temporary = path.with_extension("toml.tmp");
+    fs::write(&temporary, document.to_string())
+        .with_context(|| format!("writing {}", temporary.display()))?;
+    fs::rename(&temporary, path).with_context(|| format!("replacing {}", path.display()))
+}
+
 pub fn config_path() -> Result<PathBuf> {
     let dirs = directories::ProjectDirs::from("", "", "rsst")
         .context("could not determine a config directory for this platform")?;
@@ -435,6 +472,56 @@ tags = ["Old"]
         let config = Config::load_from(&path).expect("the edited config must parse");
         assert_eq!(config.feeds.len(), 2);
         assert_eq!(config.fetch_limit(), 4);
+    }
+
+    #[test]
+    fn adding_a_feed_keeps_the_comments() {
+        let path = scratch("add.toml");
+        fs::write(&path, COMMENTED).expect("write");
+
+        add_feed(&path, "https://new.example/feed", Some("New One")).expect("add");
+
+        let after = fs::read_to_string(&path).expect("read");
+        assert!(after.contains("# My feeds. Hand-written"), "header lost");
+        assert!(after.contains("# the good one"), "inline comment lost");
+
+        let config = Config::load_from(&path).expect("parses");
+        assert_eq!(config.feeds.len(), 3);
+        let added = config.feeds.last().expect("the new one");
+        assert_eq!(added.url, "https://new.example/feed");
+        assert_eq!(added.title.as_deref(), Some("New One"));
+    }
+
+    #[test]
+    fn adding_a_feed_already_there_is_refused() {
+        let path = scratch("dupe.toml");
+        fs::write(&path, COMMENTED).expect("write");
+        let err = add_feed(&path, "https://a.example/feed", None).expect_err("refused");
+        assert!(err.to_string().contains("already in the config"));
+        assert_eq!(Config::load_from(&path).expect("parses").feeds.len(), 2);
+    }
+
+    #[test]
+    fn adding_without_a_title_leaves_the_feed_to_name_itself() {
+        let path = scratch("untitled.toml");
+        fs::write(&path, COMMENTED).expect("write");
+        add_feed(&path, "https://new.example/feed", None).expect("add");
+        assert!(
+            Config::load_from(&path).expect("parses").feeds[2]
+                .title
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn adding_to_a_config_with_no_feeds_yet_works() {
+        let path = scratch("empty.toml");
+        fs::write(&path, "# Nothing here yet.\n").expect("write");
+        add_feed(&path, "https://first.example/feed", None).expect("add");
+
+        let after = fs::read_to_string(&path).expect("read");
+        assert!(after.contains("# Nothing here yet."));
+        assert_eq!(Config::load_from(&path).expect("parses").feeds.len(), 1);
     }
 
     #[test]

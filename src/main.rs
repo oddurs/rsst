@@ -44,6 +44,9 @@ type Fetched = (usize, Result<feed::Outcome>);
 /// A fetched article, keyed by the entry it belongs to.
 type Article = (Vec<String>, Result<String>);
 
+/// A URL that was checked before being added: its address and its own title.
+type Added = Result<(String, String)>;
+
 /// Everything the event loop needs besides the app state itself.
 struct Session {
     keymap: keys::Keymap,
@@ -56,6 +59,8 @@ struct Session {
     rx: tokio::sync::mpsc::UnboundedReceiver<Fetched>,
     articles_tx: tokio::sync::mpsc::UnboundedSender<Article>,
     articles_rx: tokio::sync::mpsc::UnboundedReceiver<Article>,
+    added_tx: tokio::sync::mpsc::UnboundedSender<Added>,
+    added_rx: tokio::sync::mpsc::UnboundedReceiver<Added>,
 }
 
 #[tokio::main]
@@ -126,6 +131,7 @@ async fn main() -> Result<()> {
         .with_theme(theme);
 
     let (articles_tx, articles_rx) = tokio::sync::mpsc::unbounded_channel::<Article>();
+    let (added_tx, added_rx) = tokio::sync::mpsc::unbounded_channel::<Added>();
     let mut session = Session {
         keymap,
         config_path: config::config_path_or(config_override)?,
@@ -137,6 +143,8 @@ async fn main() -> Result<()> {
         rx,
         articles_tx,
         articles_rx,
+        added_tx,
+        added_rx,
     };
 
     install_panic_hook();
@@ -251,6 +259,29 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
             }
         }
 
+        // A checked feed coming back, ready to be written to the config.
+        while let Ok(result) = session.added_rx.try_recv() {
+            app.status = Some(
+                match result.and_then(|(url, title)| {
+                    config::add_feed(&session.config_path, &url, Some(&title))?;
+                    Ok((url, title))
+                }) {
+                    Ok((url, title)) => match reload(app, session) {
+                        Ok(_) => {
+                            app.selected_feed = app
+                                .feeds
+                                .iter()
+                                .position(|feed| feed.url == url)
+                                .unwrap_or(app.selected_feed);
+                            format!(" Added {title}. ")
+                        }
+                        Err(err) => format!(" Added, but could not reload: {err} "),
+                    },
+                    Err(err) => format!(" Not added: {err} "),
+                },
+            );
+        }
+
         // A fetched article arriving is the only other thing worth a redraw.
         while let Ok((keys, result)) = session.articles_rx.try_recv() {
             let current = app.current_entry().map(|entry| entry.keys.clone());
@@ -311,6 +342,29 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                     app.help_open = false;
                     app.help_scroll = 0;
                 }
+            }
+            continue;
+        }
+
+        // The add prompt owns the keyboard while it is open.
+        if app.adding.is_some() {
+            match key.code {
+                KeyCode::Esc => app.cancel_add(),
+                KeyCode::Backspace => app.backspace_add(),
+                KeyCode::Enter => match app.add_url() {
+                    Some(url) => {
+                        app.cancel_add();
+                        app.status = Some(" Checking that feed… ".into());
+                        let client = session.client.clone();
+                        let tx = session.added_tx.clone();
+                        tokio::spawn(async move {
+                            let _ = tx.send(check_feed(&client, &url).await);
+                        });
+                    }
+                    None => app.status = Some(" That needs to be an http:// URL. ".into()),
+                },
+                KeyCode::Char(ch) => app.type_add(ch),
+                _ => {}
             }
             continue;
         }
@@ -536,6 +590,7 @@ fn dispatch(action: keys::Action, app: &mut App, session: &mut Session) -> Resul
         Action::ToggleGroup if app.focus == app::Pane::Feeds => app.toggle_group(),
         Action::ToggleGroup => {}
         Action::MoveFeed => app.start_move(),
+        Action::AddFeed => app.start_add(),
         Action::NextUnread => {
             if !app.next_unread(true) {
                 app.status = Some(" No unread entries. ".into());
@@ -722,6 +777,28 @@ async fn download(client: &reqwest::Client, url: &str) -> Result<String> {
         .with_context(|| format!("reading {url}"))?;
 
     rsst::readable::extract(&html).context("nothing on that page reads like an article")
+}
+
+/// Checks that a URL really is a feed, and reports what it calls itself.
+///
+/// Fetched before being written to the config rather than after: a typo added
+/// and then found to be broken leaves the reader with a dead feed and the
+/// person with a file to edit by hand.
+async fn check_feed(client: &reqwest::Client, url: &str) -> Added {
+    let source = config::FeedSource {
+        url: url.to_string(),
+        refresh_minutes: None,
+        title: None,
+        tags: Vec::new(),
+    };
+
+    match feed::fetch(client, &source, None, None).await? {
+        feed::Outcome::Updated { feed, .. } => Ok((url.to_string(), feed.title.clone())),
+        feed::Outcome::NotModified => Ok((url.to_string(), url.to_string())),
+        feed::Outcome::RateLimited { .. } => {
+            anyhow::bail!("that server asked us to come back later")
+        }
+    }
 }
 
 /// Whether a key event should be acted on.
