@@ -17,6 +17,17 @@ cd "$(git rev-parse --show-toplevel)"
 
 ATTRIBUTION="Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
+# Labels are created on demand: inventing an area is normal, and a missing
+# label used to kill `finish` *after* it had committed and pushed, leaving a
+# branch with no pull request and no way to re-run.
+ensure_label() {
+    gh label list --limit 200 --json name -q '.[].name' | grep -qxF "$1" && return 0
+    gh label create "$1" --description "$2" --color "$3" >/dev/null 2>&1 \
+        || say "could not create label '$1'; carrying on without it"
+}
+
+say() { printf 'ship: %s\n' "$1" >&2; }
+
 item_json() { cairn show "$1" --json; }
 field() { printf '%s' "$1" | jq -r "$2"; }
 
@@ -101,7 +112,10 @@ EOF
 
     local args=(--title "$(commit_type "$type")$([ -n "$area" ] && printf '(%s)' "$area"): $title" --body "$body" --label agent --label "$type")
     [ -n "$priority" ] && args+=(--label "$priority")
-    [ -n "$area" ] && args+=(--label "area:$area")
+    if [ -n "$area" ]; then
+        ensure_label "area:$area" "Work in the $area area" 1d76db
+        args+=(--label "area:$area")
+    fi
 
     gh pr create "${args[@]}" >/dev/null
     gh pr merge --auto --squash --delete-branch >/dev/null
