@@ -135,7 +135,7 @@ description = "the release this ships in"
 [[field]]
 name = "due"
 kind = "date"
-description = "when a milestone is meant to land"
+description = "when a dated item is meant to land"
 
 [[field]]
 name = "part_of"
@@ -182,14 +182,14 @@ sort = "priority,id"
 
 [[view]]
 name = "next"
-description = "Planned work for the nearest milestone"
+description = "Planned work for the nearest release"
 filter = "status=planned"
-sort = "priority,milestone"
+sort = "priority,release"
 
 [[view]]
 name = "triage"
-description = "Items that still need a milestone or a priority"
-filter = "milestone=,category!=done"
+description = "Items that still need a release or a priority"
+filter = "release=,category!=done"
 columns = ["id", "type", "title", "created"]
 
 # ─── Hooks ───────────────────────────────────────────────────────────────────
@@ -231,7 +231,7 @@ group_by = "release"      # any field works: release, area, assignee, type
 include = "category!=dropped"
 checkbox = true           # render items as a task list
 show_ids = true
-progress = true           # per-milestone progress bar
+progress = true           # per-release progress bar
 group_by_status = true    # sub-group each section by status
 link_items = true         # requires project.url
 header = "docs/roadmap-intro.md"     # spliced in above the generated body
