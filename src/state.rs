@@ -23,6 +23,8 @@ pub struct ReadState {
     /// Whether the entry list is filtered to unread. Kept here because it is
     /// the same kind of thing — what the reader remembers between runs.
     pub unread_only: bool,
+    /// Whether entry lists run oldest-first.
+    pub oldest_first: bool,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -33,6 +35,8 @@ struct OnDisk {
     starred: Vec<String>,
     #[serde(default)]
     unread_only: bool,
+    #[serde(default)]
+    oldest_first: bool,
 }
 
 impl ReadState {
@@ -49,6 +53,7 @@ impl ReadState {
             keys: parsed.read.into_iter().collect(),
             starred: parsed.starred.into_iter().collect(),
             unread_only: parsed.unread_only,
+            oldest_first: parsed.oldest_first,
         }
     }
 
@@ -73,6 +78,7 @@ impl ReadState {
             read: read.into_iter().cloned().collect(),
             starred: starred.into_iter().cloned().collect(),
             unread_only: self.unread_only,
+            oldest_first: self.oldest_first,
         })
         .context("serializing read state")?;
 
@@ -274,6 +280,17 @@ mod tests {
         state.toggle_star(&entry(&["a"]));
         assert!(state.any_starred(&["a".to_string()]));
         assert!(!state.any_starred(&["z".to_string()]));
+    }
+
+    #[test]
+    fn the_sort_order_survives_a_restart() {
+        let path = tmpdir().join("sort.toml");
+        let state = ReadState {
+            oldest_first: true,
+            ..Default::default()
+        };
+        state.save(&path).expect("save");
+        assert!(ReadState::load(&path).oldest_first);
     }
 
     #[test]

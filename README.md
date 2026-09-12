@@ -77,6 +77,8 @@ Setting `NO_COLOR` disables colour whatever the config says.
 | `s` / `S`      | Star the entry / show only starred |
 | `m`            | Toggle read on the selected entry |
 | `a` / `A`      | Mark this feed / every feed read (asks first) |
+| `v`            | Show every feed as one list |
+| `t`            | Oldest first / newest first |
 | `u`            | Show only unread entries  |
 | `o`            | Open the entry in your browser |
 | `y`            | Copy its link to the clipboard |

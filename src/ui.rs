@@ -32,7 +32,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, keymap: &crate::keys::Keymap) {
 
     // Last, so it covers everything else.
     if app.help_open {
-        draw_help(frame, keymap, &app.theme, frame.area());
+        draw_help(frame, keymap, &app.theme, app.help_scroll, frame.area());
     }
 }
 
@@ -129,6 +129,21 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
         );
         return;
     }
+    if app.all_feeds_view {
+        let rows = app.all_entries();
+        let order = if app.read.oldest_first {
+            "oldest first"
+        } else {
+            "newest first"
+        };
+        let title = format!("All feeds  ({}, {order})", rows.len());
+        let selected = rows
+            .iter()
+            .position(|(f, e)| *f == app.selected_feed && *e == app.selected_entry)
+            .unwrap_or(0);
+        draw_cross_feed(frame, app, &rows, selected, &title, "No entries yet.", area);
+        return;
+    }
     if app.starred_view {
         let results = app.starred_results();
         let title = format!("Starred  ({})", results.len());
@@ -215,6 +230,7 @@ fn draw_help(
     frame: &mut Frame,
     keymap: &crate::keys::Keymap,
     theme: &crate::theme::Theme,
+    scroll: u16,
     area: Rect,
 ) {
     let width = crate::keys::key_column_width(keymap);
@@ -257,6 +273,11 @@ fn draw_help(
         compact
     };
 
+    // More actions than rows is normal on a small terminal, so the overlay
+    // scrolls rather than silently cutting the list off.
+    let overflow = lines.len().saturating_sub(available);
+    let scroll = scroll.min(overflow as u16);
+
     let content_width = sections
         .iter()
         .flat_map(|(_, rows)| rows.iter())
@@ -274,13 +295,17 @@ fn draw_help(
 
     frame.render_widget(Clear, popup);
     frame.render_widget(
-        Paragraph::new(lines).block(
+        Paragraph::new(lines).scroll((scroll, 0)).block(
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(theme.accent))
                 // In the title rather than a row of its own: with every action
                 // listed, an 80x24 terminal has no spare line to give it.
-                .title(" Keys — any key to dismiss "),
+                .title(if overflow > 0 {
+                    " Keys — j/k to scroll, any other key closes "
+                } else {
+                    " Keys — any key to dismiss "
+                }),
         ),
         popup,
     );
@@ -734,20 +759,44 @@ mod tests {
     }
 
     #[test]
-    fn every_binding_is_visible_on_an_eighty_by_twentyfour_terminal() {
+    fn every_binding_is_reachable_on_an_eighty_by_twentyfour_terminal() {
+        let keymap = crate::keys::Keymap::default();
+        let mut unseen: Vec<String> = keymap
+            .sections()
+            .iter()
+            .flat_map(|(_, rows)| rows.iter().map(|(_, d)| (*d).to_string()))
+            .collect();
+
         let mut app = App::new(Vec::new(), ReadState::default());
         app.help_open = true;
-        let screen = render_at(&mut app, 80, 24);
-
-        let keymap = crate::keys::Keymap::default();
-        for (_, rows) in keymap.sections() {
-            for (_, description) in rows {
-                assert!(
-                    screen.contains(description),
-                    "the smallest supported terminal cuts off {description}"
-                );
+        // Scroll the whole way, as the keyboard would.
+        for step in 0..40 {
+            app.help_scroll = step;
+            let screen = render_at(&mut app, 80, 24);
+            unseen.retain(|description| !screen.contains(description.as_str()));
+            if unseen.is_empty() {
+                break;
             }
         }
+        assert!(
+            unseen.is_empty(),
+            "unreachable even by scrolling: {unseen:?}"
+        );
+    }
+
+    #[test]
+    fn a_short_overlay_says_any_key_dismisses_it() {
+        let mut app = App::new(Vec::new(), ReadState::default());
+        app.help_open = true;
+        // Tall enough for every action at once.
+        assert!(render_at(&mut app, 100, 60).contains("any key to dismiss"));
+    }
+
+    #[test]
+    fn an_overflowing_overlay_says_how_to_scroll() {
+        let mut app = App::new(Vec::new(), ReadState::default());
+        app.help_open = true;
+        assert!(render_at(&mut app, 80, 24).contains("j/k to scroll"));
     }
 
     #[test]
@@ -769,8 +818,7 @@ mod tests {
     fn the_help_overlay_says_how_to_dismiss_itself() {
         let mut app = App::new(Vec::new(), ReadState::default());
         app.help_open = true;
-        assert!(render_at(&mut app, 80, 24).contains("any key to dismiss"));
-        assert!(render_at(&mut app, 120, 44).contains("any key to dismiss"));
+        assert!(render_at(&mut app, 120, 60).contains("any key to dismiss"));
     }
 
     #[test]
