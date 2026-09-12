@@ -23,7 +23,7 @@ with the alternate screen still active.
 
 ## v0.1
 
-`··········` 0% · 0 of 8 done
+`##········` 11% · 1 of 9 done
 
 ### planned
 
@@ -35,6 +35,10 @@ with the alternate screen still active.
 - [ ] [`0012`](https://github.com/oddurs/rsst/blob/main/cairn/items/0012-scroll-the-detail-pane.md) Scroll the detail pane <sup>feature · v0.1 · p1</sup>
 - [ ] [`0013`](https://github.com/oddurs/rsst/blob/main/cairn/items/0013-draw-the-ui-before-feeds-finish-loading.md) Draw the UI before feeds finish loading <sup>feature · v0.1 · p1</sup>
 - [ ] [`0014`](https://github.com/oddurs/rsst/blob/main/cairn/items/0014-refresh-without-freezing-the-ui.md) Refresh without freezing the UI <sup>feature · v0.1 · p1</sup>
+
+### done
+
+- [x] [`0039`](https://github.com/oddurs/rsst/blob/main/cairn/items/0039-set-up-the-full-auto-agentic-git-workflow.md) Set up the full-auto agentic git workflow <sup>chore · v0.1 · p0</sup>
 
 ## v0.2
 

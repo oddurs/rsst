@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Drive one cairn item from backlog to merged, the same way every time.
+#
+#   scripts/ship start  <ID>   claim the item and branch for it
+#   scripts/ship finish <ID>   gate, close, commit, push, PR, auto-merge
+#
+# `finish` refuses to push unless fmt, clippy, tests and `cairn check` all pass,
+# so a red branch never reaches a pull request. The PR body is generated from the
+# item, and auto-merge lands it once CI is green — nothing waits on a human.
+set -euo pipefail
+
+die() { printf 'ship: %s\n' "$1" >&2; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1 || die "$1 is not installed"; }
+
+for tool in cairn gh git cargo jq; do have "$tool"; done
+cd "$(git rev-parse --show-toplevel)"
+
+ATTRIBUTION="Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+
+item_json() { cairn show "$1" --json; }
+field() { printf '%s' "$1" | jq -r "$2"; }
+
+slug() {
+    printf '%s' "$1" \
+        | tr '[:upper:]' '[:lower:]' \
+        | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-//' -e 's/-$//' \
+        | cut -c1-48 | sed -e 's/-$//'
+}
+
+# feature -> feat, everything else keeps its cairn type name.
+commit_type() { [ "$1" = feature ] && printf feat || printf '%s' "$1"; }
+
+cmd_start() {
+    local id="$1" json type title branch
+    [ -z "$(git status --porcelain)" ] || die "working tree is dirty; commit or stash first"
+
+    json="$(item_json "$id")"
+    type="$(field "$json" .type)"
+    title="$(field "$json" .title)"
+    [ "$(field "$json" .category)" = "done" ] && die "item $id is already done"
+
+    branch="$(commit_type "$type")/$(slug "$title")"
+
+    git checkout -q main
+    git pull -q --ff-only
+    git checkout -q -b "$branch"
+    cairn claim "$id" >/dev/null
+    cairn render -q
+
+    printf 'ship: on %s for %s — %s\n' "$branch" "$id" "$title"
+}
+
+cmd_finish() {
+    local id="$1" json type title area priority release branch body
+    branch="$(git rev-parse --abbrev-ref HEAD)"
+    [ "$branch" = main ] && die "refusing to ship from main"
+
+    printf 'ship: gating...\n'
+    cargo fmt --all --check
+    cargo clippy --all-targets -- -D warnings
+    cargo test --quiet
+    cairn check
+
+    json="$(item_json "$id")"
+    type="$(field "$json" .type)"
+    title="$(field "$json" .title)"
+    area="$(field "$json" '.fields.area // empty')"
+    priority="$(field "$json" '.fields.priority // empty')"
+    release="$(field "$json" '.fields.release // empty')"
+
+    cairn close "$id" >/dev/null
+    cairn render -q
+
+    [ -n "$(git status --porcelain)" ] || die "nothing to commit"
+    git add -A
+    git commit -q -F - <<EOF
+$(commit_type "$type")$([ -n "$area" ] && printf '(%s)' "$area"): $title
+
+Closes cairn $(printf '%04d' "$id").
+
+$ATTRIBUTION
+Claude-Session: ${CLAUDE_SESSION_URL:-https://claude.ai/code}
+EOF
+
+    git push -q -u origin "$branch"
+
+    # shellcheck disable=SC2016  # the backticks are literal Markdown, not expansion
+    body="$(printf '## What\n\n%s\n\n---\n\nCloses cairn `%04d` (%s%s). Shipped by `scripts/ship`; auto-merges when CI is green.\n' \
+        "$(field "$json" .body)" "$id" "$type" "$([ -n "$priority" ] && printf ' · %s' "$priority")")"
+
+    local args=(--title "$(commit_type "$type")$([ -n "$area" ] && printf '(%s)' "$area"): $title" --body "$body" --label agent --label "$type")
+    [ -n "$priority" ] && args+=(--label "$priority")
+    [ -n "$area" ] && args+=(--label "area:$area")
+
+    gh pr create "${args[@]}" >/dev/null
+    gh pr merge --auto --squash --delete-branch >/dev/null
+
+    printf 'ship: %s queued for auto-merge (%s%s)\n' "$(gh pr view --json url -q .url)" "$release" "${priority:+ $priority}"
+}
+
+[ $# -ge 2 ] || die "usage: ship {start|finish} <ID>"
+case "$1" in
+    start)  cmd_start "$2" ;;
+    finish) cmd_finish "$2" ;;
+    *)      die "unknown command: $1" ;;
+esac
