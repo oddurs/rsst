@@ -3,12 +3,12 @@ id: 35
 title: Terminal compatibility matrix
 type: chore
 status: backlog
-milestone: v1.0
 created: 2026-09-11
 updated: 2026-09-11
 priority: p2
 effort: m
 area: ui
+release: v1.0
 ---
 
 ## Problem

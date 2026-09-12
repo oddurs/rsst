@@ -27,14 +27,14 @@ with the alternate screen still active.
 
 ### planned
 
-- [ ] [`0007`](https://github.com/oddurs/rsst/blob/main/cairn/items/0007-add-a-real-command-line-version-and-help.md) Add a real command line: --version and --help <sup>bug · p0</sup>
-- [ ] [`0008`](https://github.com/oddurs/rsst/blob/main/cairn/items/0008-restore-the-terminal-when-the-app-panics.md) Restore the terminal when the app panics <sup>bug · p0</sup>
-- [ ] [`0009`](https://github.com/oddurs/rsst/blob/main/cairn/items/0009-persist-read-and-unread-state.md) Persist read and unread state <sup>feature · p0</sup>
-- [ ] [`0010`](https://github.com/oddurs/rsst/blob/main/cairn/items/0010-opml-import-and-export.md) OPML import and export <sup>feature · p1</sup>
-- [ ] [`0011`](https://github.com/oddurs/rsst/blob/main/cairn/items/0011-open-the-selected-entry-in-a-browser.md) Open the selected entry in a browser <sup>feature · p1</sup>
-- [ ] [`0012`](https://github.com/oddurs/rsst/blob/main/cairn/items/0012-scroll-the-detail-pane.md) Scroll the detail pane <sup>feature · p1</sup>
-- [ ] [`0013`](https://github.com/oddurs/rsst/blob/main/cairn/items/0013-draw-the-ui-before-feeds-finish-loading.md) Draw the UI before feeds finish loading <sup>feature · p1</sup>
-- [ ] [`0014`](https://github.com/oddurs/rsst/blob/main/cairn/items/0014-refresh-without-freezing-the-ui.md) Refresh without freezing the UI <sup>feature · p1</sup>
+- [ ] [`0007`](https://github.com/oddurs/rsst/blob/main/cairn/items/0007-add-a-real-command-line-version-and-help.md) Add a real command line: --version and --help <sup>bug · v0.1 · p0</sup>
+- [ ] [`0008`](https://github.com/oddurs/rsst/blob/main/cairn/items/0008-restore-the-terminal-when-the-app-panics.md) Restore the terminal when the app panics <sup>bug · v0.1 · p0</sup>
+- [ ] [`0009`](https://github.com/oddurs/rsst/blob/main/cairn/items/0009-persist-read-and-unread-state.md) Persist read and unread state <sup>feature · v0.1 · p0</sup>
+- [ ] [`0010`](https://github.com/oddurs/rsst/blob/main/cairn/items/0010-opml-import-and-export.md) OPML import and export <sup>feature · v0.1 · p1</sup>
+- [ ] [`0011`](https://github.com/oddurs/rsst/blob/main/cairn/items/0011-open-the-selected-entry-in-a-browser.md) Open the selected entry in a browser <sup>feature · v0.1 · p1</sup>
+- [ ] [`0012`](https://github.com/oddurs/rsst/blob/main/cairn/items/0012-scroll-the-detail-pane.md) Scroll the detail pane <sup>feature · v0.1 · p1</sup>
+- [ ] [`0013`](https://github.com/oddurs/rsst/blob/main/cairn/items/0013-draw-the-ui-before-feeds-finish-loading.md) Draw the UI before feeds finish loading <sup>feature · v0.1 · p1</sup>
+- [ ] [`0014`](https://github.com/oddurs/rsst/blob/main/cairn/items/0014-refresh-without-freezing-the-ui.md) Refresh without freezing the UI <sup>feature · v0.1 · p1</sup>
 
 ## v0.2
 
@@ -42,11 +42,11 @@ with the alternate screen still active.
 
 ### backlog
 
-- [ ] [`0015`](https://github.com/oddurs/rsst/blob/main/cairn/items/0015-cache-feeds-on-disk-so-launch-is-instant-and-offline-works.md) Cache feeds on disk so launch is instant and offline works <sup>feature · p0</sup>
-- [ ] [`0016`](https://github.com/oddurs/rsst/blob/main/cairn/items/0016-conditional-get-with-etag-and-last-modified.md) Conditional GET with ETag and Last-Modified <sup>feature · p0</sup>
-- [ ] [`0017`](https://github.com/oddurs/rsst/blob/main/cairn/items/0017-bound-fetch-concurrency.md) Bound fetch concurrency <sup>feature · p2</sup>
-- [ ] [`0018`](https://github.com/oddurs/rsst/blob/main/cairn/items/0018-decode-html-entities-in-summaries.md) Decode HTML entities in summaries <sup>feature · p2</sup>
-- [ ] [`0019`](https://github.com/oddurs/rsst/blob/main/cairn/items/0019-show-per-feed-fetch-status-and-errors.md) Show per-feed fetch status and errors <sup>feature · p2</sup>
+- [ ] [`0015`](https://github.com/oddurs/rsst/blob/main/cairn/items/0015-cache-feeds-on-disk-so-launch-is-instant-and-offline-works.md) Cache feeds on disk so launch is instant and offline works <sup>feature · v0.2 · p0</sup>
+- [ ] [`0016`](https://github.com/oddurs/rsst/blob/main/cairn/items/0016-conditional-get-with-etag-and-last-modified.md) Conditional GET with ETag and Last-Modified <sup>feature · v0.2 · p0</sup>
+- [ ] [`0017`](https://github.com/oddurs/rsst/blob/main/cairn/items/0017-bound-fetch-concurrency.md) Bound fetch concurrency <sup>feature · v0.2 · p2</sup>
+- [ ] [`0018`](https://github.com/oddurs/rsst/blob/main/cairn/items/0018-decode-html-entities-in-summaries.md) Decode HTML entities in summaries <sup>feature · v0.2 · p2</sup>
+- [ ] [`0019`](https://github.com/oddurs/rsst/blob/main/cairn/items/0019-show-per-feed-fetch-status-and-errors.md) Show per-feed fetch status and errors <sup>feature · v0.2 · p2</sup>
 
 ## v0.3
 
@@ -54,12 +54,12 @@ with the alternate screen still active.
 
 ### backlog
 
-- [ ] [`0020`](https://github.com/oddurs/rsst/blob/main/cairn/items/0020-filter-to-unread-entries.md) Filter to unread entries <sup>feature · p1</sup>
-- [ ] [`0021`](https://github.com/oddurs/rsst/blob/main/cairn/items/0021-search-and-filter-entries.md) Search and filter entries <sup>feature · p1</sup>
-- [ ] [`0022`](https://github.com/oddurs/rsst/blob/main/cairn/items/0022-mark-all-read-and-mark-an-entry-unread-again.md) Mark all read, and mark an entry unread again <sup>feature · p1</sup>
-- [ ] [`0023`](https://github.com/oddurs/rsst/blob/main/cairn/items/0023-star-entries-and-keep-them.md) Star entries and keep them <sup>feature · p2</sup>
-- [ ] [`0024`](https://github.com/oddurs/rsst/blob/main/cairn/items/0024-vim-style-navigation-keys.md) Vim-style navigation keys <sup>feature · p2</sup>
-- [ ] [`0025`](https://github.com/oddurs/rsst/blob/main/cairn/items/0025-keybinding-help-overlay.md) Keybinding help overlay <sup>feature · p2</sup>
+- [ ] [`0020`](https://github.com/oddurs/rsst/blob/main/cairn/items/0020-filter-to-unread-entries.md) Filter to unread entries <sup>feature · v0.3 · p1</sup>
+- [ ] [`0021`](https://github.com/oddurs/rsst/blob/main/cairn/items/0021-search-and-filter-entries.md) Search and filter entries <sup>feature · v0.3 · p1</sup>
+- [ ] [`0022`](https://github.com/oddurs/rsst/blob/main/cairn/items/0022-mark-all-read-and-mark-an-entry-unread-again.md) Mark all read, and mark an entry unread again <sup>feature · v0.3 · p1</sup>
+- [ ] [`0023`](https://github.com/oddurs/rsst/blob/main/cairn/items/0023-star-entries-and-keep-them.md) Star entries and keep them <sup>feature · v0.3 · p2</sup>
+- [ ] [`0024`](https://github.com/oddurs/rsst/blob/main/cairn/items/0024-vim-style-navigation-keys.md) Vim-style navigation keys <sup>feature · v0.3 · p2</sup>
+- [ ] [`0025`](https://github.com/oddurs/rsst/blob/main/cairn/items/0025-keybinding-help-overlay.md) Keybinding help overlay <sup>feature · v0.3 · p2</sup>
 
 ## v0.4
 
@@ -67,11 +67,11 @@ with the alternate screen still active.
 
 ### backlog
 
-- [ ] [`0026`](https://github.com/oddurs/rsst/blob/main/cairn/items/0026-group-feeds-into-folders-or-tags.md) Group feeds into folders or tags <sup>feature · p1</sup>
-- [ ] [`0027`](https://github.com/oddurs/rsst/blob/main/cairn/items/0027-configurable-keybindings.md) Configurable keybindings <sup>feature · p2</sup>
-- [ ] [`0028`](https://github.com/oddurs/rsst/blob/main/cairn/items/0028-theme-and-colour-configuration.md) Theme and colour configuration <sup>feature · p2</sup>
-- [ ] [`0029`](https://github.com/oddurs/rsst/blob/main/cairn/items/0029-sort-and-group-entries.md) Sort and group entries <sup>feature · p3</sup>
-- [ ] [`0030`](https://github.com/oddurs/rsst/blob/main/cairn/items/0030-reload-the-config-without-restarting.md) Reload the config without restarting <sup>feature · p3</sup>
+- [ ] [`0026`](https://github.com/oddurs/rsst/blob/main/cairn/items/0026-group-feeds-into-folders-or-tags.md) Group feeds into folders or tags <sup>feature · v0.4 · p1</sup>
+- [ ] [`0027`](https://github.com/oddurs/rsst/blob/main/cairn/items/0027-configurable-keybindings.md) Configurable keybindings <sup>feature · v0.4 · p2</sup>
+- [ ] [`0028`](https://github.com/oddurs/rsst/blob/main/cairn/items/0028-theme-and-colour-configuration.md) Theme and colour configuration <sup>feature · v0.4 · p2</sup>
+- [ ] [`0029`](https://github.com/oddurs/rsst/blob/main/cairn/items/0029-sort-and-group-entries.md) Sort and group entries <sup>feature · v0.4 · p3</sup>
+- [ ] [`0030`](https://github.com/oddurs/rsst/blob/main/cairn/items/0030-reload-the-config-without-restarting.md) Reload the config without restarting <sup>feature · v0.4 · p3</sup>
 
 ## v1.0
 
@@ -79,12 +79,12 @@ with the alternate screen still active.
 
 ### backlog
 
-- [ ] [`0031`](https://github.com/oddurs/rsst/blob/main/cairn/items/0031-publish-to-crates-io-and-homebrew.md) Publish to crates.io and Homebrew <sup>chore · p1</sup>
-- [ ] [`0032`](https://github.com/oddurs/rsst/blob/main/cairn/items/0032-man-page-and-shell-completions.md) Man page and shell completions <sup>docs · p1</sup>
-- [ ] [`0033`](https://github.com/oddurs/rsst/blob/main/cairn/items/0033-document-the-config-schema-in-full.md) Document the config schema in full <sup>docs · p2</sup>
-- [ ] [`0034`](https://github.com/oddurs/rsst/blob/main/cairn/items/0034-readme-screenshots-and-a-demo-recording.md) README screenshots and a demo recording <sup>docs · p2</sup>
-- [ ] [`0035`](https://github.com/oddurs/rsst/blob/main/cairn/items/0035-terminal-compatibility-matrix.md) Terminal compatibility matrix <sup>chore · p2</sup>
-- [ ] [`0036`](https://github.com/oddurs/rsst/blob/main/cairn/items/0036-define-the-semver-and-msrv-policy.md) Define the semver and MSRV policy <sup>chore · p2</sup>
-- [ ] [`0037`](https://github.com/oddurs/rsst/blob/main/cairn/items/0037-benchmark-a-large-feed-list.md) Benchmark a large feed list <sup>chore · p3</sup>
-- [ ] [`0038`](https://github.com/oddurs/rsst/blob/main/cairn/items/0038-automate-dependency-updates.md) Automate dependency updates <sup>chore · p2</sup>
+- [ ] [`0031`](https://github.com/oddurs/rsst/blob/main/cairn/items/0031-publish-to-crates-io-and-homebrew.md) Publish to crates.io and Homebrew <sup>chore · v1.0 · p1</sup>
+- [ ] [`0032`](https://github.com/oddurs/rsst/blob/main/cairn/items/0032-man-page-and-shell-completions.md) Man page and shell completions <sup>docs · v1.0 · p1</sup>
+- [ ] [`0033`](https://github.com/oddurs/rsst/blob/main/cairn/items/0033-document-the-config-schema-in-full.md) Document the config schema in full <sup>docs · v1.0 · p2</sup>
+- [ ] [`0034`](https://github.com/oddurs/rsst/blob/main/cairn/items/0034-readme-screenshots-and-a-demo-recording.md) README screenshots and a demo recording <sup>docs · v1.0 · p2</sup>
+- [ ] [`0035`](https://github.com/oddurs/rsst/blob/main/cairn/items/0035-terminal-compatibility-matrix.md) Terminal compatibility matrix <sup>chore · v1.0 · p2</sup>
+- [ ] [`0036`](https://github.com/oddurs/rsst/blob/main/cairn/items/0036-define-the-semver-and-msrv-policy.md) Define the semver and MSRV policy <sup>chore · v1.0 · p2</sup>
+- [ ] [`0037`](https://github.com/oddurs/rsst/blob/main/cairn/items/0037-benchmark-a-large-feed-list.md) Benchmark a large feed list <sup>chore · v1.0 · p3</sup>
+- [ ] [`0038`](https://github.com/oddurs/rsst/blob/main/cairn/items/0038-automate-dependency-updates.md) Automate dependency updates <sup>chore · v1.0 · p2</sup>
 

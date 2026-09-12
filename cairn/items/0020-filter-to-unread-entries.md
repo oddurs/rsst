@@ -3,12 +3,12 @@ id: 20
 title: Filter to unread entries
 type: feature
 status: backlog
-milestone: v0.3
 created: 2026-09-11
 updated: 2026-09-11
 priority: p1
 effort: s
 area: ui
+release: v0.3
 ---
 
 ## Problem

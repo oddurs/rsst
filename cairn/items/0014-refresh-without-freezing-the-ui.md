@@ -3,12 +3,12 @@ id: 14
 title: Refresh without freezing the UI
 type: feature
 status: planned
-milestone: v0.1
 created: 2026-09-11
 updated: 2026-09-11
 priority: p1
 effort: m
 area: net
+release: v0.1
 ---
 
 ## Problem

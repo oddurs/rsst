@@ -3,12 +3,12 @@ id: 23
 title: Star entries and keep them
 type: feature
 status: backlog
-milestone: v0.3
 created: 2026-09-11
 updated: 2026-09-11
 priority: p2
 effort: m
 area: storage
+release: v0.3
 ---
 
 ## Problem

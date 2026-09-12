@@ -3,7 +3,6 @@ id: 19
 title: Show per-feed fetch status and errors
 type: feature
 status: backlog
-milestone: v0.2
 depends_on:
 - 15
 created: 2026-09-11
@@ -11,6 +10,7 @@ updated: 2026-09-11
 priority: p2
 effort: m
 area: ui
+release: v0.2
 ---
 
 ## Problem

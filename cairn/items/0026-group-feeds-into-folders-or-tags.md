@@ -3,12 +3,12 @@ id: 26
 title: Group feeds into folders or tags
 type: feature
 status: backlog
-milestone: v0.4
 created: 2026-09-11
 updated: 2026-09-11
 priority: p1
 effort: m
 area: config
+release: v0.4
 ---
 
 ## Problem

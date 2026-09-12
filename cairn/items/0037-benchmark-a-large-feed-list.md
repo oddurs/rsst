@@ -3,12 +3,12 @@ id: 37
 title: Benchmark a large feed list
 type: chore
 status: backlog
-milestone: v1.0
 created: 2026-09-11
 updated: 2026-09-11
 priority: p3
 effort: m
 area: net
+release: v1.0
 ---
 
 ## Problem

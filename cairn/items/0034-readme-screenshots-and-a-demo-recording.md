@@ -3,12 +3,12 @@ id: 34
 title: README screenshots and a demo recording
 type: docs
 status: backlog
-milestone: v1.0
 created: 2026-09-11
 updated: 2026-09-11
 priority: p2
 effort: s
 area: docs
+release: v1.0
 ---
 
 ## Problem

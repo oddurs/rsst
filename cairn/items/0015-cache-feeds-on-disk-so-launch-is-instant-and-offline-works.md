@@ -3,12 +3,12 @@ id: 15
 title: Cache feeds on disk so launch is instant and offline works
 type: feature
 status: backlog
-milestone: v0.2
 created: 2026-09-11
 updated: 2026-09-11
 priority: p0
 effort: l
 area: storage
+release: v0.2
 ---
 
 ## Problem
