@@ -5,3 +5,7 @@
 .DS_Store
 .idea/
 .vscode/
+
+# The throwaway environment from `scripts/dev`: a seeded database, a config
+# pointing at the fixture server, and that server's log.
+/.dev

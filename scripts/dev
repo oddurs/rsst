@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# A throwaway rsst, seeded with known content, that cannot touch your real data.
+#
+#   scripts/dev            seed if needed, then run the reader
+#   scripts/dev seed       rebuild the database from the fixtures
+#   scripts/dev run        run the reader without reseeding
+#   scripts/dev serve      just the fixture server, in the foreground
+#   scripts/dev shot WxH   render one frame as SVG, for comparing against the last
+#   scripts/dev env        print the exports, for running other commands in it
+#   scripts/dev reset      delete the environment
+#
+# Everything lives under .dev/, which is ignored by git. The reader is started
+# with RSST_HOME pointing there, so nothing it writes can reach the rsst you
+# actually read with.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+DEV="${RSST_DEV_DIR:-$PWD/.dev}"
+HOME_DIR="$DEV/home"
+PORT="${RSST_DEV_PORT:-8787}"
+SERVER="$DEV/server.pid"
+
+say() { printf 'dev: %s\n' "$1" >&2; }
+die() { say "$1"; exit 1; }
+
+command -v python3 >/dev/null 2>&1 || die "python3 is not installed"
+
+server_up() {
+    # An answer on the port is enough; whose it is does not matter, since a
+    # fixture server already running is exactly what we would have started.
+    python3 - "$PORT" <<'PY'
+import socket, sys
+s = socket.socket()
+s.settimeout(0.3)
+sys.exit(0 if s.connect_ex(("127.0.0.1", int(sys.argv[1]))) == 0 else 1)
+PY
+}
+
+start_server() {
+    if server_up; then
+        say "fixtures already served on :$PORT"
+        return
+    fi
+    mkdir -p "$DEV"
+    python3 scripts/fixture_server.py "$PORT" >"$DEV/server.log" 2>&1 &
+    echo $! >"$SERVER"
+    for _ in $(seq 1 50); do
+        server_up && { say "fixtures on :$PORT (pid $(cat "$SERVER"))"; return; }
+        sleep 0.1
+    done
+    die "the fixture server did not come up; see $DEV/server.log"
+}
+
+stop_server() {
+    [ -f "$SERVER" ] || return 0
+    kill "$(cat "$SERVER")" 2>/dev/null || true
+    rm -f "$SERVER"
+}
+
+cmd_seed() {
+    start_server
+    mkdir -p "$HOME_DIR"
+    cargo run --quiet --bin rsst-seed -- --home "$HOME_DIR" --port "$PORT"
+}
+
+cmd_run() {
+    [ -f "$HOME_DIR/rsst.sqlite3" ] || cmd_seed
+    start_server
+    # `exec` so the reader owns the terminal and signals reach it, not us.
+    # The fixture server outlives it on purpose; `scripts/dev stop` ends that.
+    exec env RSST_HOME="$HOME_DIR" cargo run --quiet --bin rsst
+}
+
+cmd_shot() {
+    local size="${1:-120x40}"
+    [ -f "$HOME_DIR/rsst.sqlite3" ] || cmd_seed
+    start_server
+    RSST_HOME="$HOME_DIR" cargo run --quiet --bin rsst -- --screenshot "$size"
+}
+
+case "${1:-run}" in
+    seed)  cmd_seed ;;
+    run)   cmd_run ;;
+    serve) stop_server; exec python3 scripts/fixture_server.py "$PORT" --verbose ;;
+    shot)  shift; cmd_shot "$@" ;;
+    env)
+        printf 'export RSST_HOME=%q\n' "$HOME_DIR"
+        printf 'export RSST_DEV_PORT=%q\n' "$PORT"
+        ;;
+    stop)  stop_server; say "stopped" ;;
+    reset)
+        stop_server
+        rm -rf "$DEV"
+        say "removed $DEV"
+        ;;
+    *) die "unknown command: $1 — try seed, run, serve, shot, env, stop or reset" ;;
+esac

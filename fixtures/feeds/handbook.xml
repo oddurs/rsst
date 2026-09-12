@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The showcase feed: one entry per thing the renderer knows how to do. -->
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>The Renderer Handbook</title>
+  <link href="http://127.0.0.1:8787/handbook.xml" rel="self"/>
+  <updated>2026-09-10T09:00:00Z</updated>
+  <id>urn:rsst:fixture:handbook</id>
+
+  <entry>
+    <id>urn:rsst:fixture:handbook:1</id>
+    <title>Every block the layout knows</title>
+    <link href="http://example.invalid/handbook/blocks"/>
+    <updated>2026-09-10T09:00:00Z</updated>
+    <content type="html">&lt;h2&gt;A heading&lt;/h2&gt;
+      &lt;p&gt;A paragraph with &lt;strong&gt;strong&lt;/strong&gt;, &lt;em&gt;emphasis&lt;/em&gt;,
+      &lt;code&gt;inline code&lt;/code&gt; and &lt;a href="http://example.invalid/one"&gt;a link&lt;/a&gt;.&lt;/p&gt;
+      &lt;h3&gt;A smaller heading&lt;/h3&gt;
+      &lt;ul&gt;&lt;li&gt;An unordered item&lt;/li&gt;&lt;li&gt;And another, long enough that it has to wrap somewhere around here to prove the hanging indent works&lt;/li&gt;&lt;/ul&gt;
+      &lt;ol&gt;&lt;li&gt;First&lt;/li&gt;&lt;li&gt;Second&lt;/li&gt;&lt;/ol&gt;
+      &lt;blockquote&gt;A quotation, which should be marked down its left edge rather than silently indented.&lt;/blockquote&gt;
+      &lt;pre&gt;&lt;code&gt;fn main() {
+    // This line is deliberately far too long to fit in any sensible pane, because code is cut rather than wrapped.
+    println!("hello");
+}&lt;/code&gt;&lt;/pre&gt;
+      &lt;hr/&gt;
+      &lt;img src="/diagram.png" alt="A diagram of the borrow checker"/&gt;
+      &lt;table&gt;
+        &lt;tr&gt;&lt;th&gt;Version&lt;/th&gt;&lt;th&gt;Date&lt;/th&gt;&lt;th&gt;Notes&lt;/th&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;1.98&lt;/td&gt;&lt;td&gt;Sep 2026&lt;/td&gt;&lt;td&gt;Current&lt;/td&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;1.97&lt;/td&gt;&lt;td&gt;Jul 2026&lt;/td&gt;&lt;td&gt;Previous&lt;/td&gt;&lt;/tr&gt;
+      &lt;/table&gt;
+      &lt;p&gt;And a second link, &lt;a href="http://example.invalid/two"&gt;here&lt;/a&gt;, to check numbering.&lt;/p&gt;</content>
+  </entry>
+
+  <entry>
+    <id>urn:rsst:fixture:handbook:2</id>
+    <title>A table that does not fit</title>
+    <link href="http://example.invalid/handbook/wide-table"/>
+    <updated>2026-09-09T09:00:00Z</updated>
+    <content type="html">&lt;p&gt;This table is wider than any measure, so it should stack rather than mangle.&lt;/p&gt;
+      &lt;table&gt;
+        &lt;tr&gt;&lt;th&gt;Identifier&lt;/th&gt;&lt;th&gt;Description&lt;/th&gt;&lt;th&gt;Consequence&lt;/th&gt;&lt;/tr&gt;
+        &lt;tr&gt;&lt;td&gt;a-rather-long-identifier-indeed&lt;/td&gt;&lt;td&gt;A description that runs on and on without stopping&lt;/td&gt;&lt;td&gt;Something happens that takes many words to explain&lt;/td&gt;&lt;/tr&gt;
+      &lt;/table&gt;</content>
+  </entry>
+
+  <entry>
+    <id>urn:rsst:fixture:handbook:3</id>
+    <title>Entities &amp;amp; escapes: &amp;lt;not a tag&amp;gt;</title>
+    <link href="http://example.invalid/handbook/entities"/>
+    <updated>2026-09-08T09:00:00Z</updated>
+    <summary type="html">&lt;p&gt;Ampersands &amp;amp;amp; angle brackets &amp;amp;lt;like this&amp;amp;gt; must survive as text,
+      and &amp;amp;nbsp; must not become a stray glyph. Curly quotes: &amp;amp;ldquo;quoted&amp;amp;rdquo;.&lt;/p&gt;</summary>
+  </entry>
+</feed>

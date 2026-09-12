@@ -47,6 +47,10 @@ name = "rsst-scaling"
 path = "src/bin/scaling.rs"
 
 [[bin]]
+name = "rsst-seed"
+path = "src/bin/seed.rs"
+
+[[bin]]
 name = "rsst"
 path = "src/main.rs"
 

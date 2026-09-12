@@ -131,13 +131,14 @@ with the alternate screen still active.
 
 ## v1.4
 
-`#####·····` 50% · 1 of 2 done
+`#######···` 67% · 2 of 3 done
 
 ### backlog
 
-- [ ] [`0058`](https://github.com/oddurs/rsst/blob/main/cairn/items/0058-a-seeded-database-and-an-offline-qa-environment.md) A seeded database and an offline QA environment <sup>feature · v1.4 · p1</sup>
+- [ ] [`0059`](https://github.com/oddurs/rsst/blob/main/cairn/items/0059-entry-titles-show-their-html-entities-raw.md) Entry titles show their HTML entities raw <sup>bug · v1.4 · p2</sup>
 
 ### done
 
 - [x] [`0057`](https://github.com/oddurs/rsst/blob/main/cairn/items/0057-run-against-a-throwaway-home-instead-of-real-data.md) Run against a throwaway home instead of real data <sup>feature · v1.4 · p1</sup>
+- [x] [`0058`](https://github.com/oddurs/rsst/blob/main/cairn/items/0058-a-seeded-database-and-an-offline-qa-environment.md) A seeded database and an offline QA environment <sup>feature · v1.4 · p1</sup>
 

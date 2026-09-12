@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Feeds in the wild are not well-formed documents; they are whatever the
+     publisher's template emitted. Nothing here may crash or hang the reader. -->
+<rss version="2.0">
+  <channel>
+    <title>Awkward Publishing</title>
+    <link>http://example.invalid/awkward</link>
+    <description>RSS 2.0 rather than Atom, and badly behaved.</description>
+
+    <item>
+      <title>Unclosed tags all the way down</title>
+      <link>http://example.invalid/awkward/unclosed</link>
+      <pubDate>Thu, 10 Sep 2026 07:00:00 GMT</pubDate>
+      <description>&lt;div&gt;&lt;p&gt;A paragraph that is never closed
+        &lt;ul&gt;&lt;li&gt;an item&lt;li&gt;another item, also unclosed
+        &lt;strong&gt;bold from here on, apparently&lt;/description&gt;</description>
+    </item>
+
+    <item>
+      <title>Script and style must not be read aloud</title>
+      <link>http://example.invalid/awkward/script</link>
+      <pubDate>Wed, 09 Sep 2026 07:00:00 GMT</pubDate>
+      <description>&lt;p&gt;Before.&lt;/p&gt;
+        &lt;script&gt;alert("this must never appear as text")&lt;/script&gt;
+        &lt;style&gt;body { color: red }&lt;/style&gt;
+        &lt;p&gt;After.&lt;/p&gt;</description>
+    </item>
+
+    <item>
+      <!-- No title, no date, no guid: all three are optional in practice. -->
+      <link>http://example.invalid/awkward/untitled</link>
+      <description>An item with no title at all, which still has to be selectable and readable.</description>
+    </item>
+
+    <item>
+      <title>An entry with no link</title>
+      <pubDate>Mon, 07 Sep 2026 07:00:00 GMT</pubDate>
+      <description>&lt;p&gt;Opening this one has nothing to open.&lt;/p&gt;</description>
+    </item>
+
+    <item>
+      <title>A date from the future</title>
+      <link>http://example.invalid/awkward/future</link>
+      <pubDate>Fri, 01 Jan 2100 00:00:00 GMT</pubDate>
+      <description>&lt;p&gt;Sorting must not put this above everything forever, or it will.&lt;/p&gt;</description>
+    </item>
+  </channel>
+</rss>

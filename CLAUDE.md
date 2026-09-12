@@ -5,8 +5,8 @@ Guidance for Claude Code when working in this repository.
 ## What this is
 
 `rsst` is a terminal RSS/Atom reader built on ratatui + crossterm, with async
-fetching on a tokio runtime. Single binary, no daemon, no database — feeds are
-fetched fresh into memory on launch and on `r`.
+fetching on a tokio runtime. Single binary, no daemon. Feeds, entries and read
+state live in a SQLite database — see **State lives in SQLite** below.
 
 ## Commands
 
@@ -18,6 +18,30 @@ cargo clippy --all-targets -- -D warnings    # lint; CI treats warnings as error
 cargo fmt --all                              # format
 cargo build --release
 ```
+
+### Trying it by hand
+
+```sh
+scripts/dev              # a seeded reader, no network, real data untouched
+scripts/dev seed         # rebuild the database from the fixtures
+scripts/dev shot 120x40  # one frame as SVG, to diff against the last
+scripts/dev reset        # delete it
+```
+
+It runs with `RSST_HOME` pointed at `.dev/home`, so nothing it writes reaches
+the reader the user actually reads with. **Verify against this, not against the
+real database** — deleting the user's own state to see a change is never the
+move, and no longer necessary.
+
+The feeds come from `fixtures/feeds`, served by `scripts/fixture_server.py`,
+which also generates what is better computed than committed: a 5,000-entry
+feed, a 404, a 500, a truncated document, a page that is not a feed. Everything
+is a pure function of the fixtures, so the same frame comes back every time —
+which is what makes `scripts/dev shot` worth comparing.
+
+A case that fixtures cannot yet produce is a fixture worth adding, and finding
+a bug through them is the point, not a detour: file it rather than widening the
+branch you are on.
 
 Benchmarks compare against `benches/baseline.toml` and fail past a 6x tolerance.
 That is sized to catch an operation that has stopped being linear, not one that
@@ -42,6 +66,7 @@ a copy of it; `src/main.rs` is the reader, `src/bin/bench.rs` the benchmark.
 | `src/config.rs` | TOML config load and starter-file creation                      |
 | `src/article.rs`| Parses an entry's HTML into blocks and lays them out            |
 | `src/ui.rs`     | All rendering; reads `App`, never mutates domain state          |
+| `src/home.rs`   | Where files live; `RSST_HOME` moves all of them together       |
 
 ## Conventions that matter here
 

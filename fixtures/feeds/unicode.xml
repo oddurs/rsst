@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Scripts that are not Latin, characters that are not one column wide, and
+     marks that are not characters at all. Each of these has broken a terminal
+     reader at some point. -->
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>حروف · 文字 · Glyphs</title>
+  <link href="http://127.0.0.1:8787/unicode.xml" rel="self"/>
+  <updated>2026-09-10T08:00:00Z</updated>
+  <id>urn:rsst:fixture:unicode</id>
+
+  <entry>
+    <id>urn:rsst:fixture:unicode:1</id>
+    <title>مرحبا بالعالم — right to left</title>
+    <link href="http://example.invalid/unicode/rtl"/>
+    <updated>2026-09-10T08:00:00Z</updated>
+    <summary type="html">&lt;p&gt;هذا النص مكتوب من اليمين إلى اليسار، ويجب ألا يفسد التخطيط.
+      Mixed with English, which is where bidirectional text usually goes wrong.&lt;/p&gt;</summary>
+  </entry>
+
+  <entry>
+    <id>urn:rsst:fixture:unicode:2</id>
+    <title>日本語のタイトル、全角文字は二列分の幅があります</title>
+    <link href="http://example.invalid/unicode/cjk"/>
+    <updated>2026-09-09T08:00:00Z</updated>
+    <summary type="html">&lt;p&gt;全角文字は一文字で二列を占めるので、文字数で折り返すと行が長くなりすぎます。
+      これは幅の計算が正しいかどうかを確かめるための文章です。&lt;/p&gt;</summary>
+  </entry>
+
+  <entry>
+    <id>urn:rsst:fixture:unicode:3</id>
+    <title>Emoji 🎉 and combining marks: é vs é</title>
+    <link href="http://example.invalid/unicode/marks"/>
+    <updated>2026-09-08T08:00:00Z</updated>
+    <summary type="html">&lt;p&gt;The first é is one code point; the second is e followed by a combining
+      acute. A family emoji is several code points joined: 👩‍👩‍👧‍👦. Flags are two: 🇮🇸.
+      Zero-width joiners must not be counted as visible columns.&lt;/p&gt;</summary>
+  </entry>
+</feed>

@@ -9,6 +9,32 @@ cargo test
 ln -sf ../../scripts/pre-commit .git/hooks/pre-commit   # optional but recommended
 ```
 
+## Trying a change
+
+`scripts/dev` brings up a reader with known content and no network:
+
+```sh
+scripts/dev              # seed if needed, then run
+scripts/dev seed         # rebuild the database from the fixtures
+scripts/dev shot 120x40  # render one frame as SVG
+scripts/dev reset        # delete it
+```
+
+It runs with `RSST_HOME` pointed at `.dev/home`, so nothing it writes can reach
+the rsst you actually read with — no config of yours is edited and no entry of
+yours is marked read. The feeds come from `fixtures/feeds`, served by
+`scripts/fixture_server.py`, which also generates the ones better computed than
+committed: a 5,000-entry feed, a 404, a 500, a truncated document, and a page
+that is not a feed at all despite saying it is.
+
+The point of the fixtures is the cases real feeds cannot be made to produce on
+demand. Adding one is adding an entry to a file in `fixtures/feeds`; adding a
+new *kind* of failure means a branch in `generated()` in the server.
+
+Everything is a pure function of the fixtures, so two runs give the same
+database and the same frame — which is what makes `scripts/dev shot` worth
+comparing against the last one.
+
 ## Branches
 
 `main` is always releasable. Everything else lands through a pull request.
