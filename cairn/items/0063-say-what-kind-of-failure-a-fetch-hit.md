@@ -2,7 +2,8 @@
 id: 63
 title: Say what kind of failure a fetch hit
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p1
@@ -25,7 +26,7 @@ This is the groundwork `0064` needs.
 
 ## Acceptance criteria
 
-- [ ] A fetch failure carries a kind as well as a message
-- [ ] Transient and permanent failures are distinguishable
-- [ ] The status line still reads as a sentence, not an enum name
-- [ ] Tests cover the mapping from each cause to its kind
+- [x] A fetch failure carries a kind as well as a message
+- [x] Transient and permanent failures are distinguishable
+- [x] The status line still reads as a sentence, not an enum name
+- [x] Tests cover the mapping from each cause to its kind

@@ -39,7 +39,7 @@ const SEARCH_LIMIT: usize = 500;
 const DUE_CHECK: Duration = Duration::from_secs(20);
 
 /// A finished fetch on its way back to the event loop.
-type Fetched = (usize, Result<feed::Outcome>);
+type Fetched = (usize, std::result::Result<feed::Outcome, feed::Failure>);
 
 /// A fetched article, keyed by the entry it belongs to.
 type Article = (Vec<String>, Result<String>);
@@ -215,7 +215,19 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                 // Keep whatever is already on screen — when that came from the
                 // cache it is what makes the reader usable offline. The failure
                 // is recorded on the feed rather than invented as an entry.
-                Err(err) => slot.status = feed::Status::Failed(format!("{err:#}")),
+                Err(failure) => {
+                    slot.status = feed::Status::Failed {
+                        trouble: failure.trouble,
+                        // The sentence leads: "is no longer there" is what a
+                        // reader needs; the detail is there for the curious.
+                        message: format!(
+                            "{} {} — {}",
+                            slot.title,
+                            failure.trouble.sentence(),
+                            failure.detail
+                        ),
+                    }
+                }
             }
         }
 
@@ -591,7 +603,15 @@ async fn screenshot(size: &str, config_override: Option<PathBuf>) -> Result<()> 
     {
         match result {
             Ok(feed::Outcome::Updated { feed, .. }) => *slot = *feed,
-            _ => slot.status = feed::Status::Idle,
+            Ok(_) => slot.status = feed::Status::Idle,
+            // A screenshot that quietly showed a dead feed as idle would be a
+            // picture of an interface nobody has.
+            Err(failure) => {
+                slot.status = feed::Status::Failed {
+                    trouble: failure.trouble,
+                    message: format!("{} {}", slot.title, failure.trouble.sentence()),
+                }
+            }
         }
     }
 

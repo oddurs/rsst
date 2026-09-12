@@ -174,7 +174,7 @@ async fn main() -> Result<()> {
                 println!(
                     "  {:<26} unavailable ({})",
                     short(&source.url),
-                    first_line(&err)
+                    first_line(&err.detail)
                 );
             }
         }
@@ -221,12 +221,8 @@ fn short(url: &str) -> String {
     }
 }
 
-fn first_line(err: &anyhow::Error) -> String {
-    err.to_string()
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .to_string()
+fn first_line(detail: &str) -> String {
+    detail.lines().next().unwrap_or_default().to_string()
 }
 
 /// Writes the config the reader will be started with.

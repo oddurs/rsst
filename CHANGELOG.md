@@ -47,6 +47,10 @@ still needs.
 
 ### Fixed
 
+- A failed fetch says what kind of failure it was — unreachable, timed out,
+  server error, refused, gone, too big, not a feed — so `!` in the sidebar now
+  comes with a sentence, and a 404 is no longer mistaken for a flaky network.
+  `--screenshot` shows failures instead of drawing them as idle
 - A feed could send as much as it liked: the body was buffered whole, so 600 MB
   on the wire meant 1.6 GB resident and nothing stopped it going further. Bodies
   are now streamed against a limit (`max_feed_megabytes`, 8 by default) and an
