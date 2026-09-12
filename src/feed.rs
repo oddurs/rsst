@@ -2,20 +2,23 @@ use std::cmp::Reverse;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 use crate::config::FeedSource;
 
 /// A fetched feed and its entries, ready for display.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Feed {
     pub title: String,
     pub url: String,
     pub entries: Vec<Entry>,
-    /// True until this feed's first fetch resolves.
+    /// True until this feed's first fetch resolves. Never cached — a restored
+    /// feed is not in flight.
+    #[serde(skip)]
     pub loading: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Entry {
     pub title: String,
     pub link: Option<String>,
