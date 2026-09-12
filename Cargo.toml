@@ -16,7 +16,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 crossterm = "0.29"
 directories = "6"
 feed-rs = "2"
-ratatui = "0.29"
+# Default features add the calendar widget and ratatui-macros, neither of which
+# we use. `crossterm` selects the backend; the other two are rendering quality.
+ratatui = { version = "0.30", default-features = false, features = ["crossterm", "layout-cache", "underline-color"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "gzip", "http2", "charset"] }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
