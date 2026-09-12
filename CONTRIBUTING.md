@@ -55,6 +55,13 @@ Breaking changes get a `!` (`feat!: …`) and a `BREAKING CHANGE:` footer.
 5. Squash-merge. The PR title becomes the commit message, so it follows the
    Conventional Commits format too.
 
+## Dependencies
+
+Dependabot opens one grouped pull request a week for patch and minor bumps, and
+a separate one for each major — a major bump is the kind that needs reading
+rather than merging. CI also runs on a weekly schedule so an advisory published
+against an unchanged tree surfaces without waiting for someone to push.
+
 ## Stability
 
 `docs/stability.md` says what semver covers, how the on-disk formats are

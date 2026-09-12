@@ -1,0 +1,35 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # One pull request for the routine churn, rather than one per crate.
+      # A major bump stays on its own, because it is the kind that needs
+      # reading rather than merging.
+      patch-and-minor:
+        update-types:
+          - patch
+          - minor
+    labels:
+      - chore
+      - area:ci
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns: ["*"]
+    labels:
+      - chore
+      - area:ci
