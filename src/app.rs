@@ -90,6 +90,14 @@ pub struct App {
     pub adding: Option<String>,
     /// How prose should be set.
     pub measure: crate::article::Measure,
+    /// Whether the article has the whole screen.
+    pub reading: bool,
+    /// The pane that had focus before reading mode took it.
+    restore_focus: Pane,
+    /// Where the reader had got to in each article they have opened, by key.
+    marks: std::collections::HashMap<String, u16>,
+    /// The article `detail_scroll` currently describes.
+    marked: Option<String>,
 }
 
 /// A marking action that affects more than one entry, so it is worth a prompt.
@@ -1026,6 +1034,50 @@ impl App {
     pub fn scroll_detail(&mut self, delta: i16) {
         let next = self.detail_scroll as i32 + delta as i32;
         self.detail_scroll = next.clamp(0, self.max_detail_scroll() as i32) as u16;
+    }
+
+    /// Scrolls by a screenful, less two lines.
+    ///
+    /// The overlap is what keeps a paragraph from being cut in half by the
+    /// page break: the last lines of one page open the next.
+    pub fn page(&mut self, delta: i16) {
+        let step = self.detail_viewport.1.saturating_sub(2).max(1);
+        self.scroll_detail(delta.signum() * step.min(i16::MAX as u16) as i16);
+    }
+
+    /// Gives the article the screen, or gives it back.
+    pub fn toggle_reading(&mut self) {
+        self.reading = !self.reading;
+        if self.reading {
+            self.restore_focus = self.focus;
+            // Nothing else is on screen to steer, so the keys that scroll had
+            // better be the ones already under the reader's fingers.
+            self.focus = Pane::Detail;
+        } else {
+            self.focus = self.restore_focus;
+        }
+    }
+
+    /// Saves where the reader has got to, and restores it when they return.
+    ///
+    /// Called once per turn of the event loop rather than at each of the many
+    /// places that move the selection, so no new one can forget to.
+    pub fn keep_place(&mut self) {
+        let key = self
+            .current_entry()
+            .and_then(|entry| entry.keys.first().cloned());
+        if key == self.marked {
+            if let Some(key) = &self.marked {
+                self.marks.insert(key.clone(), self.detail_scroll);
+            }
+        } else {
+            self.detail_scroll = key
+                .as_ref()
+                .and_then(|key| self.marks.get(key))
+                .copied()
+                .unwrap_or(0);
+            self.marked = key;
+        }
     }
 
     pub fn select_next(&mut self) {
@@ -2127,5 +2179,110 @@ mod tests {
         app.focus = Pane::Feeds;
         app.select_next();
         assert_eq!(app.detail_scroll, 0);
+    }
+
+    #[test]
+    fn reading_mode_takes_focus_and_gives_it_back() {
+        let mut app = app();
+        app.focus = Pane::Entries;
+
+        app.toggle_reading();
+        assert!(app.reading);
+        assert_eq!(
+            app.focus,
+            Pane::Detail,
+            "the scroll keys must reach the article"
+        );
+
+        app.toggle_reading();
+        assert!(!app.reading);
+        assert_eq!(
+            app.focus,
+            Pane::Entries,
+            "the reader was put back where they were"
+        );
+    }
+
+    #[test]
+    fn a_page_is_a_screenful_less_an_overlap() {
+        let mut app = app();
+        app.focus = Pane::Detail;
+        app.detail_viewport = (60, 20);
+        // Deeper than any paging this test does, so nothing clamps.
+        app.feeds[0].entries[0].summary = "word ".repeat(4000);
+
+        app.page(1);
+        assert_eq!(
+            app.detail_scroll, 18,
+            "a page is the viewport less two lines"
+        );
+        app.page(1);
+        assert_eq!(app.detail_scroll, 36);
+        app.page(-1);
+        assert_eq!(
+            app.detail_scroll, 18,
+            "paging back returns to where it started"
+        );
+    }
+
+    #[test]
+    fn paging_stops_at_the_end_rather_than_running_past_it() {
+        let mut app = app();
+        app.detail_viewport = (60, 20);
+        for _ in 0..50 {
+            app.page(1);
+        }
+        assert_eq!(app.detail_scroll, app.max_detail_scroll());
+    }
+
+    #[test]
+    fn an_article_is_reopened_where_it_was_left() {
+        let mut app = app();
+        app.focus = Pane::Entries;
+        app.detail_viewport = (60, 20);
+        app.feeds[0].entries[0].summary = "word ".repeat(4000);
+        app.keep_place();
+
+        app.scroll_detail(12);
+        app.keep_place();
+        assert_eq!(app.detail_scroll, 12);
+
+        // Move away: the next article starts at its own beginning.
+        app.select_next();
+        app.keep_place();
+        assert_eq!(app.detail_scroll, 0, "a new article starts at the top");
+
+        // And back: the place is still kept.
+        app.select_previous();
+        app.keep_place();
+        assert_eq!(
+            app.detail_scroll, 12,
+            "the reader was returned to their place"
+        );
+    }
+
+    #[test]
+    fn a_place_is_kept_per_article_not_shared_between_them() {
+        let mut app = app();
+        app.focus = Pane::Entries;
+        app.detail_viewport = (60, 20);
+        for entry in &mut app.feeds[0].entries {
+            entry.summary = "word ".repeat(4000);
+        }
+        app.keep_place();
+        app.scroll_detail(5);
+        app.keep_place();
+
+        app.select_next();
+        app.keep_place();
+        app.scroll_detail(9);
+        app.keep_place();
+
+        app.select_previous();
+        app.keep_place();
+        assert_eq!(app.detail_scroll, 5, "the first article kept its own place");
+        app.select_next();
+        app.keep_place();
+        assert_eq!(app.detail_scroll, 9, "and the second kept its own");
     }
 }

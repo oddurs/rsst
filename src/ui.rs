@@ -12,6 +12,16 @@ pub fn draw(frame: &mut Frame, app: &mut App, keymap: &crate::keys::Keymap) {
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(frame.area());
 
+    if app.reading {
+        draw_reading(frame, app, rows[0]);
+        app.hits.status_bar = rows[1];
+        app.hits.buttons = draw_status(frame, app, rows[1]);
+        if app.help_open {
+            draw_help(frame, keymap, &app.theme, app.help_scroll, frame.area());
+        }
+        return;
+    }
+
     // A column of gap rather than two adjacent borders, which would put a
     // two-wide band of chrome down the full height of the screen.
     let columns = Layout::default()
@@ -53,6 +63,19 @@ pub fn draw(frame: &mut Frame, app: &mut App, keymap: &crate::keys::Keymap) {
     if app.help_open {
         draw_help(frame, keymap, &app.theme, app.help_scroll, frame.area());
     }
+}
+
+/// Draws the article alone, with the rest of the interface put away.
+///
+/// The panes are not merely hidden: their hit rectangles are cleared too, so a
+/// click cannot land on a list that is no longer on screen.
+fn draw_reading(frame: &mut Frame, app: &mut App, area: Rect) {
+    app.hits = crate::mouse::Hits {
+        detail_pane: inner(area),
+        help_open: app.help_open,
+        ..Default::default()
+    };
+    draw_detail(frame, app, area);
 }
 
 fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -782,7 +805,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) -> Vec<(u16, u16, crate
             let separator = if app.theme.ascii { " | " } else { " · " };
             let mut spans = vec![Span::raw(" ")];
             let mut column = area.x + 1;
-            for (index, (label, action)) in status_hints().into_iter().enumerate() {
+            for (index, (label, action)) in status_hints(app.reading).into_iter().enumerate() {
                 if index > 0 {
                     spans.push(Span::raw(separator));
                     column += separator.chars().count() as u16;
@@ -974,8 +997,19 @@ fn inner(area: Rect) -> Rect {
 ///
 /// Paired with the action it performs rather than being decorative text, so the
 /// pointer can use them and a hint cannot claim a key that does something else.
-fn status_hints() -> Vec<(&'static str, crate::keys::Action)> {
+fn status_hints(reading: bool) -> Vec<(&'static str, crate::keys::Action)> {
     use crate::keys::Action;
+    if reading {
+        // Tab and the list keys steer panes that are not on screen, so the bar
+        // offers the few things that still do something.
+        return vec![
+            ("? keys", Action::Help),
+            ("Esc back", Action::ToggleReading),
+            ("space page", Action::ToggleGroup),
+            ("s star", Action::ToggleStar),
+            ("o open", Action::Open),
+        ];
+    }
     vec![
         ("? keys", Action::Help),
         ("q quit", Action::Quit),
@@ -984,6 +1018,9 @@ fn status_hints() -> Vec<(&'static str, crate::keys::Action)> {
         ("u unread", Action::ToggleUnreadOnly),
         ("s star", Action::ToggleStar),
         ("o open", Action::Open),
+        // Before refresh, which also happens on its own timer, so it is the
+        // hint that can best afford to be the one a narrow terminal cuts.
+        ("z read", Action::ToggleReading),
         ("r refresh", Action::Refresh),
     ]
 }
@@ -1784,5 +1821,95 @@ mod tests {
         let mut app = App::new(Vec::new(), ReadState::default());
         let screen = render(&mut app);
         assert!(screen.contains("No entry selected."));
+    }
+
+    #[test]
+    fn reading_mode_puts_the_lists_away() {
+        let mut app = themed(crate::theme::Theme::dark());
+        app.feeds[0].title = "Sidebar".into();
+
+        // The status bar survives reading mode and names the feed and entry
+        // too, so counting is what separates "the list is gone" from "the
+        // name is gone".
+        let screen = render_at(&mut app, 80, 24);
+        assert!(
+            screen.matches("Sidebar").count() > 1,
+            "the fixture drew no feed list"
+        );
+        assert!(
+            screen.matches("An Entry").count() > 1,
+            "the fixture drew no entry list"
+        );
+
+        app.toggle_reading();
+        let screen = render_at(&mut app, 80, 24);
+        assert_eq!(
+            screen.matches("Sidebar").count(),
+            1,
+            "the feed list is still on screen in reading mode"
+        );
+        assert_eq!(
+            screen.matches("An Entry").count(),
+            1,
+            "the entry list is still on screen; only the article header should name it"
+        );
+    }
+
+    #[test]
+    fn reading_mode_gives_the_article_the_whole_width() {
+        let mut app = themed(crate::theme::Theme::dark());
+        render_at(&mut app, 120, 24);
+        let shared = app.detail_viewport.0;
+
+        app.toggle_reading();
+        render_at(&mut app, 120, 24);
+        assert!(
+            app.detail_viewport.0 > shared,
+            "the article got no more room: {} then {}",
+            shared,
+            app.detail_viewport.0
+        );
+    }
+
+    #[test]
+    fn a_hidden_pane_cannot_be_clicked() {
+        let mut app = themed(crate::theme::Theme::dark());
+        app.toggle_reading();
+        render_at(&mut app, 80, 24);
+
+        assert_eq!(
+            app.hits.feeds_pane.height, 0,
+            "the feed list is still clickable"
+        );
+        assert_eq!(
+            app.hits.entries_pane.height, 0,
+            "the entry list is still clickable"
+        );
+        assert!(
+            app.hits.detail_pane.height > 0,
+            "the article is not clickable"
+        );
+    }
+
+    #[test]
+    fn the_status_bar_offers_a_way_out_of_reading_mode() {
+        let mut app = themed(crate::theme::Theme::dark());
+        assert!(
+            render_at(&mut app, 120, 24).contains("z read"),
+            "reading mode is undiscoverable"
+        );
+
+        app.toggle_reading();
+        let screen = render_at(&mut app, 120, 24);
+        assert!(screen.contains("Esc back"), "no way back is offered");
+
+        // And the hints are clickable, not decoration.
+        assert!(
+            app.hits
+                .buttons
+                .iter()
+                .any(|(.., action)| *action == crate::keys::Action::ToggleReading),
+            "the way back cannot be clicked"
+        );
     }
 }
