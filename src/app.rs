@@ -49,6 +49,39 @@ impl App {
         }
     }
 
+    /// Whether an entry should be listed, given the current filter.
+    ///
+    /// The selected entry always shows, even once it has been marked read.
+    /// Otherwise reading an entry would make it vanish from under the cursor,
+    /// which is disorienting and loses your place.
+    pub fn is_visible(&self, feed_index: usize, entry_index: usize) -> bool {
+        if !self.read.unread_only {
+            return true;
+        }
+        if feed_index == self.selected_feed && entry_index == self.selected_entry {
+            return true;
+        }
+        self.feeds
+            .get(feed_index)
+            .and_then(|feed| feed.entries.get(entry_index))
+            .is_some_and(|entry| !self.read.is_read(entry))
+    }
+
+    /// The entries of a feed that are currently listed, by index.
+    pub fn visible_indices(&self, feed_index: usize) -> Vec<usize> {
+        let Some(feed) = self.feeds.get(feed_index) else {
+            return Vec::new();
+        };
+        (0..feed.entries.len())
+            .filter(|index| self.is_visible(feed_index, *index))
+            .collect()
+    }
+
+    /// Turns the unread-only filter on or off.
+    pub fn toggle_unread_only(&mut self) {
+        self.read.unread_only = !self.read.unread_only;
+    }
+
     /// How many of a feed's entries have not been read.
     pub fn unread(&self, feed: usize) -> usize {
         self.feeds
@@ -138,7 +171,7 @@ impl App {
                 self.detail_scroll = 0;
             }
             Pane::Entries => {
-                self.selected_entry = step(self.selected_entry, self.entry_count(), 1);
+                self.selected_entry = self.step_visible(1);
                 self.detail_scroll = 0;
                 self.mark_current_read();
             }
@@ -154,12 +187,31 @@ impl App {
                 self.detail_scroll = 0;
             }
             Pane::Entries => {
-                self.selected_entry = step(self.selected_entry, self.entry_count(), -1);
+                self.selected_entry = self.step_visible(-1);
                 self.detail_scroll = 0;
                 self.mark_current_read();
             }
             Pane::Detail => self.scroll_detail(-1),
         }
+    }
+
+    /// The next listed entry in `delta`'s direction, wrapping.
+    ///
+    /// Walks the underlying list rather than a filtered copy, so the cursor
+    /// lands on real entries and skips whatever the filter hides.
+    fn step_visible(&self, delta: isize) -> usize {
+        let count = self.entry_count();
+        if count == 0 {
+            return 0;
+        }
+        let mut index = self.selected_entry;
+        for _ in 0..count {
+            index = step(index, count, delta);
+            if self.is_visible(self.selected_feed, index) && index != self.selected_entry {
+                return index;
+            }
+        }
+        self.selected_entry
     }
 
     fn entry_count(&self) -> usize {
@@ -323,6 +375,81 @@ mod tests {
         app.begin_refresh();
         assert_eq!(app.current_feed().map(|f| f.entries.len()), Some(2));
         assert!(app.current_entry().is_some());
+    }
+
+    #[test]
+    fn the_filter_hides_read_entries_but_keeps_the_selected_one() {
+        let mut app = app();
+        app.focus = Pane::Entries;
+        app.mark_current_read(); // entry 0 of feed 0
+
+        app.toggle_unread_only();
+        // Entry 0 is read, but it is selected, so it stays put rather than
+        // vanishing from under the cursor.
+        assert_eq!(app.visible_indices(0), vec![0, 1]);
+
+        app.selected_entry = 1;
+        assert_eq!(app.visible_indices(0), vec![1]);
+    }
+
+    #[test]
+    fn unfiltered_everything_is_listed() {
+        let mut app = app();
+        app.focus = Pane::Entries;
+        app.mark_current_read();
+        assert_eq!(app.visible_indices(0), vec![0, 1]);
+    }
+
+    #[test]
+    fn the_visible_count_agrees_with_the_unread_count() {
+        let mut app = app();
+        app.toggle_unread_only();
+        app.selected_feed = 1;
+        assert_eq!(app.visible_indices(1).len(), app.unread(1));
+
+        app.selected_feed = 0;
+        assert_eq!(app.visible_indices(0).len(), app.unread(0));
+    }
+
+    #[test]
+    fn navigation_skips_entries_the_filter_hides() {
+        let mut app = App::new(
+            vec![Feed {
+                title: "A".into(),
+                url: "https://a.example".into(),
+                status: crate::feed::Status::Idle,
+                entries: vec![entry("a1"), entry("a2"), entry("a3")],
+            }],
+            ReadState::default(),
+        );
+        // Mark the middle entry read without selecting it.
+        app.read.mark_read(&app.feeds[0].entries[1].clone());
+        app.toggle_unread_only();
+        app.focus = Pane::Entries;
+
+        app.select_next();
+        assert_eq!(app.selected_entry, 2, "hopped over the read entry");
+    }
+
+    #[test]
+    fn a_fully_read_feed_under_the_filter_shows_only_the_selection() {
+        let mut app = app();
+        for entry in app.feeds[0].entries.clone() {
+            app.read.mark_read(&entry);
+        }
+        app.toggle_unread_only();
+        assert_eq!(app.visible_indices(0), vec![0]);
+        assert_eq!(app.unread(0), 0);
+    }
+
+    #[test]
+    fn toggling_the_filter_is_reversible() {
+        let mut app = app();
+        assert!(!app.read.unread_only);
+        app.toggle_unread_only();
+        assert!(app.read.unread_only);
+        app.toggle_unread_only();
+        assert!(!app.read.unread_only);
     }
 
     #[test]
