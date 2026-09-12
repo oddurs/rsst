@@ -65,6 +65,7 @@ max_concurrent_fetches = 8
 | `o`            | Open the entry in your browser |
 | `y`            | Copy its link to the clipboard |
 | `r`            | Refresh all feeds         |
+| `?`            | Show every key            |
 | `q` / `Esc`    | Quit                      |
 
 Starred entries are kept even after they fall out of the upstream feed, which is

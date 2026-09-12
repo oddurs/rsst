@@ -2,9 +2,10 @@
 id: 25
 title: Keybinding help overlay
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p2
 effort: s
 area: ui
@@ -21,6 +22,6 @@ The status bar lists four keys. Everything else has to be learned from the READM
 
 ## Acceptance criteria
 
-- [ ] `?` opens and any key dismisses.
-- [ ] The overlay is generated from the binding table rather than hand-maintained.
-- [ ] It stays readable at 80x24.
+- [x] `?` opens and any key dismisses.
+- [x] The overlay is generated from the binding table rather than hand-maintained.
+- [x] It stays readable at 80x24.

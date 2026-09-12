@@ -3,6 +3,7 @@ mod cache;
 mod cli;
 mod config;
 mod feed;
+mod keys;
 mod launch;
 mod limit;
 mod opml;
@@ -54,7 +55,7 @@ struct Session {
 async fn main() -> Result<()> {
     let config_path = match cli::parse(std::env::args().skip(1))? {
         Action::Help => {
-            println!("{}", cli::HELP);
+            println!("{}", cli::help());
             return Ok(());
         }
         Action::Version => {
@@ -177,6 +178,12 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
 
         app.status = None;
 
+        // The help overlay swallows the next keystroke, whatever it is.
+        if app.help_open {
+            app.help_open = false;
+            continue;
+        }
+
         // A queued bulk mark owns the keyboard until it is answered.
         if app.pending.is_some() {
             match key.code {
@@ -225,6 +232,7 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                     app.status = Some(" No unread entries. ".into());
                 }
             }
+            KeyCode::Char('?') => app.help_open = true,
             KeyCode::Char('/') => app.start_search(),
             KeyCode::Char('s') => {
                 let starred = app.toggle_star();

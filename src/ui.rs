@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 
 use crate::app::{App, Pane};
 
@@ -29,6 +29,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     draw_entries(frame, app, panes[0]);
     draw_detail(frame, app, panes[1]);
     draw_status(frame, app, rows[1]);
+
+    // Last, so it covers everything else.
+    if app.help_open {
+        draw_help(frame, frame.area());
+    }
 }
 
 fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -174,6 +179,86 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
             .highlight_symbol("› "),
         area,
         &mut state,
+    );
+}
+
+/// The key reference, generated from [`crate::keys`] so it cannot drift.
+///
+/// Section headings cost four rows plus the blank lines between them, which is
+/// more than an 80x24 terminal can spare once every binding is listed. So they
+/// are shown when there is room and dropped when there is not: on a small
+/// terminal the bindings themselves matter more than the grouping.
+fn draw_help(frame: &mut Frame, area: Rect) {
+    let width = crate::keys::key_column_width();
+    let dismiss = Line::from(Span::styled(
+        "  any key to dismiss",
+        Style::default().fg(Color::DarkGray),
+    ));
+
+    let binding_line = |binding: &crate::keys::Binding| {
+        Line::from(vec![
+            Span::styled(
+                format!("  {:width$}  ", binding.keys, width = width),
+                Style::default().fg(Color::Yellow),
+            ),
+            Span::raw(binding.action),
+        ])
+    };
+
+    let mut roomy = Vec::new();
+    for section in crate::keys::SECTIONS {
+        if !roomy.is_empty() {
+            roomy.push(Line::raw(""));
+        }
+        roomy.push(Line::from(Span::styled(
+            section.name,
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )));
+        roomy.extend(section.bindings.iter().map(&binding_line));
+    }
+    roomy.push(Line::raw(""));
+    roomy.push(dismiss.clone());
+
+    let mut compact: Vec<Line> = crate::keys::SECTIONS
+        .iter()
+        .flat_map(|section| section.bindings)
+        .map(&binding_line)
+        .collect();
+    compact.push(dismiss);
+
+    let available = area.height.saturating_sub(2) as usize;
+    let lines = if roomy.len() <= available {
+        roomy
+    } else {
+        compact
+    };
+
+    let content_width = crate::keys::SECTIONS
+        .iter()
+        .flat_map(|section| section.bindings)
+        .map(|b| 2 + width + 2 + b.action.len() + 2)
+        .max()
+        .unwrap_or(40) as u16;
+
+    let height = (lines.len() as u16 + 2).min(area.height);
+    let popup = Rect {
+        x: area.x + area.width.saturating_sub(content_width.min(area.width)) / 2,
+        y: area.y + area.height.saturating_sub(height) / 2,
+        width: content_width.min(area.width),
+        height,
+    };
+
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .title(" Keys "),
+        ),
+        popup,
     );
 }
 
@@ -602,6 +687,64 @@ mod tests {
             ReadState::default(),
         );
         assert!(render(&mut app).contains("From The Cache"));
+    }
+
+    /// Renders at a given terminal size and returns the whole screen.
+    fn render_at(app: &mut App, width: u16, height: u16) -> String {
+        let mut terminal =
+            Terminal::new(TestBackend::new(width, height)).expect("test terminal should build");
+        terminal
+            .draw(|frame| draw(frame, app))
+            .expect("draw should succeed");
+        terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect()
+    }
+
+    #[test]
+    fn every_binding_is_visible_on_an_eighty_by_twentyfour_terminal() {
+        let mut app = App::new(Vec::new(), ReadState::default());
+        app.help_open = true;
+        let screen = render_at(&mut app, 80, 24);
+
+        for binding in crate::keys::SECTIONS.iter().flat_map(|s| s.bindings) {
+            assert!(
+                screen.contains(binding.action),
+                "the smallest supported terminal cuts off {}",
+                binding.action
+            );
+        }
+    }
+
+    #[test]
+    fn a_roomy_terminal_also_gets_the_section_headings() {
+        let mut app = App::new(Vec::new(), ReadState::default());
+        app.help_open = true;
+        let screen = render_at(&mut app, 100, 40);
+
+        for section in crate::keys::SECTIONS {
+            assert!(screen.contains(section.name), "missing {}", section.name);
+        }
+        for binding in crate::keys::SECTIONS.iter().flat_map(|s| s.bindings) {
+            assert!(screen.contains(binding.action));
+        }
+    }
+
+    #[test]
+    fn the_help_overlay_says_how_to_dismiss_itself() {
+        let mut app = App::new(Vec::new(), ReadState::default());
+        app.help_open = true;
+        assert!(render_at(&mut app, 80, 24).contains("any key to dismiss"));
+    }
+
+    #[test]
+    fn the_help_overlay_is_absent_until_asked_for() {
+        let mut app = App::new(Vec::new(), ReadState::default());
+        assert!(!render(&mut app).contains("any key to dismiss"));
     }
 
     #[test]
