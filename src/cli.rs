@@ -24,6 +24,11 @@ pub enum Action {
     Man,
     /// Write a completion script for one shell to stdout.
     Completions(String),
+    /// Render one frame as SVG and exit.
+    Screenshot {
+        size: String,
+        config: Option<PathBuf>,
+    },
 }
 
 /// The `--help` text, with the key reference generated from [`crate::keys`].
@@ -39,6 +44,8 @@ USAGE:
 OPTIONS:
   -c, --config <PATH>  read this config instead of the default
       --man            write the man page to stdout
+      --screenshot <WxH>
+                       render one frame as SVG and exit
       --completions <SHELL>
                        write a completion script for bash, zsh or fish
   -h, --help           show this help
@@ -57,6 +64,7 @@ where
     S: Into<String>,
 {
     let mut config = None;
+    let mut screenshot = None;
     let mut command = None;
     let mut import_path = None;
     let mut args = args.into_iter().map(Into::into);
@@ -65,6 +73,13 @@ where
         match arg.as_str() {
             "-h" | "--help" => return Ok(Action::Help),
             "--man" => return Ok(Action::Man),
+            "--screenshot" => {
+                let size = args.next().context("--screenshot needs WIDTHxHEIGHT")?;
+                screenshot = Some(size);
+            }
+            other if other.starts_with("--screenshot=") => {
+                screenshot = Some(other.trim_start_matches("--screenshot=").to_string());
+            }
             "--completions" => {
                 let shell = args.next().context("--completions needs a shell")?;
                 return Ok(Action::Completions(shell));
@@ -105,6 +120,9 @@ where
         }
     }
 
+    if let Some(size) = screenshot {
+        return Ok(Action::Screenshot { size, config });
+    }
     match command.as_deref() {
         Some("import") => Ok(Action::Import {
             path: import_path.context("import needs a path to an OPML file")?,
@@ -175,6 +193,29 @@ mod tests {
             parse_ok(&["--completions=zsh"]),
             Action::Completions("zsh".into())
         );
+    }
+
+    #[test]
+    fn screenshot_takes_a_size_and_honours_config() {
+        assert_eq!(
+            parse_ok(&["--screenshot", "100x30"]),
+            Action::Screenshot {
+                size: "100x30".into(),
+                config: None
+            }
+        );
+        assert_eq!(
+            parse_ok(&["--screenshot=80x24", "--config", "/tmp/a.toml"]),
+            Action::Screenshot {
+                size: "80x24".into(),
+                config: Some(PathBuf::from("/tmp/a.toml"))
+            }
+        );
+    }
+
+    #[test]
+    fn screenshot_without_a_size_is_an_error() {
+        assert!(parse(["--screenshot"]).is_err());
     }
 
     #[test]
