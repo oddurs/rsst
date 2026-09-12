@@ -59,7 +59,7 @@ RSST_HOME=/tmp/rsst-try rsst
 
 ```toml
 [[feeds]]
-url = "https://blog.rust-lang.org/feed.xml"
+url = "https://blog.rust-lang.org/feed.xml"   # or just the site: rsst finds the feed
 title = "Rust Blog"        # optional; defaults to the feed's own title
 
 [[feeds]]

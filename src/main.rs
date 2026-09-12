@@ -221,10 +221,17 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                     feed,
                     etag,
                     last_modified,
+                    found_at,
                 }) => {
                     // Only this feed's rows — the whole reason for the database.
                     let _ = session.db.put_feed(&feed);
                     let _ = session.db.set_validators(&url, etag, last_modified);
+                    // Somebody gave the address of a site; the site named its
+                    // feed. Say which one, so the config can be corrected.
+                    if let Some(found) = found_at {
+                        let _ = session.db.set_resolved(&url, Some(&found));
+                        app.status = Some(format!(" Found {found} for {} ", slot.title));
+                    }
                     *slot = *feed;
                 }
                 // Nothing was downloaded or reparsed; what is on screen stands.
@@ -568,6 +575,15 @@ fn spawn_some(
             continue;
         }
         let meta = db.meta(&source.url);
+        // A feed found behind a web page is fetched straight from where it
+        // was found; the page is only visited once, ever.
+        let source = match db.resolved(&source.url) {
+            Some(found) => config::FeedSource {
+                url: found,
+                ..source
+            },
+            None => source,
+        };
         let client = client.clone();
         let tx = tx.clone();
         let limiter = limiter.clone();
