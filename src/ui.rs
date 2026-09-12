@@ -2,11 +2,11 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use crate::app::{App, Pane};
 
-const HELP: &str = " q quit · Tab pane · j/k move · o open · y copy · r refresh ";
+const HELP: &str = " q quit · Tab pane · j/k move/scroll · o open · y copy · r refresh ";
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let rows = Layout::default()
@@ -105,33 +105,34 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
     );
 }
 
-fn draw_detail(frame: &mut Frame, app: &App, area: Rect) {
-    let body = match app.current_entry() {
-        Some(entry) => {
-            let mut lines = vec![
-                Line::from(Span::styled(
-                    entry.title.clone(),
-                    Style::default().add_modifier(Modifier::BOLD),
-                )),
-                Line::from(Span::styled(
-                    entry.link.clone().unwrap_or_default(),
-                    Style::default().fg(Color::Blue),
-                )),
-                Line::raw(""),
-            ];
-            lines.push(Line::raw(entry.summary.clone()));
-            lines
-        }
-        None => vec![Line::from(Span::styled(
-            "No entry selected.",
-            Style::default().fg(Color::DarkGray),
-        ))],
+fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
+    // Tell the app how much room it has, so it can wrap and clamp scrolling.
+    // `block` takes one column of border on each side, and one row.
+    let inner = Rect {
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+        ..area
+    };
+    app.detail_viewport = (inner.width, inner.height);
+    // The pane may have shrunk since the last frame, stranding the offset past
+    // the end of the text.
+    let max = app.max_detail_scroll();
+    app.detail_scroll = app.detail_scroll.min(max);
+
+    let lines: Vec<Line> = app.detail_lines().into_iter().map(Line::raw).collect();
+
+    let title = if max > 0 {
+        format!("Detail  {}/{}", app.detail_scroll, max)
+    } else {
+        "Detail".to_string()
     };
 
     frame.render_widget(
-        Paragraph::new(body)
-            .block(block("Detail", false))
-            .wrap(Wrap { trim: true }),
+        // Already wrapped by `App::detail_lines`, so no Wrap here — the scroll
+        // offset has to mean the same thing to the app and to the renderer.
+        Paragraph::new(lines)
+            .block(block(&title, app.focus == Pane::Detail))
+            .scroll((app.detail_scroll, 0)),
         area,
     );
 }
@@ -279,6 +280,86 @@ mod tests {
         let screen = render(&mut app);
         assert!(screen.contains("Rust Blog"));
         assert!(!screen.contains("Rust Blog  1"), "no count when all read");
+    }
+
+    /// Renders, then reports the lines of the detail pane only.
+    fn detail_region(app: &mut App) -> String {
+        let mut terminal =
+            Terminal::new(TestBackend::new(80, 24)).expect("test terminal should build");
+        terminal
+            .draw(|frame| draw(frame, app))
+            .expect("draw should succeed");
+        let buffer = terminal.backend().buffer().clone();
+        // The detail pane occupies the lower 40% of the right-hand 75%.
+        let mut out = String::new();
+        for y in 15..23 {
+            for x in 21..79 {
+                out.push_str(buffer[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    fn long_entry_app() -> App {
+        App::new(
+            vec![Feed {
+                title: "Feed".into(),
+                url: "https://a.example".into(),
+                entries: vec![Entry {
+                    title: "Title".into(),
+                    link: None,
+                    published: None,
+                    summary: (1..=200)
+                        .map(|i| format!("word{i}"))
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                    keys: vec!["id:x".into()],
+                }],
+            }],
+            ReadState::default(),
+        )
+    }
+
+    #[test]
+    fn scrolling_the_detail_pane_changes_what_is_shown() {
+        let mut app = long_entry_app();
+        let before = detail_region(&mut app);
+
+        app.focus = Pane::Detail;
+        app.select_next(); // scrolls down one line
+        let after = detail_region(&mut app);
+
+        assert_ne!(before, after, "the detail pane did not scroll");
+        assert!(
+            before.contains("word1 "),
+            "first frame starts at the beginning"
+        );
+        assert!(!after.contains("Title"), "the title scrolled out of view");
+    }
+
+    #[test]
+    fn the_detail_pane_stops_at_the_last_line() {
+        let mut app = long_entry_app();
+        detail_region(&mut app); // establishes the viewport
+
+        app.focus = Pane::Detail;
+        for _ in 0..500 {
+            app.select_next();
+        }
+        let at_end = detail_region(&mut app);
+        let max = app.max_detail_scroll();
+
+        assert_eq!(app.detail_scroll, max, "clamped to the last line");
+        for _ in 0..10 {
+            app.select_next();
+        }
+        assert_eq!(
+            detail_region(&mut app),
+            at_end,
+            "scrolling past the end changed the view"
+        );
+        assert!(at_end.contains("word200"), "the final line is reachable");
     }
 
     #[test]

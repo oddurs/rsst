@@ -2,7 +2,8 @@
 id: 12
 title: Scroll the detail pane
 type: feature
-status: planned
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
 updated: 2026-09-11
 priority: p1
@@ -21,6 +22,6 @@ Track a scroll offset for the detail pane and bind it when the pane has focus. M
 
 ## Acceptance criteria
 
-- [ ] Long entries scroll with j/k and the arrow keys.
-- [ ] The offset resets when a different entry is selected.
-- [ ] Scrolling stops at the last line rather than running off into blank space.
+- [x] Long entries scroll with j/k and the arrow keys.
+- [x] The offset resets when a different entry is selected.
+- [x] Scrolling stops at the last line rather than running off into blank space.
