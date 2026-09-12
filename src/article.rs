@@ -47,6 +47,15 @@ pub enum Block {
         body: Vec<Inline>,
     },
     Quote(Vec<Inline>),
+    /// An image, described by its alt text. A terminal cannot show the
+    /// picture, but it can say one was here and what it was of — which is
+    /// more than dropping it silently.
+    Image(String),
+    /// Rows of cells. The first is the header when the table had one.
+    Table {
+        header: Option<Vec<String>>,
+        rows: Vec<Vec<String>>,
+    },
     Rule,
 }
 
@@ -69,6 +78,10 @@ pub enum Kind {
     Rule,
     /// A line of the reference list at the end.
     Reference,
+    /// A stand-in for a picture.
+    Image,
+    /// A row of a table.
+    Table,
 }
 
 /// A parsed article: its blocks, and the links it referred to.
@@ -80,6 +93,13 @@ pub struct Article {
 }
 
 /// Reads an entry's HTML.
+/// A table being gathered as the document is walked.
+#[derive(Default)]
+struct Gathering {
+    header: Option<Vec<String>>,
+    rows: Vec<Vec<String>>,
+}
+
 pub fn parse(html: &str) -> Article {
     let mut article = Article::default();
     let mut inlines: Vec<Inline> = Vec::new();
@@ -95,6 +115,11 @@ pub fn parse(html: &str) -> Article {
     let mut heading: Option<u8> = None;
     let mut pre: Option<String> = None;
     let mut ordered: Vec<Option<usize>> = Vec::new();
+    // A table is gathered as it is walked: cells into a row, rows into a
+    // table, because none of it means anything until the table closes.
+    let mut table: Option<Gathering> = None;
+    let mut row: Vec<String> = Vec::new();
+    let mut header_row = false;
     // A space between two inline elements is real content; flushing the text
     // buffer must not swallow it.
     let mut pending_space = false;
@@ -232,6 +257,30 @@ pub fn parse(html: &str) -> Article {
                     flush_block!();
                     article.blocks.push(Block::Rule);
                 }
+                "img" => {
+                    flush_block!();
+                    let alt = attributes
+                        .iter()
+                        .find(|(key, _)| key == "alt")
+                        .map(|(_, value)| value.trim().to_string())
+                        .unwrap_or_default();
+                    article.blocks.push(Block::Image(alt));
+                }
+                "table" => {
+                    flush_block!();
+                    table = Some(Gathering::default());
+                }
+                "tr" => {
+                    flush_text!();
+                    inlines.clear();
+                    row.clear();
+                    header_row = false;
+                }
+                "th" | "td" => {
+                    flush_text!();
+                    inlines.clear();
+                    header_row |= name == "th";
+                }
                 _ => {}
             },
             Token::Close(name) => match name.as_str() {
@@ -271,6 +320,34 @@ pub fn parse(html: &str) -> Article {
                 "ul" | "ol" => {
                     flush_block!();
                     ordered.pop();
+                }
+                "th" | "td" => {
+                    flush_text!();
+                    let cell: String = inlines.iter().map(Inline::text).collect();
+                    inlines.clear();
+                    row.push(cell.trim().to_string());
+                }
+                "tr" => {
+                    if let Some(Gathering { header, rows }) = &mut table
+                        && !row.is_empty()
+                    {
+                        let cells = std::mem::take(&mut row);
+                        if header_row && header.is_none() {
+                            *header = Some(cells);
+                        } else {
+                            rows.push(cells);
+                        }
+                    }
+                    row.clear();
+                }
+                "table" => {
+                    if let Some(Gathering { header, rows }) = table.take()
+                        && (header.is_some() || !rows.is_empty())
+                    {
+                        article.blocks.push(Block::Table { header, rows });
+                    }
+                    inlines.clear();
+                    text.clear();
                 }
                 "li" => {
                     flush_text!();
@@ -441,6 +518,29 @@ pub fn layout(article: &Article, width: usize, measure: Measure) -> Vec<Row> {
                     });
                 }
             }
+            Block::Image(alt) => {
+                blank(&mut rows);
+                let label = if alt.is_empty() {
+                    // Still acknowledged: a reader should know a picture was
+                    // here, even when the publisher did not describe it.
+                    "[image]".to_string()
+                } else {
+                    format!("[image: {alt}]")
+                };
+                rows.extend(wrap_spans(
+                    &[Inline::Text(label)],
+                    prose,
+                    margin,
+                    Kind::Image,
+                ));
+            }
+            Block::Table {
+                header,
+                rows: cells,
+            } => {
+                blank(&mut rows);
+                rows.extend(table_rows(header.as_deref(), cells, prose, margin, ascii));
+            }
             Block::Rule => {
                 blank(&mut rows);
                 rows.push(Row {
@@ -457,13 +557,15 @@ pub fn layout(article: &Article, width: usize, measure: Measure) -> Vec<Row> {
         for (index, href) in article.links.iter().enumerate() {
             let label = format!("[{}] ", index + 1);
             let indent = label.chars().count();
-            for (line, text) in wrap(href, width.saturating_sub(indent))
+            // A URL is not prose, so it may run past the measure - but it still
+            // starts on the same left edge as the text that referenced it.
+            for (line, text) in wrap(href, width.saturating_sub(margin + indent))
                 .into_iter()
                 .enumerate()
             {
                 rows.push(Row {
                     kind: Kind::Reference,
-                    indent: if line == 0 { 0 } else { indent },
+                    indent: if line == 0 { margin } else { margin + indent },
                     spans: if line == 0 {
                         vec![Inline::Text(label.clone()), Inline::Text(text)]
                     } else {
@@ -475,6 +577,110 @@ pub fn layout(article: &Article, width: usize, measure: Measure) -> Vec<Row> {
     }
 
     rows
+}
+
+/// Lays a table out as aligned columns.
+///
+/// Where the columns will not fit, each row is set as `header: value` lines
+/// instead — a narrow table that has been stacked is still readable, whereas
+/// one squeezed into too few columns is not.
+fn table_rows(
+    header: Option<&[String]>,
+    body: &[Vec<String>],
+    width: usize,
+    margin: usize,
+    ascii: bool,
+) -> Vec<Row> {
+    let columns = header
+        .map(<[String]>::len)
+        .into_iter()
+        .chain(body.iter().map(Vec::len))
+        .max()
+        .unwrap_or(0);
+    if columns == 0 || width == 0 {
+        return Vec::new();
+    }
+
+    fn cell(row: &[String], index: usize) -> &str {
+        row.get(index).map(String::as_str).unwrap_or("")
+    }
+    let widths: Vec<usize> = (0..columns)
+        .map(|index| {
+            header
+                .map(|row| cell(row, index).chars().count())
+                .into_iter()
+                .chain(body.iter().map(|row| cell(row, index).chars().count()))
+                .max()
+                .unwrap_or(0)
+        })
+        .collect();
+
+    let gap = 2;
+    let needed: usize = widths.iter().sum::<usize>() + gap * columns.saturating_sub(1);
+    let mut out = Vec::new();
+
+    let line = |row: &[String], kind: Kind| Row {
+        kind,
+        indent: margin,
+        spans: vec![Inline::Text(
+            (0..columns)
+                .map(|index| {
+                    let text = cell(row, index);
+                    let pad = widths[index].saturating_sub(text.chars().count());
+                    // The last column is not padded; trailing space is not
+                    // alignment, it is just space.
+                    if index + 1 == columns {
+                        text.to_string()
+                    } else {
+                        format!("{text}{}{}", " ".repeat(pad), " ".repeat(gap))
+                    }
+                })
+                .collect::<String>(),
+        )],
+    };
+
+    if needed <= width {
+        if let Some(header) = header {
+            out.push(line(header, Kind::Heading));
+            let rule = if ascii { "-" } else { "─" };
+            out.push(Row {
+                kind: Kind::Table,
+                indent: margin,
+                spans: vec![Inline::Text(rule.repeat(needed.min(width)))],
+            });
+        }
+        out.extend(body.iter().map(|row| line(row, Kind::Table)));
+        return out;
+    }
+
+    // Too wide: stack each row as labelled lines rather than mangling it.
+    for (position, row) in body.iter().enumerate() {
+        if position > 0 {
+            out.push(Row {
+                kind: Kind::Blank,
+                indent: 0,
+                spans: Vec::new(),
+            });
+        }
+        for index in 0..columns {
+            let value = cell(row, index);
+            if value.is_empty() {
+                continue;
+            }
+            let label = header
+                .map(|head| cell(head, index))
+                .filter(|label| !label.is_empty())
+                .map(|label| format!("{label}: "))
+                .unwrap_or_default();
+            out.extend(wrap_spans(
+                &[Inline::Text(format!("{label}{value}"))],
+                width,
+                margin,
+                Kind::Table,
+            ));
+        }
+    }
+    out
 }
 
 /// Wraps a run of styled text, keeping the styling across line breaks.
@@ -813,6 +1019,112 @@ mod tests {
             .find(|row| row.contains("[1]"))
             .expect("a reference");
         assert!(reference.starts_with(&" ".repeat(20)), "{reference:?}");
+    }
+
+    #[test]
+    fn an_image_becomes_its_alt_text() {
+        let rows = render(
+            r#"<p>Before</p><img src="/d.png" alt="A diagram of the checker">"#,
+            60,
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row.contains("[image: A diagram of the checker]")),
+            "{rows:?}"
+        );
+    }
+
+    #[test]
+    fn an_image_with_no_alt_text_is_still_acknowledged() {
+        // Dropping it silently tells the reader nothing was there.
+        let rows = render(r#"<img src="/d.png">"#, 60);
+        assert!(rows.iter().any(|row| row.contains("[image]")), "{rows:?}");
+    }
+
+    #[test]
+    fn a_table_is_laid_out_in_aligned_columns() {
+        let html = "<table><tr><th>Version</th><th>Date</th></tr>                    <tr><td>1.98</td><td>Sep 2026</td></tr>                    <tr><td>1.97</td><td>Jul 2026</td></tr></table>";
+        let rows = render(html, 60);
+        let body: Vec<&String> = rows.iter().filter(|row| !row.trim().is_empty()).collect();
+
+        assert!(
+            body[0].contains("Version") && body[0].contains("Date"),
+            "{body:?}"
+        );
+        // Every row starts its second column at the same place.
+        let at = |row: &str, needle: &str| row.find(needle).expect("column");
+        assert_eq!(at(body[0], "Date"), at(body[2], "Sep 2026"));
+        assert_eq!(at(body[2], "Sep 2026"), at(body[3], "Jul 2026"));
+    }
+
+    #[test]
+    fn the_table_that_prompted_this_is_no_longer_a_word() {
+        // It rendered as `VersionDate1.98Sep 2026`.
+        let html = "<table><tr><th>Version</th><th>Date</th></tr>                    <tr><td>1.98</td><td>Sep 2026</td></tr></table>";
+        let joined = render(html, 60).join("\n");
+        assert!(!joined.contains("VersionDate"), "{joined}");
+        assert!(!joined.contains("1.98Sep"), "{joined}");
+    }
+
+    #[test]
+    fn a_header_is_separated_from_the_body() {
+        let html = "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>";
+        let rows = layout(
+            &parse(html),
+            60,
+            Measure {
+                columns: None,
+                ascii: false,
+            },
+        );
+        assert!(
+            rows.iter().any(|row| row.kind == Kind::Heading),
+            "no header row"
+        );
+    }
+
+    #[test]
+    fn a_table_too_wide_to_fit_is_stacked_rather_than_mangled() {
+        let wide = "x".repeat(40);
+        let html = format!(
+            "<table><tr><th>First</th><th>Second</th></tr><tr><td>{wide}</td><td>{wide}</td></tr></table>"
+        );
+        let rows = render(&html, 30);
+        let joined = rows.join("\n");
+        // Labelled lines rather than columns squeezed into nothing.
+        assert!(joined.contains("First:"), "{joined}");
+        assert!(joined.contains("Second:"), "{joined}");
+        for row in &rows {
+            assert!(
+                row.chars().count() <= 30,
+                "a row ran to {}",
+                row.chars().count()
+            );
+        }
+    }
+
+    #[test]
+    fn a_table_with_no_header_still_lays_out() {
+        let html = "<table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>";
+        let rows = render(html, 40);
+        let body: Vec<&String> = rows.iter().filter(|row| !row.trim().is_empty()).collect();
+        assert_eq!(body.len(), 2, "{body:?}");
+    }
+
+    #[test]
+    fn ragged_rows_do_not_lose_cells_or_panic() {
+        let html = "<table><tr><td>a</td></tr><tr><td>b</td><td>c</td><td>d</td></tr></table>";
+        let joined = render(html, 40).join("\n");
+        for needle in ["a", "b", "c", "d"] {
+            assert!(joined.contains(needle), "{joined} lost {needle}");
+        }
+    }
+
+    #[test]
+    fn an_empty_or_malformed_table_is_harmless() {
+        assert!(render("<table></table>", 40).is_empty());
+        assert!(!render("<table><tr><td>only</td>", 40).is_empty());
+        let _ = render("<table><table><tr><td>nested</td></tr></table></table>", 40);
     }
 
     #[test]
