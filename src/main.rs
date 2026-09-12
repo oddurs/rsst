@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use crossterm::cursor::Show;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -212,6 +212,19 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
             KeyCode::Tab | KeyCode::BackTab => app.toggle_focus(),
             KeyCode::Char('j') | KeyCode::Down => app.select_next(),
             KeyCode::Char('k') | KeyCode::Up => app.select_previous(),
+            KeyCode::Char('g') | KeyCode::Home => app.select_first(),
+            KeyCode::Char('G') | KeyCode::End => app.select_last(),
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => app.half_page(1),
+            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                app.half_page(-1)
+            }
+            KeyCode::PageDown => app.half_page(1),
+            KeyCode::PageUp => app.half_page(-1),
+            KeyCode::Char('p') if app.search.is_none() => {
+                if !app.next_unread(false) {
+                    app.status = Some(" No unread entries. ".into());
+                }
+            }
             KeyCode::Char('/') => app.start_search(),
             KeyCode::Char('s') => {
                 let starred = app.toggle_star();
@@ -230,6 +243,11 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
             KeyCode::Char('a') => app.request_bulk(app::Bulk::Feed),
             KeyCode::Char('A') => app.request_bulk(app::Bulk::Everything),
             KeyCode::Char('n') if app.search.is_some() => app.step_match(1),
+            KeyCode::Char('n') => {
+                if !app.next_unread(true) {
+                    app.status = Some(" No unread entries. ".into());
+                }
+            }
             KeyCode::Char('N') if app.search.is_some() => app.step_match(-1),
             KeyCode::Char('u') => {
                 app.toggle_unread_only();

@@ -2,9 +2,10 @@
 id: 24
 title: Vim-style navigation keys
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p2
 effort: s
 area: ui
@@ -21,6 +22,6 @@ Only j/k and the arrows work. Moving through a long list is one keystroke per ro
 
 ## Acceptance criteria
 
-- [ ] All of the above work in both list panes.
-- [ ] `n` crosses into the next feed when the current one is exhausted.
-- [ ] Half-page movement respects the pane height.
+- [x] All of the above work in both list panes.
+- [x] `n` crosses into the next feed when the current one is exhausted.
+- [x] Half-page movement respects the pane height.

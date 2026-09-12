@@ -54,6 +54,9 @@ max_concurrent_fetches = 8
 | `j` / `↓`      | Next item, or scroll the detail pane |
 | `k` / `↑`      | Previous item, or scroll back |
 | `Tab`          | Cycle feeds → entries → detail |
+| `g` / `G`      | First / last              |
+| `Ctrl-d` / `Ctrl-u` | Half a pane down / up |
+| `n` / `p`      | Next / previous unread, across feeds |
 | `/`            | Search every feed (`n`/`N` step matches, `Esc` cancels) |
 | `s` / `S`      | Star the entry / show only starred |
 | `m`            | Toggle read on the selected entry |
