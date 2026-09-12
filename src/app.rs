@@ -84,6 +84,8 @@ pub struct App {
     pub help_scroll: u16,
     /// The open "move to folder" picker, if any.
     pub moving: Option<Move>,
+    /// The full article fetched for the selected entry, if one has been.
+    pub article: Option<String>,
 }
 
 /// A marking action that affects more than one entry, so it is worth a prompt.
@@ -921,11 +923,13 @@ impl App {
             spans: Vec::new(),
         });
 
-        // An entry stored before the markup was kept still has its plain text.
-        let source = if entry.content.is_empty() {
-            &entry.summary
-        } else {
-            &entry.content
+        // A fetched article wins over the feed's own text, which for a
+        // summary-only feed is a teaser. An entry stored before the markup was
+        // kept still has its plain text.
+        let source = match (&self.article, entry.content.is_empty()) {
+            (Some(article), _) => article,
+            (None, true) => &entry.summary,
+            (None, false) => &entry.content,
         };
         rows.extend(crate::article::layout(
             &crate::article::parse(source),
@@ -1895,6 +1899,60 @@ mod tests {
         app.cancel_move();
         assert!(app.moving.is_none());
         assert_eq!(app.path_of(0), ["News", "Rust"], "the feed did not move");
+    }
+
+    /// A feed that publishes a teaser and a link, as many do.
+    fn teaser() -> App {
+        App::new(
+            vec![Feed {
+                title: "Teaser".into(),
+                url: "https://a.example".into(),
+                status: crate::feed::Status::Idle,
+                entries: vec![Entry {
+                    title: "Post".into(),
+                    link: Some("https://a.example/post".into()),
+                    published: None,
+                    summary: "A short teaser.".into(),
+                    content: "<p>A short teaser.</p>".into(),
+                    keys: vec!["id:post".into()],
+                }],
+            }],
+            ReadState::default(),
+        )
+    }
+
+    #[test]
+    fn without_a_fetch_the_feeds_own_text_is_shown() {
+        let mut app = teaser();
+        app.detail_viewport = (60, 20);
+        let text = app.detail_lines().join(" ");
+        assert!(text.contains("A short teaser."));
+    }
+
+    #[test]
+    fn a_fetched_article_replaces_the_teaser() {
+        let mut app = teaser();
+        app.detail_viewport = (60, 20);
+        app.article = Some("<p>The whole piece, at last.</p>".into());
+
+        let text = app.detail_lines().join(" ");
+        assert!(text.contains("The whole piece, at last."));
+        assert!(
+            !text.contains("A short teaser."),
+            "the teaser was still shown: {text}"
+        );
+    }
+
+    #[test]
+    fn a_fetched_article_is_rendered_as_a_document_not_flattened() {
+        let mut app = teaser();
+        app.detail_viewport = (60, 20);
+        app.article = Some("<p>Intro.</p><pre><code>one\n  two</code></pre>".into());
+
+        let lines = app.detail_lines();
+        assert!(lines.iter().any(|line| line.contains("Intro.")));
+        assert!(lines.iter().any(|line| line.trim_end() == "  one"));
+        assert!(lines.iter().any(|line| line.trim_end() == "    two"));
     }
 
     #[test]

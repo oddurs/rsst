@@ -2,7 +2,8 @@
 id: 49
 title: Fetch the full article for summary-only feeds
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p1

@@ -114,6 +114,7 @@ time, set `mouse = false`.
 | `Ctrl-d` / `Ctrl-u` | Half a pane down / up |
 | `n` / `p`      | Next / previous unread, across feeds |
 | `/`            | Search every feed (`n`/`N` step matches, `Esc` cancels) |
+| `f`            | Fetch the full article for a summary-only feed |
 | `s` / `S`      | Star the entry / show only starred |
 | `m`            | Toggle read on the selected entry |
 | `a` / `A`      | Mark this feed / every feed read (asks first) |

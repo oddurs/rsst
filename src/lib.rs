@@ -17,6 +17,7 @@ pub mod launch;
 pub mod limit;
 pub mod mouse;
 pub mod opml;
+pub mod readable;
 pub mod screenshot;
 pub mod state;
 pub mod text;
