@@ -1,4 +1,5 @@
 use std::cmp::Reverse;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -53,21 +54,117 @@ impl Feed {
     }
 }
 
-/// Downloads and parses a single feed.
-pub async fn fetch(client: &reqwest::Client, source: &FeedSource) -> Result<Feed> {
-    let body = client
-        .get(&source.url)
+/// What a conditional fetch produced.
+#[derive(Debug)]
+pub enum Outcome {
+    /// New content, with whatever validators the response carried.
+    Updated {
+        feed: Box<Feed>,
+        etag: Option<String>,
+        last_modified: Option<String>,
+    },
+    /// The server confirmed nothing has changed. Nothing was downloaded or
+    /// reparsed; what is already on screen stands.
+    NotModified,
+    /// The server asked us to back off for this long.
+    RateLimited { retry_after: Duration },
+}
+
+/// Downloads and parses a feed, asking the server to skip it if unchanged.
+pub async fn fetch(
+    client: &reqwest::Client,
+    source: &FeedSource,
+    etag: Option<&str>,
+    last_modified: Option<&str>,
+) -> Result<Outcome> {
+    let mut request = client.get(&source.url);
+    // Either validator alone is enough; sending both is what the spec prefers.
+    if let Some(etag) = etag {
+        request = request.header(reqwest::header::IF_NONE_MATCH, etag);
+    }
+    if let Some(last_modified) = last_modified {
+        request = request.header(reqwest::header::IF_MODIFIED_SINCE, last_modified);
+    }
+
+    let response = request
         .send()
         .await
-        .with_context(|| format!("requesting {}", source.url))?
+        .with_context(|| format!("requesting {}", source.url))?;
+
+    let status = response.status();
+    if status == reqwest::StatusCode::NOT_MODIFIED {
+        return Ok(Outcome::NotModified);
+    }
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        || status == reqwest::StatusCode::SERVICE_UNAVAILABLE
+    {
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .and_then(parse_retry_after)
+            // A server that says "slow down" without saying how long still
+            // means it, so do not come straight back.
+            .unwrap_or(DEFAULT_BACKOFF);
+        return Ok(Outcome::RateLimited { retry_after });
+    }
+
+    let response = response
         .error_for_status()
-        .with_context(|| format!("bad status from {}", source.url))?
+        .with_context(|| format!("bad status from {}", source.url))?;
+
+    let header = |name: reqwest::header::HeaderName| {
+        response
+            .headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned)
+    };
+    let etag = header(reqwest::header::ETAG);
+    let last_modified = header(reqwest::header::LAST_MODIFIED);
+
+    let body = response
         .bytes()
         .await
         .with_context(|| format!("reading body of {}", source.url))?;
 
-    parse(&body, source)
+    Ok(Outcome::Updated {
+        feed: Box::new(parse(&body, source)?),
+        etag,
+        last_modified,
+    })
 }
+
+/// How long to wait when a server says to back off but not for how long.
+const DEFAULT_BACKOFF: Duration = Duration::from_secs(300);
+
+/// Reads a `Retry-After` value, in either of the two forms the spec allows.
+///
+/// Takes `now` from the caller so the HTTP-date branch is testable.
+fn parse_retry_after(value: &str) -> Option<Duration> {
+    retry_after_from(value, Utc::now())
+}
+
+fn retry_after_from(value: &str, now: DateTime<Utc>) -> Option<Duration> {
+    let value = value.trim();
+    // The common form: a number of seconds.
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(Duration::from_secs(seconds.min(MAX_BACKOFF_SECS)));
+    }
+    // The other form: an HTTP-date.
+    let when = DateTime::parse_from_rfc2822(value)
+        .ok()?
+        .with_timezone(&Utc);
+    let seconds = (when - now).num_seconds();
+    if seconds <= 0 {
+        // A date in the past means we may retry now.
+        return Some(Duration::ZERO);
+    }
+    Some(Duration::from_secs((seconds as u64).min(MAX_BACKOFF_SECS)))
+}
+
+/// A server asking for a month off is not something to honour literally.
+const MAX_BACKOFF_SECS: u64 = 24 * 60 * 60;
 
 /// Parses raw feed bytes. Split out from [`fetch`] so it is testable offline.
 pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
@@ -179,6 +276,50 @@ mod tests {
             url: "https://example.com/feed.xml".into(),
             title: None,
         }
+    }
+
+    #[test]
+    fn retry_after_reads_a_plain_number_of_seconds() {
+        assert_eq!(
+            retry_after_from("120", Utc::now()),
+            Some(Duration::from_secs(120))
+        );
+    }
+
+    #[test]
+    fn retry_after_reads_an_http_date() {
+        let now = DateTime::parse_from_rfc2822("Wed, 01 Jan 2020 00:00:00 GMT")
+            .expect("fixture parses")
+            .with_timezone(&Utc);
+        assert_eq!(
+            retry_after_from("Wed, 01 Jan 2020 00:01:00 GMT", now),
+            Some(Duration::from_secs(60))
+        );
+    }
+
+    #[test]
+    fn a_retry_after_date_in_the_past_means_retry_now() {
+        let now = DateTime::parse_from_rfc2822("Wed, 01 Jan 2020 00:10:00 GMT")
+            .expect("fixture parses")
+            .with_timezone(&Utc);
+        assert_eq!(
+            retry_after_from("Wed, 01 Jan 2020 00:00:00 GMT", now),
+            Some(Duration::ZERO)
+        );
+    }
+
+    #[test]
+    fn an_absurd_backoff_is_capped() {
+        assert_eq!(
+            retry_after_from("999999999", Utc::now()),
+            Some(Duration::from_secs(MAX_BACKOFF_SECS))
+        );
+    }
+
+    #[test]
+    fn nonsense_in_retry_after_is_ignored() {
+        assert_eq!(retry_after_from("soon please", Utc::now()), None);
+        assert_eq!(retry_after_from("", Utc::now()), None);
     }
 
     #[test]

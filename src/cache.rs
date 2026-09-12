@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::config::FeedSource;
@@ -22,6 +23,23 @@ pub struct Cache {
     /// Keyed by feed URL, which is what identifies a feed in the config.
     #[serde(default)]
     feeds: HashMap<String, Feed>,
+    /// HTTP conditional-request state, kept apart from the display model.
+    #[serde(default)]
+    meta: HashMap<String, FeedMeta>,
+}
+
+/// What we remember about a feed's HTTP behaviour between fetches.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct FeedMeta {
+    /// `ETag`, replayed as `If-None-Match`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+    /// `Last-Modified`, replayed as `If-Modified-Since`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_modified: Option<String>,
+    /// Earliest time we may ask again, set by `Retry-After`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after: Option<DateTime<Utc>>,
 }
 
 impl Cache {
@@ -77,6 +95,45 @@ impl Cache {
     pub fn retain_configured(&mut self, sources: &[FeedSource]) {
         self.feeds
             .retain(|url, _| sources.iter().any(|source| &source.url == url));
+        self.meta
+            .retain(|url, _| sources.iter().any(|source| &source.url == url));
+    }
+
+    /// What we know about this feed's HTTP behaviour.
+    pub fn meta(&self, url: &str) -> FeedMeta {
+        self.meta.get(url).cloned().unwrap_or_default()
+    }
+
+    /// Records the validators a response carried, clearing any deferral.
+    pub fn set_validators(
+        &mut self,
+        url: &str,
+        etag: Option<String>,
+        last_modified: Option<String>,
+    ) {
+        let entry = self.meta.entry(url.to_string()).or_default();
+        // Only overwrite with something: a response that omits a validator it
+        // sent last time should not cost us the one we have.
+        if etag.is_some() {
+            entry.etag = etag;
+        }
+        if last_modified.is_some() {
+            entry.last_modified = last_modified;
+        }
+        entry.retry_after = None;
+    }
+
+    /// Records that the server asked us to wait.
+    pub fn defer_until(&mut self, url: &str, until: DateTime<Utc>) {
+        self.meta.entry(url.to_string()).or_default().retry_after = Some(until);
+    }
+
+    /// Whether we are allowed to fetch this feed yet.
+    pub fn may_fetch(&self, url: &str, now: DateTime<Utc>) -> bool {
+        match self.meta.get(url).and_then(|m| m.retry_after) {
+            Some(until) => now >= until,
+            None => true,
+        }
     }
 
     #[cfg(test)]
@@ -197,6 +254,58 @@ mod tests {
         cache.retain_configured(&[source("https://a.example/feed")]);
         assert_eq!(cache.len(), 1);
         assert!(cache.get(&source("https://b.example/feed")).is_none());
+    }
+
+    #[test]
+    fn validators_are_remembered_and_survive_a_restart() {
+        let path = tmpdir().join("validators.toml");
+        let mut cache = Cache::default();
+        cache.set_validators("https://a.example/feed", Some("\"abc\"".into()), None);
+        cache.save(&path).expect("save");
+
+        let meta = Cache::load(&path).meta("https://a.example/feed");
+        assert_eq!(meta.etag.as_deref(), Some("\"abc\""));
+    }
+
+    #[test]
+    fn a_response_missing_a_validator_does_not_erase_the_stored_one() {
+        let mut cache = Cache::default();
+        cache.set_validators("u", Some("\"abc\"".into()), Some("Mon".into()));
+        cache.set_validators("u", None, None);
+        assert_eq!(cache.meta("u").etag.as_deref(), Some("\"abc\""));
+        assert_eq!(cache.meta("u").last_modified.as_deref(), Some("Mon"));
+    }
+
+    #[test]
+    fn a_deferred_feed_may_not_be_fetched_until_its_time() {
+        let now = Utc::now();
+        let mut cache = Cache::default();
+        cache.defer_until("u", now + chrono::Duration::seconds(60));
+
+        assert!(!cache.may_fetch("u", now));
+        assert!(cache.may_fetch("u", now + chrono::Duration::seconds(61)));
+    }
+
+    #[test]
+    fn a_feed_we_know_nothing_about_may_always_be_fetched() {
+        assert!(Cache::default().may_fetch("u", Utc::now()));
+    }
+
+    #[test]
+    fn a_successful_response_clears_a_deferral() {
+        let now = Utc::now();
+        let mut cache = Cache::default();
+        cache.defer_until("u", now + chrono::Duration::seconds(60));
+        cache.set_validators("u", Some("\"x\"".into()), None);
+        assert!(cache.may_fetch("u", now));
+    }
+
+    #[test]
+    fn metadata_for_removed_feeds_is_dropped_too() {
+        let mut cache = Cache::default();
+        cache.set_validators("https://gone.example/feed", Some("\"x\"".into()), None);
+        cache.retain_configured(&[source("https://a.example/feed")]);
+        assert!(cache.meta("https://gone.example/feed").etag.is_none());
     }
 
     #[test]
