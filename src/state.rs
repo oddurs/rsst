@@ -25,6 +25,12 @@ pub struct ReadState {
     pub unread_only: bool,
     /// Whether entry lists run oldest-first.
     pub oldest_first: bool,
+    /// Keys changed since the last save, so persisting writes a delta rather
+    /// than the whole set.
+    read_added: HashSet<String>,
+    read_removed: HashSet<String>,
+    starred_added: HashSet<String>,
+    starred_removed: HashSet<String>,
 }
 
 /// The format version written to the state file.
@@ -74,6 +80,7 @@ impl ReadState {
             starred: parsed.starred.into_iter().collect(),
             unread_only: parsed.unread_only,
             oldest_first: parsed.oldest_first,
+            ..Default::default()
         }
     }
 
@@ -114,7 +121,12 @@ impl ReadState {
     }
 
     pub fn mark_read(&mut self, entry: &Entry) {
-        self.keys.extend(entry.keys.iter().cloned());
+        for key in &entry.keys {
+            if self.keys.insert(key.clone()) {
+                self.read_removed.remove(key);
+                self.read_added.insert(key.clone());
+            }
+        }
     }
 
     /// Puts an entry back to unread.
@@ -123,7 +135,10 @@ impl ReadState {
     /// still matching, and the toggle would look broken.
     pub fn mark_unread(&mut self, entry: &Entry) {
         for key in &entry.keys {
-            self.keys.remove(key);
+            if self.keys.remove(key) {
+                self.read_added.remove(key);
+                self.read_removed.insert(key.clone());
+            }
         }
     }
 
@@ -136,10 +151,16 @@ impl ReadState {
         if self.is_starred(entry) {
             for key in &entry.keys {
                 self.starred.remove(key);
+                self.starred_added.remove(key);
+                self.starred_removed.insert(key.clone());
             }
             false
         } else {
-            self.starred.extend(entry.keys.iter().cloned());
+            for key in &entry.keys {
+                self.starred.insert(key.clone());
+                self.starred_removed.remove(key);
+                self.starred_added.insert(key.clone());
+            }
             true
         }
     }
@@ -170,6 +191,54 @@ fn migrate(state: OnDisk) -> OnDisk {
     match state.version {
         0 | 1 => state,
         _ => state,
+    }
+}
+
+impl ReadState {
+    /// Builds the in-memory index from the database.
+    pub fn from_db(db: &crate::db::Db) -> Result<Self> {
+        let (keys, starred) = db.load_state()?;
+        Ok(Self {
+            keys,
+            starred,
+            unread_only: db.flag("unread_only"),
+            oldest_first: db.flag("oldest_first"),
+            ..Default::default()
+        })
+    }
+
+    /// Writes what changed since the last call, and the view preferences.
+    ///
+    /// A delta rather than the whole set: this is the cost the TOML version
+    /// could not avoid, and the reason it grew forever.
+    pub fn persist(&mut self, db: &crate::db::Db) -> Result<()> {
+        db.save_state(
+            &self.read_added,
+            &self.read_removed,
+            &self.starred_added,
+            &self.starred_removed,
+        )?;
+        self.read_added.clear();
+        self.read_removed.clear();
+        self.starred_added.clear();
+        self.starred_removed.clear();
+        db.set_flag("unread_only", self.unread_only);
+        db.set_flag("oldest_first", self.oldest_first);
+        Ok(())
+    }
+
+    /// The read and starred sets, for migrating an old file into the database.
+    pub fn keys_and_stars(&self) -> (HashSet<String>, HashSet<String>) {
+        (self.keys.clone(), self.starred.clone())
+    }
+
+    /// How many changes are waiting to be written.
+    #[cfg(test)]
+    pub fn pending(&self) -> usize {
+        self.read_added.len()
+            + self.read_removed.len()
+            + self.starred_added.len()
+            + self.starred_removed.len()
     }
 }
 

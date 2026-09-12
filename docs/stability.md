@@ -22,28 +22,33 @@ than parsed by programs.
 
 ## On-disk formats
 
-Both state files carry a `version` field:
-
 | File | Holds | Current |
 | ---- | ----- | ------- |
-| `read.toml` | What has been read and starred | 1 |
-| `feeds.toml` | Cached feed contents and HTTP validators | 1 |
+| `rsst.sqlite3` | Feeds, entries, read and starred state, view preferences | schema 1 |
+| `config.toml` | Feeds, colours, keys — written by hand, so it stays text | — |
+
+The database records its version in SQLite's own `user_version`. The two TOML
+state files it replaced (`read.toml`, `feeds.toml`) are read once, migrated in,
+and then left alone on disk — deleting someone's data to tidy up is not ours to
+do.
 
 The rules are asymmetric on purpose:
 
 - **An older file is migrated forward.** Read state is the reader's own history
   and is not reproducible — losing it is a real loss, so it is carried across
-  format changes rather than discarded.
+  format changes rather than discarded. The run that migrates does not prune:
+  the old file holds keys for entries that rolled out of their feeds long ago,
+  and discarding them immediately would defeat the migration.
 - **A newer file is discarded.** Downgrading rsst must not silently misread a
   file whose fields mean something else. For the cache this costs one refetch.
   For read state it costs the history, which is unfortunate but better than
   marking an unread backlog read on a guess.
-- **A corrupt or truncated file is discarded**, never fatal. Both files are
-  written to a temporary sibling and renamed into place, so a crash mid-write
-  leaves the previous version intact.
+- **A corrupt or missing database is recreated**, never fatal. SQLite's own
+  journalling is what makes a crash mid-write safe; the temp-file-and-rename
+  dance the TOML needed is no longer ours to get right.
 
-A format change means bumping the constant, adding a branch to `migrate`, and a
-test that a file in the old format still loads.
+A schema change means bumping `SCHEMA`, adding a branch to `migrate`, and a test
+that a database at the old version still opens.
 
 ## Minimum supported Rust version
 

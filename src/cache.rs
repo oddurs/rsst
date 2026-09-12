@@ -150,6 +150,11 @@ impl Cache {
             .retain(|url, _| sources.iter().any(|source| &source.url == url));
     }
 
+    /// Every cached feed, for migrating the old file into the database.
+    pub fn feeds(self) -> Vec<Feed> {
+        self.feeds.into_values().collect()
+    }
+
     /// What we know about this feed's HTTP behaviour.
     pub fn meta(&self, url: &str) -> FeedMeta {
         self.meta.get(url).cloned().unwrap_or_default()

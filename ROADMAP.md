@@ -97,10 +97,9 @@ with the alternate screen still active.
 
 ## v1.1
 
-`··········` 0% · 0 of 2 done
+`##########` 100% · 1 of 1 done
 
-### backlog
+### done
 
-- [ ] [`0043`](https://github.com/oddurs/rsst/blob/main/cairn/items/0043-write-the-cache-one-file-per-feed.md) Write the cache one file per feed <sup>feature · v1.1 · p2</sup>
-- [ ] [`0044`](https://github.com/oddurs/rsst/blob/main/cairn/items/0044-keep-entries-and-read-state-in-sqlite.md) Keep entries and read state in SQLite <sup>feature · v1.1 · p1</sup>
+- [x] [`0044`](https://github.com/oddurs/rsst/blob/main/cairn/items/0044-keep-entries-and-read-state-in-sqlite.md) Keep entries and read state in SQLite <sup>feature · v1.1 · p1</sup>
 

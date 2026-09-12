@@ -2,7 +2,7 @@
 id: 43
 title: Write the cache one file per feed
 type: feature
-status: backlog
+status: dropped
 created: 2026-09-12
 updated: 2026-09-12
 priority: p2
@@ -35,3 +35,7 @@ This is the cheap half of the problem. It removes the rewrite-everything cost wi
 - [ ] A corrupt or truncated file loses one feed, not the cache
 - [ ] `read.toml` is pruned of keys belonging to entries no longer cached and not starred
 - [ ] The benchmark shows refresh cost no longer scaling with total entries
+
+## 2026-09-12
+
+Dropped in favour of [[0044]], which replaces the cache file layout entirely — building per-feed TOML files and then deleting them a day later is churn, not progress. If SQLite turns out not to be viable (the cross-compilation risk on 0044 is what decides that) this is the fallback and should be reopened.

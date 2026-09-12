@@ -2,7 +2,8 @@
 id: 44
 title: Keep entries and read state in SQLite
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p1
@@ -37,10 +38,10 @@ One SQLite database replacing `feeds.toml` and `read.toml`. Config stays TOML â€
 
 ## Acceptance criteria
 
-- [ ] `feeds.toml` and `read.toml` are migrated into the database, not discarded
-- [ ] Refreshing one feed writes only that feed's rows
-- [ ] Search uses FTS5 and no longer scans every entry in memory
-- [ ] Read and starred state are pruned when an entry is neither cached nor starred
-- [ ] A corrupt or missing database is recreated rather than fatal, as the TOML was
-- [ ] All five release targets still build, including cross-compiled aarch64 Linux
-- [ ] The benchmark shows refresh cost no longer scaling with total entries
+- [x] `feeds.toml` and `read.toml` are migrated into the database, not discarded
+- [x] Refreshing one feed writes only that feed's rows
+- [x] Search uses FTS5 and no longer scans every entry in memory
+- [x] Read and starred state are pruned when an entry is neither cached nor starred
+- [x] A corrupt or missing database is recreated rather than fatal, as the TOML was
+- [x] All five release targets still build, including cross-compiled aarch64 Linux
+- [x] The benchmark shows refresh cost no longer scaling with total entries

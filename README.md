@@ -129,8 +129,10 @@ time, set `mouse = false`.
 Starred entries are kept even after they fall out of the upstream feed, which is
 the point of starring them.
 
-Feeds are cached on disk, so launching is instant and a reader with no network
-still shows the last entries it fetched.
+Feeds are cached in a SQLite database, so launching is instant, a reader with no
+network still shows the last entries it fetched, and refreshing one feed costs
+the same whether you follow ten or a thousand. Search goes through a full-text
+index rather than scanning everything in memory.
 
 Entries you have read are remembered between runs, and each feed shows how many
 are still unread. An entry is recognised by its guid, its link, and its title

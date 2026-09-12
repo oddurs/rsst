@@ -8,6 +8,7 @@ pub mod app;
 pub mod cache;
 pub mod cli;
 pub mod config;
+pub mod db;
 pub mod feed;
 pub mod generate;
 pub mod keys;
