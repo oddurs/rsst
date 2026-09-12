@@ -2,7 +2,8 @@
 id: 66
 title: Be polite to one host, not just to the network
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p2
@@ -23,6 +24,6 @@ Limit per host as well as globally, with a small per-host ceiling, so a hundred 
 
 ## Acceptance criteria
 
-- [ ] Concurrent requests to one host are capped below the global limit
-- [ ] Feeds on different hosts still fetch concurrently
-- [ ] A test asserts the observed per-host peak
+- [x] Concurrent requests to one host are capped below the global limit
+- [x] Feeds on different hosts still fetch concurrently
+- [x] A test asserts the observed per-host peak

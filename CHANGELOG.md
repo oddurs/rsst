@@ -47,6 +47,9 @@ still needs.
 
 ### Fixed
 
+- Fetching is limited per host as well as globally (`max_concurrent_per_host`,
+  2 by default), so fifteen feeds on one site no longer arrive as one burst —
+  feeds on other hosts still use the full global capacity
 - Redirects are followed by rsst rather than silently by the HTTP client, so a
   permanent move (301 or 308) is remembered and written back to the config with
   its comments intact, instead of costing an extra round trip on every refresh
