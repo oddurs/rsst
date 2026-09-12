@@ -19,6 +19,9 @@ pub struct Config {
     /// Key overrides: action name to key, merged over the defaults.
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub keys: std::collections::HashMap<String, String>,
+    /// The widest line of prose, in columns. Zero uses the whole pane.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measure: Option<usize>,
     /// How often to refresh, in minutes. Zero turns the timer off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh_minutes: Option<u64>,
@@ -72,6 +75,17 @@ impl Config {
         toml::from_str(&raw).with_context(|| format!("parsing config at {}", path.display()))
     }
 
+    /// How prose should be set: the configured measure, or the default.
+    ///
+    /// Zero means "use the whole pane", which is how someone turns it off.
+    pub fn measure(&self, ascii: bool) -> crate::article::Measure {
+        let columns = self.measure.unwrap_or(crate::article::DEFAULT_MEASURE);
+        crate::article::Measure {
+            columns: (columns > 0).then_some(columns),
+            ascii,
+        }
+    }
+
     /// How often a given feed should be refreshed.
     ///
     /// The feed's own setting, then the global one, then the default. Zero
@@ -93,6 +107,7 @@ impl Config {
     fn starter() -> Self {
         Self {
             mouse: true,
+            measure: None,
             refresh_minutes: None,
             theme: Default::default(),
             keys: Default::default(),
@@ -263,6 +278,21 @@ mod tests {
     }
 
     #[test]
+    fn the_measure_defaults_and_can_be_turned_off() {
+        let bare: Config = toml::from_str("").expect("parses");
+        assert_eq!(
+            bare.measure(false).columns,
+            Some(crate::article::DEFAULT_MEASURE)
+        );
+
+        let set: Config = toml::from_str("measure = 60").expect("parses");
+        assert_eq!(set.measure(false).columns, Some(60));
+
+        let off: Config = toml::from_str("measure = 0").expect("parses");
+        assert_eq!(off.measure(false).columns, None, "zero uses the whole pane");
+    }
+
+    #[test]
     fn the_refresh_interval_falls_back_from_feed_to_global_to_default() {
         let config: Config = toml::from_str(
             r#"
@@ -335,6 +365,7 @@ mod tests {
             },
             keys: Default::default(),
             max_concurrent_fetches: Some(8),
+            measure: Some(72),
             refresh_minutes: Some(30),
             mouse: false,
         };

@@ -2,7 +2,8 @@
 id: 53
 title: Hold a readable measure instead of filling the pane
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p0
@@ -30,8 +31,8 @@ Cap the measure for prose and centre it in the pane. Code keeps the full width, 
 
 ## Acceptance criteria
 
-- [ ] Prose is wrapped to a readable measure rather than the pane width
-- [ ] The measure is centred, so a wide pane does not leave text against one edge
-- [ ] Code blocks still use the full width available
-- [ ] The measure is configurable, and can be turned off
-- [ ] A narrow pane is unaffected — nothing is indented off the screen
+- [x] Prose is wrapped to a readable measure rather than the pane width
+- [x] The measure is centred, so a wide pane does not leave text against one edge
+- [x] Code blocks still use the full width available
+- [x] The measure is configurable, and can be turned off
+- [x] A narrow pane is unaffected — nothing is indented off the screen

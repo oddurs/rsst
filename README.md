@@ -61,6 +61,11 @@ tags = ["Rust", "Core"]      # optional; the feed's folder path in the sidebar
 # Optional. How many feeds may be fetched at once; defaults to 8.
 max_concurrent_fetches = 8
 
+# Optional. The widest line of prose, in columns; defaults to 72. Zero fills
+# the pane. Long lines are harder to read, so a wider window should not mean
+# longer ones — code is exempt, since its line breaks are the author's.
+measure = 72
+
 # Optional. How often to refresh, in minutes; defaults to 30. Zero turns the
 # timer off. Individual feeds can override it.
 refresh_minutes = 30

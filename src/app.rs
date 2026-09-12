@@ -88,6 +88,8 @@ pub struct App {
     pub article: Option<String>,
     /// The URL being typed into the "add a feed" prompt, if it is open.
     pub adding: Option<String>,
+    /// How prose should be set.
+    pub measure: crate::article::Measure,
 }
 
 /// A marking action that affects more than one entry, so it is worth a prompt.
@@ -163,7 +165,17 @@ impl App {
 
     /// Sets the colours the renderer should use.
     pub fn with_theme(mut self, theme: crate::theme::Theme) -> Self {
+        self.measure.ascii = theme.ascii;
         self.theme = theme;
+        self
+    }
+
+    /// Sets how prose should be set.
+    pub fn with_measure(mut self, measure: crate::article::Measure) -> Self {
+        self.measure = crate::article::Measure {
+            ascii: self.theme.ascii,
+            ..measure
+        };
         self
     }
 
@@ -930,19 +942,23 @@ impl App {
                 .collect();
         };
 
-        let mut rows: Vec<Row> = crate::text::wrap(&entry.title, width)
+        // The header follows the same measure as the article; setting it to
+        // the full pane while the prose is a column looks like two documents.
+        let (prose, margin) = self.measure.fit(width);
+
+        let mut rows: Vec<Row> = crate::text::wrap(&entry.title, prose)
             .into_iter()
             .map(|text| Row {
                 kind: Kind::Heading,
-                indent: 0,
+                indent: margin,
                 spans: vec![Inline::Text(text)],
             })
             .collect();
 
         if let Some(link) = entry.link.as_deref().filter(|l| !l.is_empty()) {
-            rows.extend(crate::text::wrap(link, width).into_iter().map(|text| Row {
+            rows.extend(crate::text::wrap(link, prose).into_iter().map(|text| Row {
                 kind: Kind::Reference,
-                indent: 0,
+                indent: margin,
                 spans: vec![Inline::Text(text)],
             }));
         }
@@ -966,7 +982,7 @@ impl App {
         rows.extend(crate::article::layout(
             &crate::article::parse(source),
             width,
-            self.theme.ascii,
+            self.measure,
         ));
         rows
     }
