@@ -22,10 +22,11 @@ cargo build --release
 ### Trying it by hand
 
 ```sh
-scripts/dev              # a seeded reader, no network, real data untouched
-scripts/dev seed         # rebuild the database from the fixtures
-scripts/dev shot 120x40  # one frame as SVG, to diff against the last
-scripts/dev reset        # delete it
+scripts/dev                   # a seeded reader; real data untouched
+scripts/dev seed              # rebuild from fixtures and real feeds
+scripts/dev seed --offline    # fixtures only: no network, same frame each time
+scripts/dev shot 120x40       # one frame as SVG, to diff against the last
+scripts/dev reset             # delete it
 ```
 
 It runs with `RSST_HOME` pointed at `.dev/home`, so nothing it writes reaches
@@ -35,9 +36,15 @@ move, and no longer necessary.
 
 The feeds come from `fixtures/feeds`, served by `scripts/fixture_server.py`,
 which also generates what is better computed than committed: a 5,000-entry
-feed, a 404, a 500, a truncated document, a page that is not a feed. Everything
-is a pure function of the fixtures, so the same frame comes back every time —
-which is what makes `scripts/dev shot` worth comparing.
+feed, a 404, a 500, a truncated document, a page that is not a feed. Ten real
+public feeds sit alongside them under `Real`, because fixtures are only ever as
+messy as someone thought to make them.
+
+`--offline` drops the real ones and is the deterministic mode — the same frame
+every time, which is what makes `scripts/dev shot` worth comparing. **Tests
+must never reach the network**: anything invoking the seeder passes
+`--offline`, and there is a test asserting an offline seed configures nothing
+off this machine.
 
 A case that fixtures cannot yet produce is a fixture worth adding, and finding
 a bug through them is the point, not a detour: file it rather than widening the

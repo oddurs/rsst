@@ -67,11 +67,14 @@ fn seeding_writes_a_config_only_inside_the_home_it_was_given() {
     // the config and the database — a dead fixture server is not a reason to
     // leave a half-made environment behind.
     let output = Command::new(binary("rsst-seed"))
+        // `--offline` because a test must not depend on the internet, and
+        // without it the seeder would reach for ten real feeds.
         .args([
             "--home",
             &scratch.path().display().to_string(),
             "--port",
             "1",
+            "--offline",
         ])
         .output()
         .expect("rsst-seed runs");
@@ -100,5 +103,60 @@ fn the_fixtures_are_the_ones_the_seeder_asks_for() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/feeds");
     for name in ["handbook.xml", "unicode.xml", "awkward.xml", "empty.xml"] {
         assert!(root.join(name).is_file(), "missing fixture {name}");
+    }
+}
+
+#[test]
+fn seeding_survives_every_single_feed_failing() {
+    // The state a test machine is usually in: nothing reachable at all.
+    let scratch = Scratch::new("alldead");
+    let output = Command::new(binary("rsst-seed"))
+        .args([
+            "--home",
+            &scratch.path().display().to_string(),
+            "--port",
+            "1",
+            "--offline",
+        ])
+        .output()
+        .expect("rsst-seed runs");
+
+    assert!(
+        output.status.success(),
+        "seeding gave up when the feeds did"
+    );
+    let said = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        said.contains("unavailable"),
+        "it did not say which feeds it could not reach: {said}"
+    );
+    assert!(
+        scratch.path().join("rsst.sqlite3").is_file(),
+        "no database, so the reader would have nothing to open"
+    );
+}
+
+#[test]
+fn an_offline_seed_configures_nothing_off_this_machine() {
+    // A real feed sneaking into the offline set is how a deterministic frame
+    // quietly stops being deterministic.
+    let scratch = Scratch::new("offline");
+    Command::new(binary("rsst-seed"))
+        .args([
+            "--home",
+            &scratch.path().display().to_string(),
+            "--port",
+            "1",
+            "--offline",
+        ])
+        .output()
+        .expect("rsst-seed runs");
+
+    let config = std::fs::read_to_string(scratch.path().join("config.toml")).expect("a config");
+    for line in config.lines().filter(|line| line.starts_with("url =")) {
+        assert!(
+            line.contains("127.0.0.1"),
+            "offline seeding configured a feed off this machine: {line}"
+        );
     }
 }
