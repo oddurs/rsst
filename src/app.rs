@@ -156,11 +156,20 @@ impl App {
 
     /// The feed list as it should be drawn: group headers and their feeds.
     ///
-    /// Groups come first in the order they appear in the config, then the
-    /// ungrouped feeds — which must still be listed, or a config without tags
-    /// would show nothing at all.
+    /// Ungrouped feeds come first, then each group under its heading.
+    ///
+    /// Ungrouped last would put them directly beneath the final group's feeds,
+    /// where they read as members of it — a heading claims everything below it
+    /// until the next one. Before the first heading there is no group to be
+    /// mistaken for, so they need no label of their own.
     pub fn feed_rows(&self) -> Vec<FeedRow> {
         let mut rows = Vec::new();
+        for index in 0..self.feeds.len() {
+            if self.tag_of(index).is_none() {
+                rows.push(FeedRow::Feed(index));
+            }
+        }
+
         let mut groups: Vec<&str> = Vec::new();
         for index in 0..self.feeds.len() {
             if let Some(tag) = self.tag_of(index)
@@ -183,11 +192,6 @@ impl App {
                 if self.tag_of(index) == Some(group) {
                     rows.push(FeedRow::Feed(index));
                 }
-            }
-        }
-        for index in 0..self.feeds.len() {
-            if self.tag_of(index).is_none() {
-                rows.push(FeedRow::Feed(index));
             }
         }
         rows
@@ -708,6 +712,23 @@ impl App {
             .get(feed_index)
             .and_then(|feed| feed.entries.get(entry_index))
             .is_some_and(|entry| !self.read.is_read(entry))
+    }
+
+    /// How many rows the entry pane will draw, whatever view is showing.
+    ///
+    /// The layout asks so the list can take the room it needs rather than a
+    /// fixed share of the screen.
+    pub fn listed_entry_count(&self) -> usize {
+        if self.search.is_some() {
+            return self.search.as_ref().map_or(0, |s| s.results.len());
+        }
+        if self.all_feeds_view {
+            return self.all_entries().len();
+        }
+        if self.starred_view {
+            return self.starred_results().len();
+        }
+        self.visible_indices(self.selected_feed).len()
     }
 
     /// The entries of a feed that are currently listed, by index.
@@ -1473,12 +1494,13 @@ mod tests {
         assert_eq!(
             app.feed_rows(),
             vec![
+                // Ungrouped first, then each group under its heading.
+                FeedRow::Feed(1),
                 FeedRow::Group {
                     name: "News".into(),
                     collapsed: false
                 },
                 FeedRow::Feed(0),
-                FeedRow::Feed(1),
             ]
         );
     }
@@ -1488,6 +1510,23 @@ mod tests {
         let app = tagged();
         assert!(app.feed_rows().contains(&FeedRow::Feed(1)));
         assert_eq!(app.tag_of(1), None);
+    }
+
+    #[test]
+    fn ungrouped_feeds_come_before_any_heading() {
+        // A heading claims everything below it until the next one, so an
+        // ungrouped feed listed after a group reads as a member of it.
+        let app = tagged();
+        let rows = app.feed_rows();
+        let first_heading = rows
+            .iter()
+            .position(|row| matches!(row, FeedRow::Group { .. }))
+            .expect("a heading");
+        let ungrouped = rows
+            .iter()
+            .position(|row| matches!(row, FeedRow::Feed(i) if app.tag_of(*i).is_none()))
+            .expect("an ungrouped feed");
+        assert!(ungrouped < first_heading);
     }
 
     #[test]
@@ -1504,11 +1543,11 @@ mod tests {
         assert_eq!(
             app.feed_rows(),
             vec![
+                FeedRow::Feed(1),
                 FeedRow::Group {
                     name: "News".into(),
                     collapsed: true
                 },
-                FeedRow::Feed(1),
             ]
         );
         assert_eq!(
@@ -1532,7 +1571,8 @@ mod tests {
         app.toggle_group();
         app.selected_feed = 0; // pretend the cursor is back
         app.toggle_group();
-        assert_eq!(app.selectable_feeds(), vec![0, 1]);
+        // Listed ungrouped-first, so feed 1 precedes feed 0.
+        assert_eq!(app.selectable_feeds(), vec![1, 0]);
     }
 
     #[test]
