@@ -393,6 +393,7 @@ mod tests {
         FeedSource {
             url: "https://example.com/feed.xml".into(),
             title: None,
+            tags: Vec::new(),
         }
     }
 

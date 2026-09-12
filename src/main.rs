@@ -92,7 +92,7 @@ async fn main() -> Result<()> {
         .iter()
         .map(|source| cache.get(source).unwrap_or_else(|| Feed::pending(source)))
         .collect();
-    let mut app = App::new(feeds, ReadState::load(&state_path));
+    let mut app = App::new(feeds, ReadState::load(&state_path)).with_tags(&config.feeds);
 
     let mut session = Session {
         client,
@@ -233,6 +233,9 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                 }
             }
             KeyCode::Char('?') => app.help_open = true,
+            KeyCode::Enter | KeyCode::Char(' ') if app.focus == app::Pane::Feeds => {
+                app.toggle_group()
+            }
             KeyCode::Char('/') => app.start_search(),
             KeyCode::Char('s') => {
                 let starred = app.toggle_star();

@@ -205,6 +205,7 @@ mod tests {
         FeedSource {
             url: url.into(),
             title: None,
+            tags: Vec::new(),
         }
     }
 

@@ -37,39 +37,62 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 }
 
 fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
-    let items: Vec<ListItem> = app
-        .feeds
+    let rows = app.feed_rows();
+    let items: Vec<ListItem> = rows
         .iter()
-        .enumerate()
-        .map(|(index, feed)| {
-            let unread = app.unread(index);
-            let mut spans = vec![Span::raw(feed.title.clone())];
-            if let Some(marker) = feed.status.marker() {
-                let colour = if feed.status.error().is_some() {
-                    Color::Red
-                } else {
-                    Color::DarkGray
-                };
-                spans.push(Span::styled(
-                    format!("  {marker}"),
-                    Style::default().fg(colour),
-                ));
-            }
-            // Only worth the space when there is something to report.
-            if unread > 0 {
-                spans.push(Span::styled(
-                    format!("  {unread}"),
+        .map(|row| match row {
+            crate::app::FeedRow::Group { name, collapsed } => ListItem::new(Line::from(vec![
+                Span::styled(
+                    if *collapsed { "▸ " } else { "▾ " },
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(
+                    name.clone(),
                     Style::default()
-                        .fg(Color::Cyan)
+                        .fg(Color::Magenta)
                         .add_modifier(Modifier::BOLD),
-                ));
+                ),
+            ])),
+            crate::app::FeedRow::Feed(index) => {
+                let feed = &app.feeds[*index];
+                let unread = app.unread(*index);
+                // Indent feeds that sit under a heading.
+                let indent = if app.tag_of(*index).is_some() {
+                    "  "
+                } else {
+                    ""
+                };
+                let mut spans = vec![Span::raw(format!("{indent}{}", feed.title))];
+                if let Some(marker) = feed.status.marker() {
+                    let colour = if feed.status.error().is_some() {
+                        Color::Red
+                    } else {
+                        Color::DarkGray
+                    };
+                    spans.push(Span::styled(
+                        format!("  {marker}"),
+                        Style::default().fg(colour),
+                    ));
+                }
+                // Only worth the space when there is something to report.
+                if unread > 0 {
+                    spans.push(Span::styled(
+                        format!("  {unread}"),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ));
+                }
+                ListItem::new(Line::from(spans))
             }
-            ListItem::new(Line::from(spans))
         })
         .collect();
 
     let mut state = ListState::default();
-    state.select((!app.feeds.is_empty()).then_some(app.selected_feed));
+    state
+        .select(rows.iter().position(
+            |row| matches!(row, crate::app::FeedRow::Feed(i) if *i == app.selected_feed),
+        ));
 
     frame.render_stateful_widget(
         List::new(items)

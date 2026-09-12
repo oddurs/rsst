@@ -1,6 +1,13 @@
 use crate::feed::{Entry, Feed};
 use crate::state::ReadState;
 
+/// A row of the feed pane: either a group heading or a feed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FeedRow {
+    Group { name: String, collapsed: bool },
+    Feed(usize),
+}
+
 /// Which list the arrow keys currently drive.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
@@ -35,6 +42,10 @@ pub struct App {
     pub entries_viewport: (u16, u16),
     /// Whether the key reference is covering the screen.
     pub help_open: bool,
+    /// Groups the reader has folded away, by name.
+    pub collapsed: std::collections::HashSet<String>,
+    /// The group each feed belongs to, parallel to `feeds`.
+    tags: Vec<Option<String>>,
 }
 
 /// A marking action that affects more than one entry, so it is worth a prompt.
@@ -62,11 +73,110 @@ pub struct Search {
 
 impl App {
     pub fn new(feeds: Vec<Feed>, read: ReadState) -> Self {
+        let tags = vec![None; feeds.len()];
         Self {
             feeds,
             read,
+            tags,
             ..Default::default()
         }
+    }
+
+    /// Records which group each feed belongs to, from the config.
+    ///
+    /// A feed can carry several tags, but the feed list is a list: it shows
+    /// each feed once, under the first.
+    pub fn with_tags(mut self, sources: &[crate::config::FeedSource]) -> Self {
+        self.tags = sources
+            .iter()
+            .map(|source| source.tags.first().cloned())
+            .collect();
+        self.tags.resize(self.feeds.len(), None);
+        self
+    }
+
+    /// The group a feed belongs to, if any.
+    pub fn tag_of(&self, feed: usize) -> Option<&str> {
+        self.tags.get(feed).and_then(|t| t.as_deref())
+    }
+
+    /// The feed list as it should be drawn: group headers and their feeds.
+    ///
+    /// Groups come first in the order they appear in the config, then the
+    /// ungrouped feeds — which must still be listed, or a config without tags
+    /// would show nothing at all.
+    pub fn feed_rows(&self) -> Vec<FeedRow> {
+        let mut rows = Vec::new();
+        let mut groups: Vec<&str> = Vec::new();
+        for index in 0..self.feeds.len() {
+            if let Some(tag) = self.tag_of(index)
+                && !groups.contains(&tag)
+            {
+                groups.push(tag);
+            }
+        }
+
+        for group in groups {
+            let collapsed = self.collapsed.contains(group);
+            rows.push(FeedRow::Group {
+                name: group.to_string(),
+                collapsed,
+            });
+            if collapsed {
+                continue;
+            }
+            for index in 0..self.feeds.len() {
+                if self.tag_of(index) == Some(group) {
+                    rows.push(FeedRow::Feed(index));
+                }
+            }
+        }
+        for index in 0..self.feeds.len() {
+            if self.tag_of(index).is_none() {
+                rows.push(FeedRow::Feed(index));
+            }
+        }
+        rows
+    }
+
+    /// The feeds the cursor can currently land on.
+    pub fn selectable_feeds(&self) -> Vec<usize> {
+        self.feed_rows()
+            .into_iter()
+            .filter_map(|row| match row {
+                FeedRow::Feed(index) => Some(index),
+                FeedRow::Group { .. } => None,
+            })
+            .collect()
+    }
+
+    /// Folds the selected feed's group away, or unfolds it.
+    pub fn toggle_group(&mut self) {
+        let Some(tag) = self.tag_of(self.selected_feed).map(str::to_string) else {
+            return;
+        };
+        if !self.collapsed.remove(&tag) {
+            self.collapsed.insert(tag);
+            // The cursor cannot stay on a feed that is no longer shown.
+            if let Some(&next) = self.selectable_feeds().first() {
+                self.selected_feed = next;
+                self.selected_entry = 0;
+                self.detail_scroll = 0;
+            }
+        }
+    }
+
+    /// The next selectable feed in `delta`'s direction, wrapping.
+    fn step_feed(&self, delta: isize) -> usize {
+        let selectable = self.selectable_feeds();
+        if selectable.is_empty() {
+            return self.selected_feed;
+        }
+        let at = selectable
+            .iter()
+            .position(|i| *i == self.selected_feed)
+            .unwrap_or(0);
+        selectable[step(at, selectable.len(), delta)]
     }
 
     /// Marks the entry currently on screen as read.
@@ -515,7 +625,7 @@ impl App {
     pub fn select_next(&mut self) {
         match self.focus {
             Pane::Feeds => {
-                self.selected_feed = step(self.selected_feed, self.feeds.len(), 1);
+                self.selected_feed = self.step_feed(1);
                 self.selected_entry = 0;
                 self.detail_scroll = 0;
             }
@@ -531,7 +641,7 @@ impl App {
     pub fn select_previous(&mut self) {
         match self.focus {
             Pane::Feeds => {
-                self.selected_feed = step(self.selected_feed, self.feeds.len(), -1);
+                self.selected_feed = self.step_feed(-1);
                 self.selected_entry = 0;
                 self.detail_scroll = 0;
             }
@@ -1142,6 +1252,98 @@ mod tests {
     fn next_unread_on_an_empty_reader_is_harmless() {
         let mut app = App::new(Vec::new(), ReadState::default());
         assert!(!app.next_unread(true));
+    }
+
+    fn tagged() -> App {
+        let sources = vec![
+            crate::config::FeedSource {
+                url: "https://a.example".into(),
+                title: None,
+                tags: vec!["News".into()],
+            },
+            crate::config::FeedSource {
+                url: "https://b.example".into(),
+                title: None,
+                tags: Vec::new(),
+            },
+        ];
+        app().with_tags(&sources)
+    }
+
+    #[test]
+    fn feeds_are_listed_under_their_group() {
+        let app = tagged();
+        assert_eq!(
+            app.feed_rows(),
+            vec![
+                FeedRow::Group {
+                    name: "News".into(),
+                    collapsed: false
+                },
+                FeedRow::Feed(0),
+                FeedRow::Feed(1),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_untagged_feed_is_still_listed() {
+        let app = tagged();
+        assert!(app.feed_rows().contains(&FeedRow::Feed(1)));
+        assert_eq!(app.tag_of(1), None);
+    }
+
+    #[test]
+    fn a_config_with_no_tags_at_all_lists_every_feed() {
+        let app = app();
+        assert_eq!(app.feed_rows(), vec![FeedRow::Feed(0), FeedRow::Feed(1)]);
+    }
+
+    #[test]
+    fn collapsing_a_group_hides_its_feeds_but_keeps_the_heading() {
+        let mut app = tagged();
+        app.toggle_group();
+
+        assert_eq!(
+            app.feed_rows(),
+            vec![
+                FeedRow::Group {
+                    name: "News".into(),
+                    collapsed: true
+                },
+                FeedRow::Feed(1),
+            ]
+        );
+        assert_eq!(
+            app.selectable_feeds(),
+            vec![1],
+            "cannot select a hidden feed"
+        );
+    }
+
+    #[test]
+    fn collapsing_moves_the_cursor_off_a_hidden_feed() {
+        let mut app = tagged();
+        app.selected_feed = 0;
+        app.toggle_group();
+        assert_eq!(app.selected_feed, 1);
+    }
+
+    #[test]
+    fn a_collapsed_group_unfolds_again() {
+        let mut app = tagged();
+        app.toggle_group();
+        app.selected_feed = 0; // pretend the cursor is back
+        app.toggle_group();
+        assert_eq!(app.selectable_feeds(), vec![0, 1]);
+    }
+
+    #[test]
+    fn navigation_skips_over_collapsed_feeds() {
+        let mut app = tagged();
+        app.toggle_group();
+        app.select_next();
+        assert_eq!(app.selected_feed, 1, "wrapped over the hidden feed");
     }
 
     #[test]
