@@ -75,7 +75,39 @@ raising it in `Cargo.toml` and `clippy.toml` together.
 ## Git workflow
 
 Branch `<type>/<description>`, Conventional Commit messages, squash-merge into
-`main`. Full details in `CONTRIBUTING.md`. Don't commit or push unless asked.
+`main`. Full details in `CONTRIBUTING.md`.
+
+### Shipping an item
+
+One item, one branch, one pull request. `scripts/ship` does the mechanical part
+so it happens the same way every time:
+
+```sh
+scripts/ship start 12     # claim it, branch from a fresh main
+# ... do the work, with tests ...
+scripts/ship finish 12    # gate, close, commit, push, PR, auto-merge
+```
+
+`finish` runs fmt, clippy, tests and `cairn check` **before** it pushes, so a red
+branch never becomes a pull request. It then closes the item, re-renders
+`ROADMAP.md`, generates the PR body from the item, and enables auto-merge — the
+PR lands itself once CI is green. Nothing waits on a human.
+
+Work one item at a time and let each land before starting the next. Two open
+pull requests that both touch `cairn/items` will conflict on `ROADMAP.md`; the
+merge driver from `cairn init --git` resolves it, but only in a working copy
+where that hook is installed, and never in CI.
+
+If the work turns out to be bigger than the item, stop and split it: `cairn new`
+for the part you are not doing, then `cairn note` on the original saying why.
+Don't silently widen a branch.
+
+### Don't
+
+- Don't commit to `main`. It is protected — PR, green CI, squash.
+- Don't hand-edit `ROADMAP.md`; it is generated. Edit the items.
+- Don't merge with `--admin` or force-push a shared branch.
+- Don't close an item you have not actually finished. `cairn note` what is left.
 
 <!-- cairn:begin -->
 ## Roadmap and issues

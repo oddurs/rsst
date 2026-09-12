@@ -49,6 +49,32 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --all-targets
 
+  backlog:
+    name: cairn check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Pinned: a schema change should be a deliberate commit, not something a
+      # new cairn release does to us mid-PR.
+      - name: Install cairn
+        env:
+          CAIRN_VERSION: "0.2.0"
+        run: |
+          url="https://github.com/oddurs/cairn/releases/download/v${CAIRN_VERSION}/cairn-${CAIRN_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          curl -fsSL "$url" | tar xz --strip-components=1 -C /usr/local/bin "cairn-${CAIRN_VERSION}-x86_64-unknown-linux-musl/cairn"
+          cairn --version
+      - name: Every item matches the schema
+        run: cairn check
+      # ROADMAP.md is generated. If it does not match the items, someone edited
+      # the wrong file or forgot to render.
+      - name: ROADMAP.md is up to date
+        run: |
+          cairn render -q
+          git diff --exit-code -- ROADMAP.md || {
+            echo "::error::ROADMAP.md is stale — run 'cairn render' and commit the result"
+            exit 1
+          }
+
   audit:
     name: cargo audit
     runs-on: ubuntu-latest
