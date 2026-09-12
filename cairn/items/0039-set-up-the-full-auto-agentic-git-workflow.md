@@ -21,8 +21,8 @@ A `scripts/ship` command wrapping the loop, auto-merge enabled on the repository
 
 ## Acceptance criteria
 
-- [ ] `scripts/ship start <ID>` claims and branches; `finish` gates, closes, commits, pushes, opens a PR and enables auto-merge
-- [ ] `finish` refuses to push when fmt, clippy, tests or `cairn check` fail
-- [ ] CI fails when `cairn check` fails or `ROADMAP.md` is stale
-- [ ] Auto-merge and delete-on-merge are enabled on the repository
-- [ ] The loop and its guardrails are documented in CLAUDE.md
+- [x] `scripts/ship start <ID>` claims and branches; `finish` gates, closes, commits, pushes, opens a PR and enables auto-merge
+- [x] `finish` refuses to push when fmt, clippy, tests or `cairn check` fail
+- [x] CI fails when `cairn check` fails or `ROADMAP.md` is stale
+- [x] Auto-merge and delete-on-merge are enabled on the repository
+- [x] The loop and its guardrails are documented in CLAUDE.md

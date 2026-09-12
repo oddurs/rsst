@@ -32,7 +32,11 @@ commit_type() { [ "$1" = feature ] && printf feat || printf '%s' "$1"; }
 
 cmd_start() {
     local id="$1" json type title branch
-    [ -z "$(git status --porcelain)" ] || die "working tree is dirty; commit or stash first"
+    # Filing the item is what precedes starting it, so a tree dirtied only by the
+    # backlog is expected. Anything else is unrelated work that would ride along.
+    local stray
+    stray="$(git status --porcelain | grep -v -E '^.. (cairn/items/|ROADMAP\.md)' || true)"
+    [ -z "$stray" ] || die "working tree has changes outside the backlog:"$'\n'"$stray"
 
     json="$(item_json "$id")"
     type="$(field "$json" .type)"
@@ -67,6 +71,13 @@ cmd_finish() {
     area="$(field "$json" '.fields.area // empty')"
     priority="$(field "$json" '.fields.priority // empty')"
     release="$(field "$json" '.fields.release // empty')"
+
+    local unticked
+    unticked="$(field "$json" .body | grep -E '^[[:space:]]*- \[ \]' || true)"
+    if [ -n "$unticked" ] && [ "${SHIP_ALLOW_UNTICKED:-}" != 1 ]; then
+        printf 'ship: item %s still has unticked acceptance criteria:\n%s\n' "$id" "$unticked" >&2
+        die "tick them, or set SHIP_ALLOW_UNTICKED=1 for a deliberate partial close"
+    fi
 
     cairn close "$id" >/dev/null
     cairn render -q
