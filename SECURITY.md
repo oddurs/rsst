@@ -19,8 +19,12 @@ vulnerability you will get a reason rather than silence.
 rsst fetches and parses feeds from the network, which is the interesting part of
 its attack surface:
 
-- **Feed parsing.** A malicious feed should not be able to crash the reader, hang
-  it indefinitely, or cause it to write outside its own data directory.
+- **Feed parsing and article rendering.** A malicious feed should not be able to
+  crash the reader, hang it indefinitely, or cause it to write outside its own
+  data directory. This is checked rather than asserted: `tests/fuzz.rs` runs a
+  committed corpus of malformed feeds and twenty thousand mutations of it
+  through the parser, the article renderer and the readability extractor on
+  every push, with a time budget per input. It has already found one hang.
 - **Network handling.** Requests are made with `rustls` and a fifteen-second
   timeout. Certificate validation is not bypassed anywhere.
 - **What gets executed.** Opening an entry hands a URL to the system opener

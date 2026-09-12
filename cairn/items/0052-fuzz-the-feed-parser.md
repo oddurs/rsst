@@ -2,7 +2,8 @@
 id: 52
 title: Fuzz the feed parser
 type: chore
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p2

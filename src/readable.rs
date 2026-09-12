@@ -21,40 +21,74 @@ const CANDIDATES: &[&str] = &["article", "main", "section", "div"];
 /// Text below this is not an article, whatever else it looks like.
 const MINIMUM: usize = 200;
 
+/// The most containers to weigh up.
+///
+/// A page nested a thousand divs deep offers a thousand candidates, each one
+/// nearly the whole document — scoring them all is quadratic, and a page can
+/// choose to be nested that deeply. Found by the fuzzer, which hung here.
+const MAX_CANDIDATES: usize = 200;
+
+/// The most of a candidate to weigh.
+///
+/// Scoring compares prose against link text, which is a ratio — a prefix
+/// answers it as well as the whole thing. Reading all of every candidate is
+/// what made nesting quadratic: two hundred candidates, each nearly the whole
+/// document. Deep nesting went 182ms → 2.9s → 15.1s at 1k, 10k and 50k levels.
+const MAX_SCORED: usize = 32 * 1024;
+
+/// The most markup to consider at all.
+///
+/// Past this the page is not an article anyone is going to read, and the cost
+/// of deciding that grows with the input.
+const MAX_INPUT: usize = 1 << 21;
+
 /// Finds the article in a page, returning its markup.
 ///
 /// `None` when the page has nothing that reads like an article — better to keep
 /// showing the feed's own summary than to replace it with a cookie notice.
 pub fn extract(html: &str) -> Option<String> {
+    let html = prefix(html, MAX_INPUT);
     let cleaned = strip(html, NOISE);
-    let best = CANDIDATES
-        .iter()
-        .flat_map(|name| containers(&cleaned, name))
-        .map(|inner| {
-            let score = score(&inner);
-            (score, inner)
-        })
-        .filter(|(score, _)| *score >= MINIMUM as isize)
-        .max_by_key(|(score, _)| *score)
-        .map(|(_, inner)| inner);
+
+    // Ranges rather than copies: materialising the inner markup of every
+    // candidate is what made a deeply nested page quadratic.
+    let best = containers(&cleaned, CANDIDATES)
+        .into_iter()
+        .map(|(start, end)| (score(&cleaned[start..end]), start, end))
+        .filter(|(score, ..)| *score >= MINIMUM as isize)
+        .max_by_key(|(score, ..)| *score);
 
     match best {
-        Some(inner) => Some(inner),
+        Some((_, start, end)) => Some(cleaned[start..end].to_string()),
         // No container stood out, but the page may simply be plain: fall back
         // to the whole body if it has enough prose to be worth showing.
         None => {
-            let body = containers(&cleaned, "body").into_iter().next()?;
-            (score(&body) >= MINIMUM as isize).then_some(body)
+            let (start, end) = containers(&cleaned, &["body"]).into_iter().next()?;
+            let body = &cleaned[start..end];
+            (score(body) >= MINIMUM as isize).then(|| body.to_string())
         }
     }
 }
 
 /// How much this looks like prose rather than navigation.
 fn score(html: &str) -> isize {
+    let html = prefix(html, MAX_SCORED);
     let text = crate::feed::to_plain_text(html).chars().count() as isize;
     let linked = link_text(html).chars().count() as isize;
     // Navigation is plenty of words, almost all of them anchors.
     text - linked * 3
+}
+
+/// The first `limit` bytes, cut on a character boundary.
+fn prefix(text: &str, limit: usize) -> &str {
+    if text.len() <= limit {
+        return text;
+    }
+    let mut end = limit;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
 
 /// The visible text inside anchors.
@@ -112,51 +146,56 @@ fn strip(html: &str, names: &[&str]) -> String {
     out
 }
 
-/// The inner markup of every element with this name, outermost first.
-fn containers(html: &str, name: &str) -> Vec<String> {
-    let lower = html.to_ascii_lowercase();
-    let open = format!("<{name}");
-    let close = format!("</{name}");
+/// The inner range of every candidate element, in one pass over the document.
+///
+/// One pass, not one per candidate. Matching each element's closing tag by
+/// scanning forward from it is O(n) each time, and a page nested a thousand
+/// levels deep offers a thousand elements — which is how 50,000 levels came to
+/// take fifteen seconds. A stack answers all of them at once.
+fn containers(html: &str, names: &[&str]) -> Vec<(usize, usize)> {
+    let bytes = html.as_bytes();
+    let mut open: Vec<(usize, usize)> = Vec::new(); // (name index, inner start)
     let mut out = Vec::new();
-    let mut cursor = 0;
+    let mut at = 0usize;
 
-    while let Some(start) = lower[cursor..].find(&open).map(|at| at + cursor) {
-        let after = lower[start + open.len()..].chars().next();
-        if !matches!(after, Some(c) if c.is_whitespace() || c == '>' || c == '/') {
-            cursor = start + open.len();
-            continue;
-        }
-        let Some(open_end) = lower[start..].find('>').map(|at| at + start) else {
+    while at < bytes.len() && out.len() < MAX_CANDIDATES {
+        let Some(lt) = bytes[at..].iter().position(|b| *b == b'<').map(|i| i + at) else {
             break;
         };
+        let Some(gt) = bytes[lt..].iter().position(|b| *b == b'>').map(|i| i + lt) else {
+            break;
+        };
+        at = gt + 1;
 
-        // Walk to the matching close, counting nested opens of the same name.
-        let mut depth = 1usize;
-        let mut at = open_end + 1;
-        let mut end = None;
-        while at < lower.len() {
-            let next_open = lower[at..].find(&open).map(|i| i + at);
-            let next_close = lower[at..].find(&close).map(|i| i + at);
-            match (next_open, next_close) {
-                (Some(o), Some(c)) if o < c => {
-                    depth += 1;
-                    at = o + open.len();
-                }
-                (_, Some(c)) => {
-                    depth -= 1;
-                    if depth == 0 {
-                        end = Some(c);
-                        break;
-                    }
-                    at = c + close.len();
-                }
-                _ => break,
+        let raw = &html[lt + 1..gt];
+        let closing = raw.starts_with('/');
+        let name = raw
+            .trim_start_matches('/')
+            .split(|c: char| c.is_whitespace() || c == '/' || c == '>')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+
+        let Some(which) = names.iter().position(|candidate| *candidate == name) else {
+            continue;
+        };
+
+        if closing {
+            // Unwind to the matching open, tolerating tags left unclosed.
+            if let Some(position) = open.iter().rposition(|(index, _)| *index == which) {
+                let (_, inner) = open.remove(position);
+                open.truncate(position);
+                out.push((inner, lt));
             }
+        } else if !raw.ends_with('/') {
+            open.push((which, gt + 1));
         }
+    }
 
-        let end = end.unwrap_or(lower.len());
-        out.push(html[open_end + 1..end].to_string());
-        cursor = open_end + 1;
+    // Anything still open ran to the end of the document, which is what a
+    // browser does with an unclosed element too.
+    for (_, inner) in open.into_iter().take(MAX_CANDIDATES - out.len()) {
+        out.push((inner, html.len()));
     }
     out
 }
