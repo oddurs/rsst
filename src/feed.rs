@@ -236,7 +236,8 @@ fn entry_keys(
     keys
 }
 
-/// Drops tags and collapses whitespace so summaries fit a terminal paragraph.
+/// Drops tags, decodes entities, and collapses whitespace so summaries fit a
+/// terminal paragraph.
 fn strip_html(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut in_tag = false;
@@ -248,7 +249,93 @@ fn strip_html(input: &str) -> String {
             _ => {}
         }
     }
-    out.split_whitespace().collect::<Vec<_>>().join(" ")
+    // Decode before collapsing, so a decoded `&nbsp;` folds into the run of
+    // whitespace around it instead of surviving as a stray character.
+    let decoded = decode_entities(&out);
+    decoded.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The named entities worth carrying, beyond the five XML defines.
+///
+/// Feeds are written by people typing into web editors, so they are full of
+/// HTML entities that XML has never heard of. This is the short tail that
+/// actually shows up; anything else is left alone.
+const NAMED_ENTITIES: &[(&str, &str)] = &[
+    ("amp", "&"),
+    ("lt", "<"),
+    ("gt", ">"),
+    ("quot", "\""),
+    ("apos", "'"),
+    ("nbsp", " "),
+    ("ndash", "–"),
+    ("mdash", "—"),
+    ("hellip", "…"),
+    ("lsquo", "\u{2018}"),
+    ("rsquo", "\u{2019}"),
+    ("ldquo", "\u{201C}"),
+    ("rdquo", "\u{201D}"),
+    ("middot", "·"),
+    ("bull", "•"),
+    ("copy", "©"),
+    ("reg", "®"),
+    ("trade", "™"),
+    ("deg", "°"),
+    ("laquo", "«"),
+    ("raquo", "»"),
+];
+
+/// Replaces character references with the characters they stand for.
+///
+/// Anything unrecognised is left exactly as it was: a summary that genuinely
+/// discusses `&foo;` should still say so, and silently dropping text because we
+/// did not recognise it is worse than showing it raw.
+fn decode_entities(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+
+    while let Some(start) = rest.find('&') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+
+        // A reference is short; anything longer is an unescaped ampersand.
+        let Some(end) = after.find(';').filter(|end| *end <= 10) else {
+            out.push('&');
+            rest = after;
+            continue;
+        };
+        let body = &after[..end];
+
+        let decoded = if let Some(digits) = body.strip_prefix("#x").or(body.strip_prefix("#X")) {
+            u32::from_str_radix(digits, 16)
+                .ok()
+                .and_then(char::from_u32)
+                .map(String::from)
+        } else if let Some(digits) = body.strip_prefix('#') {
+            digits
+                .parse::<u32>()
+                .ok()
+                .and_then(char::from_u32)
+                .map(String::from)
+        } else {
+            NAMED_ENTITIES
+                .iter()
+                .find(|(name, _)| *name == body)
+                .map(|(_, value)| (*value).to_string())
+        };
+
+        match decoded {
+            Some(text) => {
+                out.push_str(&text);
+                rest = &after[end + 1..];
+            }
+            None => {
+                out.push('&');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 #[cfg(test)]
@@ -276,6 +363,47 @@ mod tests {
             url: "https://example.com/feed.xml".into(),
             title: None,
         }
+    }
+
+    #[test]
+    fn named_entities_are_decoded() {
+        assert_eq!(decode_entities("Tom &amp; Jerry"), "Tom & Jerry");
+        assert_eq!(decode_entities("a&nbsp;b"), "a b");
+        assert_eq!(
+            decode_entities("&ldquo;quoted&rdquo;"),
+            "\u{201C}quoted\u{201D}"
+        );
+    }
+
+    #[test]
+    fn numeric_entities_are_decoded_in_both_bases() {
+        assert_eq!(decode_entities("it&#8217;s"), "it\u{2019}s");
+        assert_eq!(decode_entities("it&#x2019;s"), "it\u{2019}s");
+    }
+
+    #[test]
+    fn an_unrecognised_entity_is_left_alone_rather_than_dropped() {
+        assert_eq!(decode_entities("look at &foo; here"), "look at &foo; here");
+        assert_eq!(decode_entities("&#xZZZZ;"), "&#xZZZZ;");
+    }
+
+    #[test]
+    fn a_bare_ampersand_survives() {
+        assert_eq!(decode_entities("R&D and Q&A"), "R&D and Q&A");
+        assert_eq!(decode_entities("trailing &"), "trailing &");
+    }
+
+    #[test]
+    fn adjacent_entities_all_decode() {
+        assert_eq!(decode_entities("&lt;&gt;&amp;"), "<>&");
+    }
+
+    #[test]
+    fn summaries_have_their_entities_decoded_and_whitespace_collapsed() {
+        assert_eq!(
+            strip_html("<p>Tom &amp; Jerry&nbsp;&nbsp; say   it&#8217;s fine</p>"),
+            "Tom & Jerry say it\u{2019}s fine"
+        );
     }
 
     #[test]

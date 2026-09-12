@@ -2,9 +2,10 @@
 id: 18
 title: Decode HTML entities in summaries
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p2
 effort: s
 area: ui
@@ -21,6 +22,6 @@ Decode named and numeric entities after stripping tags, and normalise non-breaki
 
 ## Acceptance criteria
 
-- [ ] `&amp;`, `&#8217;` and `&nbsp;` render as `&`, `'` and a space.
-- [ ] An unrecognised entity is left as-is rather than dropped.
-- [ ] Covered by a unit test in `src/feed.rs`.
+- [x] `&amp;`, `&#8217;` and `&nbsp;` render as `&`, `'` and a space.
+- [x] An unrecognised entity is left as-is rather than dropped.
+- [x] Covered by a unit test in `src/feed.rs`.
