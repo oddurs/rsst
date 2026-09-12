@@ -1617,11 +1617,13 @@ mod tests {
         let sources = vec![
             crate::config::FeedSource {
                 url: "https://a.example".into(),
+                refresh_minutes: None,
                 title: None,
                 tags: vec!["News".into(), "Rust".into()],
             },
             crate::config::FeedSource {
                 url: "https://b.example".into(),
+                refresh_minutes: None,
                 title: None,
                 tags: Vec::new(),
             },
@@ -1708,6 +1710,7 @@ mod tests {
     fn source(url: &str) -> crate::config::FeedSource {
         crate::config::FeedSource {
             url: url.into(),
+            refresh_minutes: None,
             title: None,
             tags: Vec::new(),
         }

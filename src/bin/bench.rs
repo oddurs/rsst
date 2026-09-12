@@ -62,6 +62,7 @@ fn main() {
 
     let source = FeedSource {
         url: "https://bench.example/feed".into(),
+        refresh_minutes: None,
         title: None,
         tags: Vec::new(),
     };
@@ -76,6 +77,7 @@ fn main() {
     for i in 0..50 {
         let source = FeedSource {
             url: format!("https://bench.example/{i}"),
+            refresh_minutes: None,
             title: Some(format!("Feed {i}")),
             tags: Vec::new(),
         };

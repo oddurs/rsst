@@ -9,6 +9,12 @@
 # How many feeds may be fetched at once. Default: 8.
 max_concurrent_fetches = 8
 
+# How often to refresh, in minutes. Default: 30. Zero turns the timer off and
+# leaves refreshing to `r`. Conditional requests mean an unchanged feed costs a
+# few hundred bytes, and a server that asks us to back off is always obeyed
+# whatever this says.
+refresh_minutes = 30
+
 # Whether rsst captures the mouse. Default: true — click a feed or an entry to
 # select it, click a group heading to fold it, click a link to open it, and roll
 # the wheel over any pane to scroll it.
@@ -34,6 +40,8 @@ title = "Rust Blog"
 # You can also move a feed from inside the reader with `M`, which rewrites this
 # line and leaves the rest of the file — comments included — alone.
 tags = ["Rust", "Core"]
+# Overrides the global interval for this feed alone. Default: the global one.
+refresh_minutes = 15
 
 [[feeds]]
 url = "https://this-week-in-rust.org/atom.xml"

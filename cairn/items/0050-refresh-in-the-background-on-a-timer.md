@@ -2,7 +2,8 @@
 id: 50
 title: Refresh in the background on a timer
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p1

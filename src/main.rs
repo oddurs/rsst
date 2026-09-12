@@ -31,6 +31,13 @@ const TICK: Duration = Duration::from_millis(100);
 /// large backlog does not build a huge list to throw away.
 const SEARCH_LIMIT: usize = 500;
 
+/// How often to look for feeds that have come due.
+///
+/// Not the refresh interval — the interval is per feed and measured in
+/// minutes. This is only how often the question is asked, and it is cheap: a
+/// few indexed lookups against the database.
+const DUE_CHECK: Duration = Duration::from_secs(20);
+
 /// A finished fetch on its way back to the event loop.
 type Fetched = (usize, Result<feed::Outcome>);
 
@@ -155,6 +162,9 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
     // The entry the article pane is currently showing, so the lookup happens
     // when the selection changes rather than on every frame.
     let mut showing: Option<Vec<String>> = None;
+    // Checked immediately on the first pass, so a feed that was due while the
+    // reader was closed is fetched on launch rather than twenty seconds in.
+    let mut last_due_check = std::time::Instant::now() - DUE_CHECK;
     while !app.should_quit {
         // Take whatever has arrived since the last frame. Never blocks, so a
         // slow feed cannot hold up the redraw.
@@ -163,6 +173,11 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                 continue;
             };
             let url = slot.url.clone();
+            // Reached, whatever the answer — a 304 means the server was asked
+            // and replied, which is what the timer needs to know.
+            if result.is_ok() {
+                let _ = session.db.mark_fetched(&url, chrono::Utc::now());
+            }
             match result {
                 Ok(feed::Outcome::Updated {
                     feed,
@@ -192,6 +207,47 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                 // cache it is what makes the reader usable offline. The failure
                 // is recorded on the feed rather than invented as an entry.
                 Err(err) => slot.status = feed::Status::Failed(format!("{err:#}")),
+            }
+        }
+
+        // Feeds that have come due, fetched without being asked. Detached, so
+        // the interface never waits for the network.
+        if last_due_check.elapsed() >= DUE_CHECK {
+            last_due_check = std::time::Instant::now();
+            let now = chrono::Utc::now();
+            let due: Vec<usize> = session
+                .config
+                .feeds
+                .iter()
+                .enumerate()
+                .filter(|(index, source)| {
+                    let idle = app
+                        .feeds
+                        .get(*index)
+                        .is_some_and(|feed| feed.status != feed::Status::Fetching);
+                    idle && session.db.due(
+                        &source.url,
+                        session.config.refresh_interval(source),
+                        now,
+                    )
+                })
+                .map(|(index, _)| index)
+                .collect();
+
+            if !due.is_empty() {
+                for index in &due {
+                    if let Some(feed) = app.feeds.get_mut(*index) {
+                        feed.status = feed::Status::Fetching;
+                    }
+                }
+                spawn_some(
+                    &session.client,
+                    &session.config,
+                    &session.db,
+                    &session.limiter,
+                    &session.tx,
+                    due,
+                );
             }
         }
 

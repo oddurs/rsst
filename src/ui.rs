@@ -1534,16 +1534,19 @@ mod tests {
         let sources = vec![
             crate::config::FeedSource {
                 url: "https://alpha.example".into(),
+                refresh_minutes: None,
                 title: None,
                 tags: vec!["News".into()],
             },
             crate::config::FeedSource {
                 url: "https://beta.example".into(),
+                refresh_minutes: None,
                 title: None,
                 tags: vec!["News".into()],
             },
             crate::config::FeedSource {
                 url: "https://gamma.example".into(),
+                refresh_minutes: None,
                 title: None,
                 tags: Vec::new(),
             },
