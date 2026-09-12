@@ -11,6 +11,15 @@ entry's text below. Feeds are fetched concurrently on launch and on demand.
 cargo install --path .
 ```
 
+## Usage
+
+```sh
+rsst                        # read your feeds
+rsst --config path.toml     # use a different config
+rsst --help
+rsst --version
+```
+
 ## Configure
 
 The first run writes a starter config and tells you where it lives:

@@ -21,8 +21,16 @@ pub struct FeedSource {
 
 impl Config {
     /// Loads the config, writing a starter file if none exists yet.
-    pub fn load_or_init() -> Result<Self> {
-        let path = config_path()?;
+    ///
+    /// `override_path` comes from `--config`; without it the platform config
+    /// directory is used.
+    pub fn load_or_init(override_path: Option<PathBuf>) -> Result<Self> {
+        let path = match override_path {
+            // An explicitly named config that isn't there is a mistake worth
+            // reporting, not something to silently paper over with a starter.
+            Some(path) => return Self::load_from(&path),
+            None => config_path()?,
+        };
         if !path.exists() {
             let starter = Self::starter();
             write(&path, &starter)?;

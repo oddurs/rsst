@@ -1,4 +1,5 @@
 mod app;
+mod cli;
 mod config;
 mod feed;
 mod ui;
@@ -17,6 +18,7 @@ use ratatui::backend::CrosstermBackend;
 use tokio::task::JoinSet;
 
 use crate::app::App;
+use crate::cli::Action;
 use crate::config::{Config, FeedSource};
 use crate::feed::Feed;
 
@@ -24,7 +26,19 @@ const TICK: Duration = Duration::from_millis(250);
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config = Config::load_or_init()?;
+    let config_path = match cli::parse(std::env::args().skip(1))? {
+        Action::Help => {
+            println!("{}", cli::HELP);
+            return Ok(());
+        }
+        Action::Version => {
+            println!("rsst {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        Action::Run { config } => config,
+    };
+
+    let config = Config::load_or_init(config_path)?;
     if config.feeds.is_empty() {
         let path = config::config_path()?;
         eprintln!("No feeds configured. Add some to {}.", path.display());
