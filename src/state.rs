@@ -259,6 +259,7 @@ mod tests {
             link: None,
             published: None,
             summary: String::new(),
+            content: String::new(),
             keys: keys.iter().map(|k| (*k).to_string()).collect(),
         }
     }

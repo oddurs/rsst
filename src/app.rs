@@ -877,20 +877,77 @@ impl App {
         }
     }
 
-    /// The detail pane's text, wrapped to the width it is being drawn at.
-    pub fn detail_lines(&self) -> Vec<String> {
+    /// The article, laid out for the width it is being drawn at.
+    ///
+    /// The entry's markup is parsed into a document and laid out, rather than
+    /// stripped to a run of text — a code block whose line breaks are gone is
+    /// not a code block.
+    pub fn detail_rows(&self) -> Vec<crate::article::Row> {
+        use crate::article::{Inline, Kind, Row};
         let width = self.detail_viewport.0 as usize;
         let Some(entry) = self.current_entry() else {
-            return crate::text::wrap("No entry selected.", width);
+            return crate::text::wrap("No entry selected.", width)
+                .into_iter()
+                .map(|text| Row {
+                    kind: Kind::Body,
+                    indent: 0,
+                    spans: vec![Inline::Text(text)],
+                })
+                .collect();
         };
 
-        let mut lines = crate::text::wrap(&entry.title, width);
-        if let Some(link) = &entry.link {
-            lines.extend(crate::text::wrap(link, width));
+        let mut rows: Vec<Row> = crate::text::wrap(&entry.title, width)
+            .into_iter()
+            .map(|text| Row {
+                kind: Kind::Heading,
+                indent: 0,
+                spans: vec![Inline::Text(text)],
+            })
+            .collect();
+
+        if let Some(link) = entry.link.as_deref().filter(|l| !l.is_empty()) {
+            rows.extend(crate::text::wrap(link, width).into_iter().map(|text| Row {
+                kind: Kind::Reference,
+                indent: 0,
+                spans: vec![Inline::Text(text)],
+            }));
         }
-        lines.push(String::new());
-        lines.extend(crate::text::wrap(&entry.summary, width));
-        lines
+
+        // The header is a block of its own; the article should not run
+        // straight on from the URL.
+        rows.push(Row {
+            kind: Kind::Blank,
+            indent: 0,
+            spans: Vec::new(),
+        });
+
+        // An entry stored before the markup was kept still has its plain text.
+        let source = if entry.content.is_empty() {
+            &entry.summary
+        } else {
+            &entry.content
+        };
+        rows.extend(crate::article::layout(
+            &crate::article::parse(source),
+            width,
+            self.theme.ascii,
+        ));
+        rows
+    }
+
+    /// The detail pane as plain text, for measuring and for tests.
+    pub fn detail_lines(&self) -> Vec<String> {
+        self.detail_rows()
+            .into_iter()
+            .map(|row| {
+                let body: String = row
+                    .spans
+                    .iter()
+                    .map(|span| span.text().to_string())
+                    .collect();
+                format!("{}{}", " ".repeat(row.indent), body)
+            })
+            .collect()
     }
 
     /// Which of [`Self::detail_lines`] are the entry's link, as (first, count).
@@ -994,6 +1051,7 @@ mod tests {
             link: None,
             published: None,
             summary: String::new(),
+            content: String::new(),
             keys: vec![format!("id:{title}")],
         }
     }
@@ -1575,6 +1633,7 @@ mod tests {
             link: None,
             published: year.map(at),
             summary: String::new(),
+            content: String::new(),
             keys: vec![format!("id:{title}")],
         };
         App::new(
@@ -1862,6 +1921,7 @@ mod tests {
                     link: None,
                     published: None,
                     summary: "one two three four five six seven eight nine ten".into(),
+                    content: String::new(),
                     keys: vec!["id:x".into()],
                 }],
             }],

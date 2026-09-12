@@ -40,9 +40,16 @@ a copy of it; `src/main.rs` is the reader, `src/bin/bench.rs` the benchmark.
 | `src/app.rs`    | `App` state and all selection/focus logic — pure, no I/O        |
 | `src/feed.rs`   | HTTP fetch plus `parse()`, which turns bytes into a `Feed`      |
 | `src/config.rs` | TOML config load and starter-file creation                      |
+| `src/article.rs`| Parses an entry's HTML into blocks and lays them out            |
 | `src/ui.rs`     | All rendering; reads `App`, never mutates domain state          |
 
 ## Conventions that matter here
+
+**`article.rs` decides structure; `ui.rs` decides appearance.** The parser says
+"this is a list item", the layout says where the text goes, and only the
+renderer picks a glyph or a colour. A bullet chosen during parsing is a bullet
+that cannot become an asterisk on a terminal that has no bullet — which is
+exactly the bug the ASCII test caught.
 
 **Keep logic out of `ui.rs`.** It has smoke tests against ratatui's
 `TestBackend` that assert text reaches the screen, but that is all they can

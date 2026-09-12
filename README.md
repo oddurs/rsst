@@ -5,7 +5,8 @@ A terminal RSS/Atom feed reader, built with [ratatui](https://ratatui.rs).
 ![rsst](docs/img/rsst.svg)
 
 Three panes: your feeds on the left, that feed's entries top-right, the selected
-entry's text below. Feeds are fetched concurrently on launch and on demand.
+entry below — rendered as a document, with code blocks kept verbatim, lists
+bulleted, quotes marked and links numbered against a reference list. Feeds are fetched concurrently on launch and on demand.
 
 There is a 20-second tour in [docs/img/demo.cast](docs/img/demo.cast) — play it
 with `asciinema play docs/img/demo.cast`. Both it and the screenshot are

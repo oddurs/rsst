@@ -134,6 +134,7 @@ mod tests {
                     link: Some("https://blog.rust-lang.org/2015/05/15/Rust-1.0.html".into()),
                     published: None,
                     summary: "Today we are very proud to announce the 1.0 release.".into(),
+                    content: String::new(),
                     keys: vec!["id:a".into()],
                 }],
             }],
