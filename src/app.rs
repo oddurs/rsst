@@ -180,11 +180,13 @@ mod tests {
                 Feed {
                     title: "A".into(),
                     url: "https://a.example".into(),
+                    loading: false,
                     entries: vec![entry("a1"), entry("a2")],
                 },
                 Feed {
                     title: "B".into(),
                     url: "https://b.example".into(),
+                    loading: false,
                     entries: vec![entry("b1")],
                 },
             ],
@@ -288,6 +290,7 @@ mod tests {
             vec![Feed {
                 title: "A".into(),
                 url: "https://a.example".into(),
+                loading: false,
                 entries: vec![Entry {
                     title: "Title".into(),
                     link: None,
