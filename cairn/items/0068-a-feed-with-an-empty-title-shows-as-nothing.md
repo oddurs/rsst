@@ -2,7 +2,8 @@
 id: 68
 title: A feed with an empty title shows as nothing
 type: bug
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p2
@@ -21,6 +22,6 @@ Treat blank as absent, for the feed title and the entry title alike. An entry al
 
 ## Acceptance criteria
 
-- [ ] A feed whose title is empty or whitespace falls back to its URL
-- [ ] An entry whose title is empty falls back to `(untitled)`
-- [ ] A test uses the shape danluu.com actually publishes
+- [x] A feed whose title is empty or whitespace falls back to its URL
+- [x] An entry whose title is empty falls back to `(untitled)`
+- [x] A test uses the shape danluu.com actually publishes
