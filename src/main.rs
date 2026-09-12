@@ -35,7 +35,7 @@ use crate::state::ReadState;
 const TICK: Duration = Duration::from_millis(100);
 
 /// A finished fetch on its way back to the event loop.
-type Fetched = (usize, Result<Feed>);
+type Fetched = (usize, Result<feed::Outcome>);
 
 /// Everything the event loop needs besides the app state itself.
 struct Session {
@@ -77,12 +77,12 @@ async fn main() -> Result<()> {
     // The feed list takes its final shape before a single request is made, so
     // the reader is on screen and usable while the network is still working.
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Fetched>();
-    spawn_fetches(&client, &config, &tx);
+    let cache_path = cache::cache_path()?;
+    let cache = Cache::load(&cache_path);
+    spawn_fetches(&client, &config, &cache, &tx);
 
     // Last known contents stand in until the fetch lands, so a second launch
     // has something to read immediately and an offline one still works.
-    let cache_path = cache::cache_path()?;
-    let cache = Cache::load(&cache_path);
     let feeds = config
         .feeds
         .iter()
@@ -127,10 +127,30 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
             let Some(slot) = app.feeds.get_mut(index) else {
                 continue;
             };
+            let url = slot.url.clone();
             match result {
-                Ok(feed) => {
+                Ok(feed::Outcome::Updated {
+                    feed,
+                    etag,
+                    last_modified,
+                }) => {
                     session.cache.put(&feed);
-                    *slot = feed;
+                    session.cache.set_validators(&url, etag, last_modified);
+                    *slot = *feed;
+                }
+                // Nothing was downloaded or reparsed; what is on screen stands.
+                Ok(feed::Outcome::NotModified) => slot.loading = false,
+                Ok(feed::Outcome::RateLimited { retry_after }) => {
+                    let until = chrono::Utc::now()
+                        + chrono::Duration::from_std(retry_after)
+                            .unwrap_or_else(|_| chrono::Duration::seconds(300));
+                    session.cache.defer_until(&url, until);
+                    slot.loading = false;
+                    app.status = Some(format!(
+                        " {}: rate limited, waiting {}s ",
+                        slot.title,
+                        retry_after.as_secs()
+                    ));
                 }
                 // Keep whatever is already on screen. When that came from the
                 // cache it is exactly what makes the reader usable offline;
@@ -171,7 +191,13 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                 } else {
                     format!(" Refreshing {} feed(s)… ", starting.len())
                 });
-                spawn_some(&session.client, &session.config, &session.tx, starting);
+                spawn_some(
+                    &session.client,
+                    &session.config,
+                    &session.cache,
+                    &session.tx,
+                    starting,
+                );
             }
             _ => {}
         }
@@ -186,26 +212,41 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
 fn spawn_fetches(
     client: &reqwest::Client,
     config: &Config,
+    cache: &Cache,
     tx: &tokio::sync::mpsc::UnboundedSender<Fetched>,
 ) {
-    spawn_some(client, config, tx, 0..config.feeds.len());
+    spawn_some(client, config, cache, tx, 0..config.feeds.len());
 }
 
 /// Starts a fetch for each of `indices`.
 fn spawn_some(
     client: &reqwest::Client,
     config: &Config,
+    cache: &Cache,
     tx: &tokio::sync::mpsc::UnboundedSender<Fetched>,
     indices: impl IntoIterator<Item = usize>,
 ) {
+    let now = chrono::Utc::now();
     for index in indices {
         let Some(source) = config.feeds.get(index).cloned() else {
             continue;
         };
+        // Honour a server that asked us to wait rather than hammering it.
+        if !cache.may_fetch(&source.url, now) {
+            let _ = tx.send((index, Ok(feed::Outcome::NotModified)));
+            continue;
+        }
+        let meta = cache.meta(&source.url);
         let client = client.clone();
         let tx = tx.clone();
         tokio::spawn(async move {
-            let result = feed::fetch(&client, &source).await;
+            let result = feed::fetch(
+                &client,
+                &source,
+                meta.etag.as_deref(),
+                meta.last_modified.as_deref(),
+            )
+            .await;
             // A closed channel means the reader has already quit.
             let _ = tx.send((index, result));
         });

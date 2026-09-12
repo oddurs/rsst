@@ -2,11 +2,12 @@
 id: 16
 title: Conditional GET with ETag and Last-Modified
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 depends_on:
 - 15
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p0
 effort: m
 area: net
@@ -23,6 +24,6 @@ Store each feed's ETag and Last-Modified, send If-None-Match / If-Modified-Since
 
 ## Acceptance criteria
 
-- [ ] An unchanged feed returns 304 and is not reparsed.
-- [ ] A 429 with Retry-After defers the next attempt rather than hammering.
-- [ ] Validators survive a restart.
+- [x] An unchanged feed returns 304 and is not reparsed.
+- [x] A 429 with Retry-After defers the next attempt rather than hammering.
+- [x] Validators survive a restart.
