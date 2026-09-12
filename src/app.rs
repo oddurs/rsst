@@ -50,6 +50,8 @@ pub struct App {
     pub theme: crate::theme::Theme,
     /// Showing every feed's entries as one list.
     pub all_feeds_view: bool,
+    /// What was drawn where, for hit-testing the pointer.
+    pub hits: crate::mouse::Hits,
     /// First visible line of the help overlay.
     pub help_scroll: u16,
 }
@@ -200,6 +202,51 @@ impl App {
                 FeedRow::Group { .. } => None,
             })
             .collect()
+    }
+
+    /// Folds a named group away, or unfolds it.
+    ///
+    /// Takes the name rather than using the selection, because a click lands on
+    /// a heading that may not be the selected feed's.
+    pub fn toggle_group_named(&mut self, tag: &str) {
+        let tag = tag.to_string();
+        if !self.collapsed.remove(&tag) {
+            self.collapsed.insert(tag);
+            if !self.selectable_feeds().contains(&self.selected_feed)
+                && let Some(&next) = self.selectable_feeds().first()
+            {
+                self.selected_feed = next;
+                self.selected_entry = 0;
+                self.detail_scroll = 0;
+            }
+        }
+    }
+
+    /// Selects a feed by index, as a click does.
+    pub fn select_feed(&mut self, index: usize) {
+        if index >= self.feeds.len() {
+            return;
+        }
+        self.focus = Pane::Feeds;
+        self.selected_feed = index;
+        self.selected_entry = 0;
+        self.detail_scroll = 0;
+    }
+
+    /// Selects an entry in a feed, as a click does.
+    pub fn select_entry(&mut self, feed: usize, entry: usize) {
+        if self
+            .feeds
+            .get(feed)
+            .is_none_or(|f| entry >= f.entries.len())
+        {
+            return;
+        }
+        self.focus = Pane::Entries;
+        self.selected_feed = feed;
+        self.selected_entry = entry;
+        self.detail_scroll = 0;
+        self.mark_current_read();
     }
 
     /// Folds the selected feed's group away, or unfolds it.
@@ -714,6 +761,19 @@ impl App {
         lines.push(String::new());
         lines.extend(crate::text::wrap(&entry.summary, width));
         lines
+    }
+
+    /// Which of [`Self::detail_lines`] are the entry's link, as (first, count).
+    ///
+    /// A long URL wraps, so the answer is a range: clicking the tail of a
+    /// wrapped link should open it just as readily as clicking its head.
+    pub fn detail_link_lines(&self) -> Option<(usize, usize)> {
+        let entry = self.current_entry()?;
+        let link = entry.link.as_deref().filter(|l| !l.is_empty())?;
+        let width = self.detail_viewport.0 as usize;
+        let title = crate::text::wrap(&entry.title, width).len();
+        let lines = crate::text::wrap(link, width).len();
+        (lines > 0).then_some((title, lines))
     }
 
     /// The furthest the detail pane can scroll and still show text.

@@ -89,6 +89,19 @@ every key the parser accepts, with its default, and every action bound. It is
 not prose that can drift: tests assert it parses, that it mentions every field
 the config struct serializes, and that it binds every action the app knows.
 
+## Mouse
+
+rsst is usable entirely with the pointer. Click a feed or an entry to select it,
+a group heading to fold it, a link to open it; double-click an entry to open it
+in your browser. The wheel scrolls whichever pane it is over — by one item in a
+list, by three lines in an article. The hints along the bottom are buttons, and
+any click dismisses the key overlay.
+
+While rsst holds the mouse your terminal cannot use it to select text. Most
+terminals — Ghostty, iTerm2, kitty, Alacritty — give selection back if you hold
+**Shift** while dragging. If you would rather have ordinary selection all the
+time, set `mouse = false`.
+
 ## Keys
 
 | Key            | Action                    |

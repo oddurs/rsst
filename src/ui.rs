@@ -22,10 +22,20 @@ pub fn draw(frame: &mut Frame, app: &mut App, keymap: &crate::keys::Keymap) {
         .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
         .split(columns[1]);
 
+    // Reset the hit map each frame: it describes this frame, not the last one.
+    app.hits = crate::mouse::Hits {
+        feeds_pane: inner(columns[0]),
+        entries_pane: inner(panes[0]),
+        detail_pane: inner(panes[1]),
+        status_bar: rows[1],
+        help_open: app.help_open,
+        ..Default::default()
+    };
+
     draw_feeds(frame, app, columns[0]);
     draw_entries(frame, app, panes[0]);
     draw_detail(frame, app, panes[1]);
-    draw_status(frame, app, rows[1]);
+    app.hits.buttons = draw_status(frame, app, rows[1]);
 
     // Last, so it covers everything else.
     if app.help_open {
@@ -98,9 +108,22 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
         area,
         &mut state,
     );
+
+    // Read the offset back out of the widget rather than recomputing it. The
+    // list decides how far it scrolled; a second implementation here would be
+    // right until it was not.
+    let body = inner(area);
+    app.hits.feed_rows = rows
+        .into_iter()
+        .enumerate()
+        .skip(state.offset())
+        .take(body.height as usize)
+        .map(|(index, row)| ((index - state.offset()) as u16 + body.y, row))
+        .collect();
 }
 
 fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
+    let mut rows_out: Vec<(u16, (usize, usize))> = Vec::new();
     if let Some(search) = app.search.clone() {
         draw_cross_feed(
             frame,
@@ -122,7 +145,9 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
                 "No matches."
             },
             area,
+            &mut rows_out,
         );
+        app.hits.entry_rows = rows_out;
         return;
     }
     if app.all_feeds_view {
@@ -137,7 +162,17 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
             .iter()
             .position(|(f, e)| *f == app.selected_feed && *e == app.selected_entry)
             .unwrap_or(0);
-        draw_cross_feed(frame, app, &rows, selected, &title, "No entries yet.", area);
+        draw_cross_feed(
+            frame,
+            app,
+            &rows,
+            selected,
+            &title,
+            "No entries yet.",
+            area,
+            &mut rows_out,
+        );
+        app.hits.entry_rows = rows_out;
         return;
     }
     if app.starred_view {
@@ -151,7 +186,9 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
             &title,
             "Nothing starred yet.",
             area,
+            &mut rows_out,
         );
+        app.hits.entry_rows = rows_out;
         return;
     }
     let title = app
@@ -214,6 +251,16 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
         area,
         &mut state,
     );
+
+    let body = inner(area);
+    let feed = app.selected_feed;
+    app.hits.entry_rows = visible
+        .into_iter()
+        .enumerate()
+        .skip(state.offset())
+        .take(body.height as usize)
+        .map(|(row, entry)| ((row - state.offset()) as u16 + body.y, (feed, entry)))
+        .collect();
 }
 
 /// Borders drawn with characters every terminal and font has.
@@ -326,6 +373,7 @@ fn draw_help(
 }
 
 /// The entries pane, listing entries drawn from every feed rather than one.
+#[allow(clippy::too_many_arguments)]
 fn draw_cross_feed(
     frame: &mut Frame,
     app: &App,
@@ -334,6 +382,7 @@ fn draw_cross_feed(
     title: &str,
     empty_message: &str,
     area: Rect,
+    rows_out: &mut Vec<(u16, (usize, usize))>,
 ) {
     let items: Vec<ListItem> = results
         .iter()
@@ -369,16 +418,23 @@ fn draw_cross_feed(
         area,
         &mut state,
     );
+
+    let body = inner(area);
+    rows_out.extend(
+        results
+            .iter()
+            .enumerate()
+            .skip(state.offset())
+            .take(body.height as usize)
+            .map(|(row, target)| ((row - state.offset()) as u16 + body.y, *target)),
+    );
 }
 
 fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
     // Tell the app how much room it has, so it can wrap and clamp scrolling.
-    // `block` takes one column of border on each side, and one row.
-    let inner = Rect {
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-        ..area
-    };
+    // The same inner rect the hit map uses, so a click on the link lands on the
+    // row the link was drawn on rather than one above it.
+    let inner = inner(area);
     app.detail_viewport = (inner.width, inner.height);
     // The pane may have shrunk since the last frame, stranding the offset past
     // the end of the text.
@@ -401,9 +457,31 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
             .scroll((app.detail_scroll, 0)),
         area,
     );
+
+    // Where the link ended up on screen, so it can be clicked. Scrolled off the
+    // top or past the bottom, it simply is not clickable.
+    app.hits.link_rows = match (app.detail_link_lines(), app.current_entry()) {
+        (Some((first, count)), Some(entry)) => {
+            let link = entry.link.clone().unwrap_or_default();
+            let wrapped = crate::text::wrap(&link, inner.width as usize);
+            (0..count)
+                .filter_map(|i| {
+                    let line = (first + i) as u16;
+                    let row = line.checked_sub(app.detail_scroll)? + inner.y;
+                    (row < inner.y + inner.height).then(|| {
+                        let width = wrapped.get(i).map_or(0, |l| l.chars().count()) as u16;
+                        (row, inner.x, inner.x + width.saturating_sub(1))
+                    })
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    };
 }
 
-fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
+/// Draws the status bar and returns the clickable hints it drew.
+fn draw_status(frame: &mut Frame, app: &App, area: Rect) -> Vec<(u16, u16, crate::keys::Action)> {
+    let mut buttons = Vec::new();
     // A transient message wins; otherwise a failed feed explains itself for as
     // long as it is selected, rather than flashing once and being lost.
     let error = app
@@ -424,16 +502,41 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
             .style(app.theme.status(app.theme.warning)),
             area,
         );
-        return;
+        return buttons;
     }
 
-    let (text, tone) = match (&app.status, error) {
-        (Some(status), _) => (status.clone(), app.theme.accent),
-        (None, Some((message, tone))) => (message, tone),
-        (None, None) => (format!(" {} ", help_line(&app.theme)), app.theme.accent),
+    let (message, tone) = match (&app.status, error) {
+        (Some(status), _) => (Some(status.clone()), app.theme.accent),
+        (None, Some((message, tone))) => (Some(message), tone),
+        (None, None) => (None, app.theme.accent),
     };
 
-    frame.render_widget(Paragraph::new(text).style(app.theme.status(tone)), area);
+    let style = app.theme.status(tone);
+    match message {
+        Some(text) => frame.render_widget(Paragraph::new(text).style(style), area),
+        None => {
+            // The hints are drawn span by span and their columns recorded, so a
+            // click lands on exactly the hint that was drawn there.
+            let separator = if app.theme.ascii { " | " } else { " · " };
+            let mut spans = vec![Span::raw(" ")];
+            let mut column = area.x + 1;
+            for (index, (label, action)) in status_hints().into_iter().enumerate() {
+                if index > 0 {
+                    spans.push(Span::raw(separator));
+                    column += separator.chars().count() as u16;
+                }
+                let width = label.chars().count() as u16;
+                if column + width >= area.x + area.width {
+                    break;
+                }
+                buttons.push((column, column + width - 1, action));
+                spans.push(Span::raw(label));
+                column += width;
+            }
+            frame.render_widget(Paragraph::new(Line::from(spans)).style(style), area);
+        }
+    }
+    buttons
 }
 
 fn block<'a>(title: &'a str, focused: bool, theme: &'a crate::theme::Theme) -> Block<'a> {
@@ -458,21 +561,32 @@ fn cursor(theme: &crate::theme::Theme) -> &'static str {
     if theme.ascii { "> " } else { "› " }
 }
 
-/// The key summary along the bottom, with a separator the terminal can draw.
-fn help_line(theme: &crate::theme::Theme) -> String {
-    let sep = if theme.ascii { " | " } else { " · " };
-    [
-        "? keys",
-        "q quit",
-        "Tab",
-        "j/k",
-        "/ search",
-        "u unread",
-        "s star",
-        "o open",
-        "r refresh",
+/// The area inside a bordered block.
+fn inner(area: Rect) -> Rect {
+    Rect {
+        x: area.x + 1,
+        y: area.y + 1,
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    }
+}
+
+/// The hints along the bottom, each one a thing you can click.
+///
+/// Paired with the action it performs rather than being decorative text, so the
+/// pointer can use them and a hint cannot claim a key that does something else.
+fn status_hints() -> Vec<(&'static str, crate::keys::Action)> {
+    use crate::keys::Action;
+    vec![
+        ("? keys", Action::Help),
+        ("q quit", Action::Quit),
+        ("Tab pane", Action::CyclePane),
+        ("/ search", Action::Search),
+        ("u unread", Action::ToggleUnreadOnly),
+        ("s star", Action::ToggleStar),
+        ("o open", Action::Open),
+        ("r refresh", Action::Refresh),
     ]
-    .join(sep)
 }
 
 fn highlight(theme: &crate::theme::Theme) -> Style {
@@ -955,6 +1069,195 @@ mod tests {
             ratatui::style::Color::Reset,
             "the status bar pinned a background instead of reversing"
         );
+    }
+
+    /// Renders, then clicks at a screen position, as a terminal would.
+    ///
+    /// Goes through `ui::draw` so the hit map is the one the renderer built,
+    /// which is the whole point: the click lands on what was actually drawn.
+    fn click_at(app: &mut App, column: u16, row: u16) -> Option<crate::keys::Action> {
+        use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+        render_at(app, 80, 24);
+        let event = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        };
+        let hit = crate::mouse::resolve(&app.hits, event, false);
+        crate::mouse::apply(app, hit)
+    }
+
+    fn wheel_at(app: &mut App, column: u16, row: u16, down: bool) {
+        use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
+        render_at(app, 80, 24);
+        let event = MouseEvent {
+            kind: if down {
+                MouseEventKind::ScrollDown
+            } else {
+                MouseEventKind::ScrollUp
+            },
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        };
+        let hit = crate::mouse::resolve(&app.hits, event, false);
+        crate::mouse::apply(app, hit);
+    }
+
+    /// Two feeds under one group, plus an ungrouped third.
+    fn clickable() -> App {
+        let entry = |title: &str| Entry {
+            title: title.into(),
+            link: Some(format!("https://example.com/{title}")),
+            published: None,
+            summary: "Body text.".into(),
+            keys: vec![format!("id:{title}")],
+        };
+        let feed = |name: &str, titles: &[&str]| Feed {
+            title: name.into(),
+            url: format!("https://{name}.example"),
+            status: crate::feed::Status::Idle,
+            entries: titles.iter().map(|t| entry(t)).collect(),
+        };
+        let sources = vec![
+            crate::config::FeedSource {
+                url: "https://alpha.example".into(),
+                title: None,
+                tags: vec!["News".into()],
+            },
+            crate::config::FeedSource {
+                url: "https://beta.example".into(),
+                title: None,
+                tags: vec!["News".into()],
+            },
+            crate::config::FeedSource {
+                url: "https://gamma.example".into(),
+                title: None,
+                tags: Vec::new(),
+            },
+        ];
+        App::new(
+            vec![
+                feed("alpha", &["a1", "a2", "a3"]),
+                feed("beta", &["b1"]),
+                feed("gamma", &["g1"]),
+            ],
+            ReadState::default(),
+        )
+        .with_tags(&sources)
+    }
+
+    #[test]
+    fn clicking_a_feed_selects_the_one_that_was_drawn_there() {
+        let mut app = clickable();
+        // Row 1 is the "News" heading, 2 and 3 its feeds, 4 the ungrouped one.
+        click_at(&mut app, 4, 3);
+        assert_eq!(app.selected_feed, 1);
+        assert_eq!(app.focus, Pane::Feeds);
+
+        click_at(&mut app, 4, 4);
+        assert_eq!(app.selected_feed, 2, "the ungrouped feed");
+    }
+
+    #[test]
+    fn clicking_a_group_heading_folds_and_unfolds_it() {
+        let mut app = clickable();
+        assert_eq!(app.selectable_feeds(), vec![0, 1, 2]);
+
+        click_at(&mut app, 4, 1);
+        assert_eq!(app.selectable_feeds(), vec![2], "its feeds are hidden");
+
+        click_at(&mut app, 4, 1);
+        assert_eq!(app.selectable_feeds(), vec![0, 1, 2], "and come back");
+    }
+
+    #[test]
+    fn folding_a_group_shifts_the_rows_below_it_and_clicks_follow() {
+        let mut app = clickable();
+        click_at(&mut app, 4, 1); // fold "News"
+        // With the group folded, row 2 is now the ungrouped feed rather than
+        // the first feed of the group. A click must follow what is drawn.
+        click_at(&mut app, 4, 2);
+        assert_eq!(app.selected_feed, 2);
+    }
+
+    #[test]
+    fn clicking_an_entry_selects_it_and_marks_it_read() {
+        let mut app = clickable();
+        assert_eq!(app.unread(0), 3);
+
+        click_at(&mut app, 40, 2); // the second entry of the first feed
+        assert_eq!(app.focus, Pane::Entries);
+        assert_eq!(app.selected_entry, 1);
+        assert_eq!(app.unread(0), 2, "clicking an entry reads it");
+    }
+
+    #[test]
+    fn clicking_the_link_asks_to_open_it() {
+        let mut app = clickable();
+        // The detail pane starts at row 15; the link is the second line.
+        let action = click_at(&mut app, 25, 16);
+        assert_eq!(action, Some(crate::keys::Action::Open));
+    }
+
+    #[test]
+    fn clicking_beside_the_link_only_moves_focus() {
+        let mut app = clickable();
+        let action = click_at(&mut app, 70, 16);
+        assert_eq!(action, None);
+        assert_eq!(app.focus, Pane::Detail);
+    }
+
+    #[test]
+    fn the_wheel_over_the_entries_pane_moves_through_entries() {
+        let mut app = clickable();
+        wheel_at(&mut app, 40, 3, true);
+        assert_eq!(app.selected_entry, 1);
+        wheel_at(&mut app, 40, 3, false);
+        assert_eq!(app.selected_entry, 0);
+    }
+
+    #[test]
+    fn the_wheel_does_not_steal_keyboard_focus() {
+        let mut app = clickable();
+        assert_eq!(app.focus, Pane::Feeds);
+        wheel_at(&mut app, 40, 3, true);
+        assert_eq!(app.focus, Pane::Feeds, "scrolling only looked at the pane");
+    }
+
+    #[test]
+    fn the_wheel_over_the_detail_pane_scrolls_the_article() {
+        let mut app = clickable();
+        app.feeds[0].entries[0].summary = (1..=400)
+            .map(|i| format!("word{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        wheel_at(&mut app, 40, 18, true);
+        assert!(
+            app.detail_scroll > 1,
+            "a wheel notch moves more than a line"
+        );
+    }
+
+    #[test]
+    fn a_status_bar_hint_runs_its_action() {
+        let mut app = clickable();
+        // "? keys" is the first hint, at the start of the last row.
+        assert_eq!(
+            click_at(&mut app, 2, 23),
+            Some(crate::keys::Action::Help),
+            "the first hint is ? keys"
+        );
+    }
+
+    #[test]
+    fn clicking_dismisses_the_help_overlay() {
+        let mut app = clickable();
+        app.help_open = true;
+        click_at(&mut app, 40, 10);
+        assert!(!app.help_open);
+        assert_eq!(app.help_scroll, 0);
     }
 
     #[test]

@@ -58,6 +58,17 @@ present and fails on any character above 127, so this cannot rot by someone
 adding one more glyph. A second test asserts the default theme still uses box
 drawing, so the fallback cannot quietly become the only mode.
 
+## The mouse
+
+rsst asks for SGR mouse reporting (`1000`/`1002`/`1006`), which every terminal in
+the lists above supports. Capture is released on exit — including on a panic,
+because a terminal left in mouse-reporting mode prints escape codes at the shell
+prompt on every click, which looks like a broken shell rather than a broken
+reader.
+
+Holding **Shift** while dragging gives selection back to the terminal in
+Ghostty, iTerm2, kitty and Alacritty. `mouse = false` turns capture off entirely.
+
 ## Reporting one
 
 If rsst looks wrong in your terminal, `rsst --version`, the terminal's name, and
