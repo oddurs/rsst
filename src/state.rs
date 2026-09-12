@@ -81,6 +81,16 @@ impl ReadState {
         self.keys.extend(entry.keys.iter().cloned());
     }
 
+    /// Puts an entry back to unread.
+    ///
+    /// Every candidate key has to go: leaving one behind would leave the entry
+    /// still matching, and the toggle would look broken.
+    pub fn mark_unread(&mut self, entry: &Entry) {
+        for key in &entry.keys {
+            self.keys.remove(key);
+        }
+    }
+
     #[cfg(test)]
     pub fn len(&self) -> usize {
         self.keys.len()
@@ -138,6 +148,27 @@ mod tests {
         let mut state = ReadState::default();
         state.mark_read(&entry(&["a", "b"]));
         assert!(state.is_read(&entry(&["zzz", "b"])));
+    }
+
+    #[test]
+    fn an_entry_can_be_put_back_to_unread() {
+        let mut state = ReadState::default();
+        state.mark_read(&entry(&["a", "b"]));
+        assert!(state.is_read(&entry(&["a", "b"])));
+
+        state.mark_unread(&entry(&["a", "b"]));
+        assert!(!state.is_read(&entry(&["a", "b"])));
+        assert_eq!(state.len(), 0, "every candidate key was removed");
+    }
+
+    #[test]
+    fn marking_unread_leaves_other_entries_alone() {
+        let mut state = ReadState::default();
+        state.mark_read(&entry(&["a"]));
+        state.mark_read(&entry(&["b"]));
+        state.mark_unread(&entry(&["a"]));
+        assert!(!state.is_read(&entry(&["a"])));
+        assert!(state.is_read(&entry(&["b"])));
     }
 
     #[test]

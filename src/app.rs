@@ -27,6 +27,17 @@ pub struct App {
     pub detail_viewport: (u16, u16),
     /// Active search, if any.
     pub search: Option<Search>,
+    /// A bulk action waiting for the user to say yes.
+    pub pending: Option<Bulk>,
+}
+
+/// A marking action that affects more than one entry, so it is worth a prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bulk {
+    /// Every entry in the selected feed.
+    Feed,
+    /// Every entry in every feed.
+    Everything,
 }
 
 /// A search over every entry in every feed.
@@ -63,6 +74,62 @@ impl App {
         if let Some(entry) = feed.entries.get(self.selected_entry) {
             self.read.mark_read(entry);
         }
+    }
+
+    /// Flips the selected entry between read and unread.
+    pub fn toggle_current_read(&mut self) {
+        let Some(entry) = self.current_entry().cloned() else {
+            return;
+        };
+        if self.read.is_read(&entry) {
+            self.read.mark_unread(&entry);
+        } else {
+            self.read.mark_read(&entry);
+        }
+    }
+
+    /// Queues a bulk mark, to be confirmed or abandoned.
+    pub fn request_bulk(&mut self, bulk: Bulk) {
+        self.pending = Some(bulk);
+    }
+
+    /// How many entries the queued action would mark, for the prompt.
+    pub fn pending_count(&self) -> usize {
+        match self.pending {
+            Some(Bulk::Feed) => self.unread(self.selected_feed),
+            Some(Bulk::Everything) => (0..self.feeds.len()).map(|f| self.unread(f)).sum(),
+            None => 0,
+        }
+    }
+
+    /// Carries out the queued action and reports how many it marked.
+    pub fn confirm_bulk(&mut self) -> usize {
+        let Some(bulk) = self.pending.take() else {
+            return 0;
+        };
+        let feeds: Vec<usize> = match bulk {
+            Bulk::Feed => vec![self.selected_feed],
+            Bulk::Everything => (0..self.feeds.len()).collect(),
+        };
+
+        let mut marked = 0;
+        for index in feeds {
+            let Some(feed) = self.feeds.get(index) else {
+                continue;
+            };
+            for entry in feed.entries.clone() {
+                if !self.read.is_read(&entry) {
+                    self.read.mark_read(&entry);
+                    marked += 1;
+                }
+            }
+        }
+        marked
+    }
+
+    /// Abandons the queued action.
+    pub fn cancel_bulk(&mut self) {
+        self.pending = None;
     }
 
     /// Opens a search, remembering where the cursor was.
@@ -703,6 +770,67 @@ mod tests {
         let search = app.search.as_ref().expect("searching");
         assert!(!search.typing);
         assert_eq!(search.results.len(), 2);
+    }
+
+    #[test]
+    fn an_entry_toggles_between_read_and_unread() {
+        let mut app = app();
+        assert_eq!(app.unread(0), 2);
+
+        app.toggle_current_read();
+        assert_eq!(app.unread(0), 1);
+
+        app.toggle_current_read();
+        assert_eq!(app.unread(0), 2, "toggled back");
+    }
+
+    #[test]
+    fn marking_a_feed_read_needs_confirming_first() {
+        let mut app = app();
+        app.request_bulk(Bulk::Feed);
+        assert_eq!(app.pending_count(), 2);
+        // Nothing has happened yet.
+        assert_eq!(app.unread(0), 2);
+
+        assert_eq!(app.confirm_bulk(), 2);
+        assert_eq!(app.unread(0), 0);
+        assert!(app.pending.is_none());
+    }
+
+    #[test]
+    fn abandoning_a_bulk_mark_changes_nothing() {
+        let mut app = app();
+        app.request_bulk(Bulk::Feed);
+        app.cancel_bulk();
+        assert_eq!(app.unread(0), 2);
+        assert_eq!(app.confirm_bulk(), 0, "nothing left queued");
+    }
+
+    #[test]
+    fn marking_one_feed_leaves_the_others_alone() {
+        let mut app = app();
+        app.request_bulk(Bulk::Feed);
+        app.confirm_bulk();
+        assert_eq!(app.unread(0), 0);
+        assert_eq!(app.unread(1), 1, "the other feed is untouched");
+    }
+
+    #[test]
+    fn marking_everything_covers_every_feed() {
+        let mut app = app();
+        app.request_bulk(Bulk::Everything);
+        assert_eq!(app.pending_count(), 3);
+        assert_eq!(app.confirm_bulk(), 3);
+        assert_eq!(app.unread(0), 0);
+        assert_eq!(app.unread(1), 0);
+    }
+
+    #[test]
+    fn a_bulk_mark_counts_only_what_was_still_unread() {
+        let mut app = app();
+        app.toggle_current_read(); // one already read
+        app.request_bulk(Bulk::Everything);
+        assert_eq!(app.confirm_bulk(), 2);
     }
 
     #[test]
