@@ -95,3 +95,12 @@ with the alternate screen still active.
 - [x] [`0037`](https://github.com/oddurs/rsst/blob/main/cairn/items/0037-benchmark-a-large-feed-list.md) Benchmark a large feed list <sup>chore · v1.0 · p3</sup>
 - [x] [`0038`](https://github.com/oddurs/rsst/blob/main/cairn/items/0038-automate-dependency-updates.md) Automate dependency updates <sup>chore · v1.0 · p2</sup>
 
+## v1.1
+
+`··········` 0% · 0 of 2 done
+
+### backlog
+
+- [ ] [`0043`](https://github.com/oddurs/rsst/blob/main/cairn/items/0043-write-the-cache-one-file-per-feed.md) Write the cache one file per feed <sup>feature · v1.1 · p2</sup>
+- [ ] [`0044`](https://github.com/oddurs/rsst/blob/main/cairn/items/0044-keep-entries-and-read-state-in-sqlite.md) Keep entries and read state in SQLite <sup>feature · v1.1 · p1</sup>
+
