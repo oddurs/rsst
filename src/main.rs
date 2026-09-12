@@ -189,9 +189,17 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
 
         app.status = None;
 
-        // The help overlay swallows the next keystroke, whatever it is.
+        // The overlay can be longer than the screen, so movement scrolls it
+        // and anything else dismisses it.
         if app.help_open {
-            app.help_open = false;
+            match session.keymap.action(key.code, key.modifiers) {
+                Some(keys::Action::Next) => app.help_scroll = app.help_scroll.saturating_add(1),
+                Some(keys::Action::Previous) => app.help_scroll = app.help_scroll.saturating_sub(1),
+                _ => {
+                    app.help_open = false;
+                    app.help_scroll = 0;
+                }
+            }
             continue;
         }
 
@@ -295,6 +303,16 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                 });
             }
             Action::ToggleStarredView => app.toggle_starred_view(),
+            Action::ToggleAllFeeds => app.toggle_all_feeds_view(),
+            Action::ToggleSort => {
+                app.toggle_sort();
+                let _ = app.read.save(&session.state_path);
+                app.status = Some(if app.read.oldest_first {
+                    " Oldest first. ".into()
+                } else {
+                    " Newest first. ".into()
+                });
+            }
             Action::Open => open_selected(app),
             Action::CopyLink => copy_selected(app),
             Action::Refresh => {

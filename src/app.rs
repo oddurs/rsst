@@ -48,6 +48,10 @@ pub struct App {
     tags: Vec<Option<String>>,
     /// Colours in use.
     pub theme: crate::theme::Theme,
+    /// Showing every feed's entries as one list.
+    pub all_feeds_view: bool,
+    /// First visible line of the help overlay.
+    pub help_scroll: u16,
 }
 
 /// A marking action that affects more than one entry, so it is worth a prompt.
@@ -318,6 +322,61 @@ impl App {
 
     fn last_visible(&self) -> Option<usize> {
         self.visible_indices(self.selected_feed).last().copied()
+    }
+
+    /// Every entry across every feed, in date order.
+    ///
+    /// Undated entries sort last whichever direction is chosen: a feed that
+    /// omits dates should not colonise the top of the list, and reversing the
+    /// order is not a reason for it to colonise the bottom either.
+    pub fn all_entries(&self) -> Vec<(usize, usize)> {
+        let mut rows: Vec<(usize, usize)> = self
+            .feeds
+            .iter()
+            .enumerate()
+            .flat_map(|(f, feed)| (0..feed.entries.len()).map(move |e| (f, e)))
+            .collect();
+
+        let oldest_first = self.read.oldest_first;
+        rows.sort_by(|a, b| {
+            let published = |(f, e): &(usize, usize)| {
+                self.feeds
+                    .get(*f)
+                    .and_then(|feed| feed.entries.get(*e))
+                    .and_then(|entry| entry.published)
+            };
+            match (published(a), published(b)) {
+                (Some(x), Some(y)) => {
+                    if oldest_first {
+                        x.cmp(&y)
+                    } else {
+                        y.cmp(&x)
+                    }
+                }
+                // Undated last, in both directions.
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            }
+        });
+        rows
+    }
+
+    /// Shows or hides the combined all-feeds list.
+    pub fn toggle_all_feeds_view(&mut self) {
+        self.all_feeds_view = !self.all_feeds_view;
+        if self.all_feeds_view
+            && let Some(&(feed, entry)) = self.all_entries().first()
+        {
+            self.selected_feed = feed;
+            self.selected_entry = entry;
+            self.detail_scroll = 0;
+        }
+    }
+
+    /// Flips between newest-first and oldest-first.
+    pub fn toggle_sort(&mut self) {
+        self.read.oldest_first = !self.read.oldest_first;
     }
 
     /// Stars the selected entry, or unstars it. Reports the new state.
@@ -1352,6 +1411,81 @@ mod tests {
         app.toggle_group();
         app.select_next();
         assert_eq!(app.selected_feed, 1, "wrapped over the hidden feed");
+    }
+
+    fn dated() -> App {
+        use chrono::TimeZone;
+        let at = |y| chrono::Utc.with_ymd_and_hms(y, 1, 1, 0, 0, 0).unwrap();
+        let make = |title: &str, year: Option<i32>| Entry {
+            title: title.into(),
+            link: None,
+            published: year.map(at),
+            summary: String::new(),
+            keys: vec![format!("id:{title}")],
+        };
+        App::new(
+            vec![
+                Feed {
+                    title: "A".into(),
+                    url: "https://a.example".into(),
+                    status: crate::feed::Status::Idle,
+                    entries: vec![make("a-2020", Some(2020)), make("a-undated", None)],
+                },
+                Feed {
+                    title: "B".into(),
+                    url: "https://b.example".into(),
+                    status: crate::feed::Status::Idle,
+                    entries: vec![make("b-2022", Some(2022)), make("b-2018", Some(2018))],
+                },
+            ],
+            ReadState::default(),
+        )
+    }
+
+    fn titles(app: &App, rows: &[(usize, usize)]) -> Vec<String> {
+        rows.iter()
+            .map(|(f, e)| app.feeds[*f].entries[*e].title.clone())
+            .collect()
+    }
+
+    #[test]
+    fn the_all_feeds_view_lists_every_entry_newest_first() {
+        let app = dated();
+        assert_eq!(
+            titles(&app, &app.all_entries()),
+            ["b-2022", "a-2020", "b-2018", "a-undated"]
+        );
+    }
+
+    #[test]
+    fn the_sort_order_reverses() {
+        let mut app = dated();
+        app.toggle_sort();
+        assert_eq!(
+            titles(&app, &app.all_entries()),
+            ["b-2018", "a-2020", "b-2022", "a-undated"]
+        );
+    }
+
+    #[test]
+    fn undated_entries_sort_last_in_both_directions() {
+        let mut app = dated();
+        let last = |app: &App| titles(app, &app.all_entries()).last().cloned().unwrap();
+        assert_eq!(last(&app), "a-undated");
+        app.toggle_sort();
+        assert_eq!(last(&app), "a-undated", "still last when reversed");
+    }
+
+    #[test]
+    fn the_all_feeds_view_toggles_and_selects_the_first_row() {
+        let mut app = dated();
+        app.selected_feed = 0;
+        app.selected_entry = 1;
+        app.toggle_all_feeds_view();
+        assert!(app.all_feeds_view);
+        assert_eq!((app.selected_feed, app.selected_entry), (1, 0), "b-2022");
+        app.toggle_all_feeds_view();
+        assert!(!app.all_feeds_view);
     }
 
     #[test]
