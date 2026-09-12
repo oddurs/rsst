@@ -11,6 +11,8 @@ pub struct Feed {
     pub title: String,
     pub url: String,
     pub entries: Vec<Entry>,
+    /// True until this feed's first fetch resolves.
+    pub loading: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -30,6 +32,21 @@ impl Entry {
         self.published
             .map(|when| when.format("%Y-%m-%d").to_string())
             .unwrap_or_else(|| "—".into())
+    }
+}
+
+impl Feed {
+    /// The placeholder shown for a feed whose first fetch is still in flight.
+    ///
+    /// It carries the configured title so the feed list has its final shape
+    /// immediately, rather than rearranging itself as results land.
+    pub fn pending(source: &FeedSource) -> Self {
+        Self {
+            title: source.title.clone().unwrap_or_else(|| source.url.clone()),
+            url: source.url.clone(),
+            entries: Vec::new(),
+            loading: true,
+        }
     }
 }
 
@@ -91,6 +108,7 @@ pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
         title,
         url: source.url.clone(),
         entries,
+        loading: false,
     })
 }
 
@@ -158,6 +176,29 @@ mod tests {
             url: "https://example.com/feed.xml".into(),
             title: None,
         }
+    }
+
+    #[test]
+    fn a_pending_feed_keeps_the_configured_title_and_is_marked_loading() {
+        let mut source = source();
+        source.title = Some("My Feed".into());
+        let feed = Feed::pending(&source);
+        assert_eq!(feed.title, "My Feed");
+        assert!(feed.loading);
+        assert!(feed.entries.is_empty());
+    }
+
+    #[test]
+    fn a_pending_feed_without_a_title_falls_back_to_its_url() {
+        assert_eq!(
+            Feed::pending(&source()).title,
+            "https://example.com/feed.xml"
+        );
+    }
+
+    #[test]
+    fn a_parsed_feed_is_not_loading() {
+        assert!(!parse(RSS, &source()).expect("should parse").loading);
     }
 
     #[test]

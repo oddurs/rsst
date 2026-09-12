@@ -21,7 +21,6 @@ use crossterm::terminal::{
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use tokio::task::JoinSet;
 
 use crate::app::App;
 use crate::cli::Action;
@@ -29,7 +28,12 @@ use crate::config::{Config, FeedSource};
 use crate::feed::Feed;
 use crate::state::ReadState;
 
-const TICK: Duration = Duration::from_millis(250);
+// Short enough that a feed landing on the channel is drawn promptly, long
+// enough that an idle reader is not busy-waiting.
+const TICK: Duration = Duration::from_millis(100);
+
+/// A finished fetch on its way back to the event loop.
+type Fetched = (usize, Result<Feed>);
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -56,14 +60,28 @@ async fn main() -> Result<()> {
 
     let client = http_client()?;
     let state_path = state::state_path()?;
+
+    // The feed list takes its final shape before a single request is made, so
+    // the reader is on screen and usable while the network is still working.
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Fetched>();
+    spawn_fetches(&client, &config, &tx);
     let mut app = App::new(
-        fetch_all(&client, &config).await,
+        config.feeds.iter().map(Feed::pending).collect(),
         ReadState::load(&state_path),
     );
 
     install_panic_hook();
     let mut terminal = enter()?;
-    let result = run(&mut terminal, &mut app, &client, &config, &state_path).await;
+    let result = run(
+        &mut terminal,
+        &mut app,
+        &client,
+        &config,
+        &state_path,
+        &mut rx,
+        &tx,
+    )
+    .await;
     restore()?;
 
     // Save even when the loop failed: the user still read those entries, and
@@ -82,8 +100,22 @@ async fn run(
     client: &reqwest::Client,
     config: &Config,
     state_path: &std::path::Path,
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<Fetched>,
+    tx: &tokio::sync::mpsc::UnboundedSender<Fetched>,
 ) -> Result<()> {
     while !app.should_quit {
+        // Take whatever has arrived since the last frame. Never blocks, so a
+        // slow feed cannot hold up the redraw.
+        while let Ok((index, result)) = rx.try_recv() {
+            let feed = match result {
+                Ok(feed) => feed,
+                Err(err) => placeholder(&config.feeds[index], &err),
+            };
+            if let Some(slot) = app.feeds.get_mut(index) {
+                *slot = feed;
+            }
+        }
+
         terminal.draw(|frame| ui::draw(frame, app))?;
 
         if !event::poll(TICK)? {
@@ -105,13 +137,12 @@ async fn run(
             KeyCode::Char('o') => open_selected(app),
             KeyCode::Char('y') => copy_selected(app),
             KeyCode::Char('r') => {
-                app.status = Some(" Refreshing… ".into());
-                terminal.draw(|frame| ui::draw(frame, app))?;
                 let _ = app.read.save(state_path);
-                app.feeds = fetch_all(client, config).await;
-                app.selected_feed = app.selected_feed.min(app.feeds.len().saturating_sub(1));
-                app.selected_entry = 0;
-                app.status = None;
+                for feed in app.feeds.iter_mut() {
+                    feed.loading = true;
+                }
+                spawn_fetches(client, config, tx);
+                app.status = Some(" Refreshing… ".into());
             }
             _ => {}
         }
@@ -119,28 +150,24 @@ async fn run(
     Ok(())
 }
 
-/// Fetches every configured feed concurrently, reporting failures inline.
-async fn fetch_all(client: &reqwest::Client, config: &Config) -> Vec<Feed> {
-    let mut tasks = JoinSet::new();
+/// Starts one fetch per configured feed, reporting each back as it finishes.
+///
+/// Detached on purpose: the event loop owns the receiver and drains it, so no
+/// caller ever waits on the network.
+fn spawn_fetches(
+    client: &reqwest::Client,
+    config: &Config,
+    tx: &tokio::sync::mpsc::UnboundedSender<Fetched>,
+) {
     for (index, source) in config.feeds.iter().cloned().enumerate() {
         let client = client.clone();
-        tasks.spawn(async move {
+        let tx = tx.clone();
+        tokio::spawn(async move {
             let result = feed::fetch(&client, &source).await;
-            (index, source, result)
+            // A closed channel means the reader has already quit.
+            let _ = tx.send((index, result));
         });
     }
-
-    let mut slots: Vec<Option<Feed>> = vec![None; config.feeds.len()];
-    while let Some(joined) = tasks.join_next().await {
-        let (index, source, result) = match joined {
-            Ok(output) => output,
-            // Only a panic in the fetch task can land here; the feed is simply dropped.
-            Err(_) => continue,
-        };
-        slots[index] = Some(result.unwrap_or_else(|err| placeholder(&source, &err)));
-    }
-
-    slots.into_iter().flatten().collect()
 }
 
 /// Stands in for a feed that failed to load, so one dead URL can't hide the rest.
@@ -148,6 +175,7 @@ fn placeholder(source: &FeedSource, err: &anyhow::Error) -> Feed {
     Feed {
         title: format!("{} (error)", source.title.as_deref().unwrap_or(&source.url)),
         url: source.url.clone(),
+        loading: false,
         entries: vec![feed::Entry {
             title: format!("Failed to load: {err}"),
             link: Some(source.url.clone()),

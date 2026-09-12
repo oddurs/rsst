@@ -38,6 +38,9 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
         .map(|(index, feed)| {
             let unread = app.unread(index);
             let mut spans = vec![Span::raw(feed.title.clone())];
+            if feed.loading {
+                spans.push(Span::styled("  …", Style::default().fg(Color::DarkGray)));
+            }
             // Only worth the space when there is something to report.
             if unread > 0 {
                 spans.push(Span::styled(
@@ -193,6 +196,7 @@ mod tests {
             vec![Feed {
                 title: "Rust Blog".into(),
                 url: "https://blog.rust-lang.org/feed.xml".into(),
+                loading: false,
                 entries: vec![
                     Entry {
                         title: "Announcing Rust".into(),
@@ -233,6 +237,7 @@ mod tests {
             vec![Feed {
                 title: "Rust Blog".into(),
                 url: "https://blog.rust-lang.org/feed.xml".into(),
+                loading: false,
                 entries: vec![
                     Entry {
                         title: "One".into(),
@@ -265,6 +270,7 @@ mod tests {
             vec![Feed {
                 title: "Rust Blog".into(),
                 url: "https://blog.rust-lang.org/feed.xml".into(),
+                loading: false,
                 entries: vec![Entry {
                     title: "One".into(),
                     link: None,
@@ -306,6 +312,7 @@ mod tests {
             vec![Feed {
                 title: "Feed".into(),
                 url: "https://a.example".into(),
+                loading: false,
                 entries: vec![Entry {
                     title: "Title".into(),
                     link: None,
@@ -360,6 +367,37 @@ mod tests {
             "scrolling past the end changed the view"
         );
         assert!(at_end.contains("word200"), "the final line is reachable");
+    }
+
+    #[test]
+    fn a_feed_still_loading_is_marked_and_stops_being_marked_once_it_lands() {
+        let mut app = App::new(
+            vec![Feed {
+                title: "Slow Feed".into(),
+                url: "https://slow.example/feed.xml".into(),
+                loading: true,
+                entries: Vec::new(),
+            }],
+            ReadState::default(),
+        );
+
+        assert!(
+            render(&mut app).contains("Slow Feed  …"),
+            "shows a loading mark"
+        );
+
+        app.feeds[0].loading = false;
+        app.feeds[0].entries = vec![Entry {
+            title: "Arrived".into(),
+            link: None,
+            published: None,
+            summary: String::new(),
+            keys: vec!["id:a".into()],
+        }];
+
+        let screen = render(&mut app);
+        assert!(!screen.contains("Slow Feed  …"), "mark cleared once loaded");
+        assert!(screen.contains("Arrived"));
     }
 
     #[test]
