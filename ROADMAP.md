@@ -65,11 +65,10 @@ with the alternate screen still active.
 
 ## v0.4
 
-`##········` 20% · 1 of 5 done
+`####······` 40% · 2 of 5 done
 
 ### backlog
 
-- [ ] [`0027`](https://github.com/oddurs/rsst/blob/main/cairn/items/0027-configurable-keybindings.md) Configurable keybindings <sup>feature · v0.4 · p2</sup>
 - [ ] [`0028`](https://github.com/oddurs/rsst/blob/main/cairn/items/0028-theme-and-colour-configuration.md) Theme and colour configuration <sup>feature · v0.4 · p2</sup>
 - [ ] [`0029`](https://github.com/oddurs/rsst/blob/main/cairn/items/0029-sort-and-group-entries.md) Sort and group entries <sup>feature · v0.4 · p3</sup>
 - [ ] [`0030`](https://github.com/oddurs/rsst/blob/main/cairn/items/0030-reload-the-config-without-restarting.md) Reload the config without restarting <sup>feature · v0.4 · p3</sup>
@@ -77,6 +76,7 @@ with the alternate screen still active.
 ### done
 
 - [x] [`0026`](https://github.com/oddurs/rsst/blob/main/cairn/items/0026-group-feeds-into-folders-or-tags.md) Group feeds into folders or tags <sup>feature · v0.4 · p1</sup>
+- [x] [`0027`](https://github.com/oddurs/rsst/blob/main/cairn/items/0027-configurable-keybindings.md) Configurable keybindings <sup>feature · v0.4 · p2</sup>
 
 ## v1.0
 

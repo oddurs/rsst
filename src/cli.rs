@@ -23,7 +23,7 @@ pub enum Action {
 }
 
 /// The `--help` text, with the key reference generated from [`crate::keys`].
-pub fn help() -> String {
+pub fn help(keymap: &crate::keys::Keymap) -> String {
     format!(
         "rsst {} — a terminal RSS/Atom feed reader
 
@@ -39,7 +39,7 @@ OPTIONS:
 {}
 The config is written on first run; its path is reported if no feeds are set.",
         env!("CARGO_PKG_VERSION"),
-        crate::keys::as_text()
+        crate::keys::as_text(keymap)
     )
 }
 
@@ -187,7 +187,7 @@ mod tests {
 
     #[test]
     fn the_help_text_names_the_binary_and_the_keys() {
-        let help = help();
+        let help = help(&crate::keys::Keymap::default());
         assert!(help.starts_with("rsst "));
         assert!(help.contains("--config"));
         assert!(help.contains("quit"));
