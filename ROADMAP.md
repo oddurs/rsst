@@ -118,3 +118,14 @@ with the alternate screen still active.
 - [x] [`0051`](https://github.com/oddurs/rsst/blob/main/cairn/items/0051-add-a-feed-from-inside-the-reader.md) Add a feed from inside the reader <sup>feature · v1.2 · p1</sup>
 - [x] [`0052`](https://github.com/oddurs/rsst/blob/main/cairn/items/0052-fuzz-the-feed-parser.md) Fuzz the feed parser <sup>chore · v1.2 · p2</sup>
 
+## v1.3
+
+`··········` 0% · 0 of 4 done
+
+### backlog
+
+- [ ] [`0053`](https://github.com/oddurs/rsst/blob/main/cairn/items/0053-hold-a-readable-measure-instead-of-filling-the-pane.md) Hold a readable measure instead of filling the pane <sup>feature · v1.3 · p0</sup>
+- [ ] [`0054`](https://github.com/oddurs/rsst/blob/main/cairn/items/0054-show-figures-and-lay-out-tables.md) Show figures and lay out tables <sup>feature · v1.3 · p1</sup>
+- [ ] [`0055`](https://github.com/oddurs/rsst/blob/main/cairn/items/0055-a-reading-mode-that-gives-the-article-the-screen.md) A reading mode that gives the article the screen <sup>feature · v1.3 · p1</sup>
+- [ ] [`0056`](https://github.com/oddurs/rsst/blob/main/cairn/items/0056-open-a-link-from-within-an-article.md) Open a link from within an article <sup>feature · v1.3 · p2</sup>
+
