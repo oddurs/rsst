@@ -20,6 +20,10 @@ pub enum Action {
     },
     Help,
     Version,
+    /// Write the man page to stdout.
+    Man,
+    /// Write a completion script for one shell to stdout.
+    Completions(String),
 }
 
 /// The `--help` text, with the key reference generated from [`crate::keys`].
@@ -34,6 +38,9 @@ USAGE:
 
 OPTIONS:
   -c, --config <PATH>  read this config instead of the default
+      --man            write the man page to stdout
+      --completions <SHELL>
+                       write a completion script for bash, zsh or fish
   -h, --help           show this help
   -V, --version        show the version
 {}
@@ -57,6 +64,18 @@ where
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => return Ok(Action::Help),
+            "--man" => return Ok(Action::Man),
+            "--completions" => {
+                let shell = args.next().context("--completions needs a shell")?;
+                return Ok(Action::Completions(shell));
+            }
+            other if other.starts_with("--completions=") => {
+                let shell = other.trim_start_matches("--completions=");
+                if shell.is_empty() {
+                    bail!("--completions needs a shell");
+                }
+                return Ok(Action::Completions(shell.to_string()));
+            }
             "-V" | "--version" => return Ok(Action::Version),
             "-c" | "--config" => {
                 let path = args
@@ -143,6 +162,25 @@ mod tests {
     fn help_wins_over_a_later_bad_argument() {
         // Someone reaching for --help should get help, not a parse error.
         assert_eq!(parse_ok(&["--help", "--nope"]), Action::Help);
+    }
+
+    #[test]
+    fn the_generators_are_reachable_from_the_command_line() {
+        assert_eq!(parse_ok(&["--man"]), Action::Man);
+        assert_eq!(
+            parse_ok(&["--completions", "fish"]),
+            Action::Completions("fish".into())
+        );
+        assert_eq!(
+            parse_ok(&["--completions=zsh"]),
+            Action::Completions("zsh".into())
+        );
+    }
+
+    #[test]
+    fn completions_without_a_shell_is_an_error() {
+        assert!(parse(["--completions"]).is_err());
+        assert!(parse(["--completions="]).is_err());
     }
 
     #[test]
