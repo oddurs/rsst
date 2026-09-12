@@ -67,8 +67,9 @@ are still unread. An entry is recognised by its guid, its link, and its title
 and date together — so a feed that regenerates its identifiers does not come
 back looking entirely unread.
 
-A feed that fails to load shows up as an `(error)` entry rather than taking the
-reader down with it.
+A feed that fails to load is marked `!` in the feed list and explains itself in
+the status bar while selected. It keeps showing whatever it last fetched, so one
+dead URL costs you that feed's freshness and nothing else.
 
 ## Develop
 

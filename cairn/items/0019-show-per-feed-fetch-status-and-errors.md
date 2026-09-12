@@ -2,11 +2,12 @@
 id: 19
 title: Show per-feed fetch status and errors
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 depends_on:
 - 15
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p2
 effort: m
 area: ui
@@ -23,6 +24,6 @@ Track a real per-feed state — idle, fetching, ok, error — and show it as a m
 
 ## Acceptance criteria
 
-- [ ] A broken feed is marked in the feed list without inventing entries.
-- [ ] Selecting it shows the underlying error.
-- [ ] A feed that is fetching is visibly distinct from one that failed.
+- [x] A broken feed is marked in the feed list without inventing entries.
+- [x] Selecting it shows the underlying error.
+- [x] A feed that is fetching is visibly distinct from one that failed.

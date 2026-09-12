@@ -71,7 +71,7 @@ impl Cache {
     /// Records a feed's contents, trimming it to the per-feed cap.
     pub fn put(&mut self, feed: &Feed) {
         let mut feed = feed.clone();
-        feed.loading = false;
+        feed.status = crate::feed::Status::Idle;
         feed.entries.truncate(MAX_ENTRIES_PER_FEED);
         self.feeds.insert(feed.url.clone(), feed);
     }
@@ -84,7 +84,7 @@ impl Cache {
             feed.title = title.clone();
         }
         // Still in flight — the cached copy is what is shown until it lands.
-        feed.loading = true;
+        feed.status = crate::feed::Status::Fetching;
         Some(feed)
     }
 
@@ -168,7 +168,7 @@ mod tests {
         Feed {
             title: "Title".into(),
             url: url.into(),
-            loading: false,
+            status: crate::feed::Status::Idle,
             entries: (0..entries).map(|i| entry(&format!("e{i}"))).collect(),
         }
     }
@@ -210,14 +210,15 @@ mod tests {
     }
 
     #[test]
-    fn a_restored_feed_is_marked_loading_because_a_refresh_is_coming() {
+    fn a_restored_feed_is_marked_fetching_because_a_refresh_is_coming() {
         let mut cache = Cache::default();
         cache.put(&feed("https://a.example/feed", 1));
-        assert!(
+        assert_eq!(
             cache
                 .get(&source("https://a.example/feed"))
                 .expect("cached")
-                .loading
+                .status,
+            crate::feed::Status::Fetching
         );
     }
 
