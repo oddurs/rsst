@@ -47,6 +47,11 @@ still needs.
 
 ### Fixed
 
+- Redirects are followed by rsst rather than silently by the HTTP client, so a
+  permanent move (301 or 308) is remembered and written back to the config with
+  its comments intact, instead of costing an extra round trip on every refresh
+  forever. A temporary one is followed and forgotten, a chain is bounded, and a
+  chain with one temporary hop in it counts as temporary
 - Adding the address of a *site* now finds its feed: rsst reads the page's
   `<link rel="alternate">`, prefers Atom over RSS, skips comment feeds, and
   remembers where it looked so the page is only ever visited once

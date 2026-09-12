@@ -229,8 +229,19 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                     // Somebody gave the address of a site; the site named its
                     // feed. Say which one, so the config can be corrected.
                     if let Some(found) = found_at {
+                        // Remembered either way, so the extra hop is paid once
+                        // rather than on every refresh from here on.
                         let _ = session.db.set_resolved(&url, Some(&found));
-                        app.status = Some(format!(" Found {found} for {} ", slot.title));
+                        // And written back, because a config that still names
+                        // the old address is a file that says something untrue.
+                        let fixed =
+                            config::set_feed_url(&session.config_path, &url, &found).is_ok();
+                        app.status = Some(match fixed {
+                            true => {
+                                format!(" {} has moved to {found} — config updated ", slot.title)
+                            }
+                            false => format!(" {} is really at {found} ", slot.title),
+                        });
                     }
                     *slot = *feed;
                 }
@@ -1049,6 +1060,9 @@ fn export(config_override: Option<PathBuf>) -> Result<()> {
 
 fn http_client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
+        // Followed by `feed::fetch` instead, which can tell a permanent move
+        // from a temporary one and remember the former.
+        .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("rsst/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(15))
         .build()

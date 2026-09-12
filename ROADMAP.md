@@ -142,11 +142,10 @@ with the alternate screen still active.
 
 ## v1.5
 
-`########··` 75% · 6 of 8 done
+`#########·` 88% · 7 of 8 done
 
 ### backlog
 
-- [ ] [`0065`](https://github.com/oddurs/rsst/blob/main/cairn/items/0065-remember-a-permanent-redirect.md) Remember a permanent redirect <sup>feature · v1.5 · p2</sup>
 - [ ] [`0066`](https://github.com/oddurs/rsst/blob/main/cairn/items/0066-be-polite-to-one-host-not-just-to-the-network.md) Be polite to one host, not just to the network <sup>feature · v1.5 · p2</sup>
 
 ### done
@@ -155,6 +154,7 @@ with the alternate screen still active.
 - [x] [`0062`](https://github.com/oddurs/rsst/blob/main/cairn/items/0062-a-feed-may-send-as-much-as-it-likes.md) A feed may send as much as it likes <sup>bug · v1.5 · p0</sup>
 - [x] [`0063`](https://github.com/oddurs/rsst/blob/main/cairn/items/0063-say-what-kind-of-failure-a-fetch-hit.md) Say what kind of failure a fetch hit <sup>feature · v1.5 · p1</sup>
 - [x] [`0064`](https://github.com/oddurs/rsst/blob/main/cairn/items/0064-retry-a-transient-failure-instead-of-giving-up.md) Retry a transient failure instead of giving up <sup>feature · v1.5 · p1</sup>
+- [x] [`0065`](https://github.com/oddurs/rsst/blob/main/cairn/items/0065-remember-a-permanent-redirect.md) Remember a permanent redirect <sup>feature · v1.5 · p2</sup>
 - [x] [`0067`](https://github.com/oddurs/rsst/blob/main/cairn/items/0067-find-the-feed-when-given-a-page.md) Find the feed when given a page <sup>feature · v1.5 · p2</sup>
 - [x] [`0068`](https://github.com/oddurs/rsst/blob/main/cairn/items/0068-a-feed-with-an-empty-title-shows-as-nothing.md) A feed with an empty title shows as nothing <sup>bug · v1.5 · p2</sup>
 

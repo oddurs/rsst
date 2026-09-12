@@ -130,6 +130,8 @@ async fn main() -> Result<()> {
     let mut db = Db::open(&path)?;
 
     let client = reqwest::Client::builder()
+        // Same as the reader: `feed::fetch` follows redirects itself.
+        .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("rsst-seed/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(20))
         .build()?;

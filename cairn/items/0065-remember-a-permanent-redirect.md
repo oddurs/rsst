@@ -2,7 +2,8 @@
 id: 65
 title: Remember a permanent redirect
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p2
@@ -23,7 +24,7 @@ Notice when the response came from somewhere else, and when the redirect was per
 
 ## Acceptance criteria
 
-- [ ] A 301 or 308 updates the stored URL
-- [ ] A 302 or 307 does not, being temporary by definition
-- [ ] Read and starred state survives the move
-- [ ] The reader is told, and the config can be updated from the offer
+- [x] A 301 or 308 updates the stored URL
+- [x] A 302 or 307 does not, being temporary by definition
+- [x] Read and starred state survives the move
+- [x] The reader is told, and the config can be updated from the offer

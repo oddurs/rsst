@@ -179,6 +179,35 @@ pub fn config_path_or(override_path: Option<PathBuf>) -> Result<PathBuf> {
 /// config is hand-written and commented, and a round-trip through a plain
 /// serialiser would return it stripped of every comment and reordered. Someone
 /// moving a feed between folders has not asked for that.
+/// Points a feed at where it has permanently moved to.
+///
+/// A 301 means the old address is wrong. Leaving it in the config means paying
+/// a redirect on every refresh forever, and a file that says something untrue.
+/// Comments and formatting survive, like every other edit rsst makes.
+pub fn set_feed_url(path: &Path, url: &str, moved_to: &str) -> Result<()> {
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("reading config at {}", path.display()))?;
+    let mut document = raw
+        .parse::<toml_edit::DocumentMut>()
+        .with_context(|| format!("parsing config at {}", path.display()))?;
+
+    let feeds = document
+        .get_mut("feeds")
+        .and_then(|feeds| feeds.as_array_of_tables_mut())
+        .context("the config has no [[feeds]] to edit")?;
+
+    let feed = feeds
+        .iter_mut()
+        .find(|table| table.get("url").and_then(|u| u.as_str()) == Some(url))
+        .with_context(|| format!("no feed in the config has the url {url}"))?;
+    feed["url"] = toml_edit::value(moved_to);
+
+    let temporary = path.with_extension("toml.tmp");
+    fs::write(&temporary, document.to_string())
+        .with_context(|| format!("writing {}", temporary.display()))?;
+    fs::rename(&temporary, path).with_context(|| format!("replacing {}", path.display()))
+}
+
 pub fn set_feed_tags(path: &Path, url: &str, tags: &[String]) -> Result<()> {
     let raw = fs::read_to_string(path)
         .with_context(|| format!("reading config at {}", path.display()))?;
@@ -608,5 +637,64 @@ tags = ["Old"]
     fn an_empty_config_is_valid() {
         let config: Config = toml::from_str("").expect("empty config should parse");
         assert!(config.feeds.is_empty());
+    }
+
+    #[test]
+    fn a_moved_feed_is_pointed_at_its_new_address_without_losing_the_file() {
+        let dir = std::env::temp_dir().join(format!("rsst-moved-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            "# My feeds. Do not lose this comment.\n             measure = 72\n\n             [[feeds]]\n             url = \"http://old.example/feed.xml\"\n             title = \"Old\"          # nor this one\n             tags = [\"News\"]\n\n             [[feeds]]\n             url = \"https://other.example/feed.xml\"\n",
+        )
+        .expect("write");
+
+        set_feed_url(
+            &path,
+            "http://old.example/feed.xml",
+            "https://new.example/feed.xml",
+        )
+        .expect("rewrites");
+
+        let raw = std::fs::read_to_string(&path).expect("read");
+        assert!(raw.contains("https://new.example/feed.xml"), "{raw}");
+        assert!(
+            !raw.contains("http://old.example"),
+            "the old address survived: {raw}"
+        );
+        assert!(
+            raw.contains("Do not lose this comment"),
+            "comments were lost: {raw}"
+        );
+        assert!(
+            raw.contains("nor this one"),
+            "inline comments were lost: {raw}"
+        );
+        assert!(
+            raw.contains("tags = [\"News\"]"),
+            "the folder was lost: {raw}"
+        );
+        assert!(
+            raw.contains("https://other.example/feed.xml"),
+            "another feed was disturbed: {raw}"
+        );
+
+        // And it still parses, which is the only thing that finally matters.
+        let config: Config = toml::from_str(&raw).expect("parses");
+        assert_eq!(config.feeds[0].url, "https://new.example/feed.xml");
+        assert_eq!(config.feeds[0].title.as_deref(), Some("Old"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn moving_a_feed_the_config_does_not_have_is_an_error_not_a_silent_no_op() {
+        let dir = std::env::temp_dir().join(format!("rsst-moved2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "[[feeds]]\nurl = \"https://a.example/f.xml\"\n").expect("write");
+
+        assert!(set_feed_url(&path, "https://missing.example/f.xml", "https://x.example").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
