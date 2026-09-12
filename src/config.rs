@@ -34,6 +34,9 @@ pub struct Config {
     /// How many times to try again after a failure that might not repeat.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry_attempts: Option<u32>,
+    /// How many feeds may be fetched from one host at once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_concurrent_per_host: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -94,6 +97,13 @@ impl Config {
         crate::feed::Limits { max_body }
     }
 
+    /// How many fetches may share one host, from the config or the defaults.
+    pub fn per_host(&self) -> usize {
+        self.max_concurrent_per_host
+            .filter(|limit| *limit > 0)
+            .unwrap_or(crate::limit::DEFAULT_PER_HOST)
+    }
+
     /// When to try a failed fetch again, from the config or the defaults.
     pub fn retry(&self) -> crate::feed::Retry {
         let mut retry = crate::feed::Retry::default();
@@ -141,6 +151,7 @@ impl Config {
             max_concurrent_fetches: None,
             max_feed_megabytes: None,
             retry_attempts: None,
+            max_concurrent_per_host: None,
             feeds: vec![FeedSource {
                 url: "https://blog.rust-lang.org/feed.xml".into(),
                 refresh_minutes: None,
@@ -426,6 +437,7 @@ mod tests {
             max_concurrent_fetches: Some(8),
             max_feed_megabytes: Some(8),
             retry_attempts: Some(2),
+            max_concurrent_per_host: Some(2),
             measure: Some(72),
             refresh_minutes: Some(30),
             mouse: false,

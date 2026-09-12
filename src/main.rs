@@ -65,7 +65,7 @@ struct Session {
     keymap: keys::Keymap,
     config_path: PathBuf,
     client: reqwest::Client,
-    limiter: std::sync::Arc<tokio::sync::Semaphore>,
+    limiter: std::sync::Arc<limit::Gate>,
     config: Config,
     db: rsst::db::Db,
     tx: tokio::sync::mpsc::UnboundedSender<Fetched>,
@@ -124,7 +124,7 @@ async fn main() -> Result<()> {
     let mut db = rsst::db::Db::open(&rsst::db::db_path()?)?;
     // One-time: bring the old TOML files across rather than starting empty.
     rsst::db::migrate_from_toml(&mut db, &cache::cache_path()?, &state_path)?;
-    let limiter = limit::limiter(config.fetch_limit());
+    let limiter = limit::Gate::new(config.fetch_limit(), config.per_host());
     spawn_fetches(&client, &config, &db, &limiter, &tx);
 
     // Last known contents stand in until the fetch lands, so a second launch
@@ -558,7 +558,7 @@ fn spawn_fetches(
     client: &reqwest::Client,
     config: &Config,
     db: &rsst::db::Db,
-    limiter: &std::sync::Arc<tokio::sync::Semaphore>,
+    limiter: &std::sync::Arc<limit::Gate>,
     tx: &tokio::sync::mpsc::UnboundedSender<Fetched>,
 ) {
     spawn_some(client, config, db, limiter, tx, 0..config.feeds.len());
@@ -569,7 +569,7 @@ fn spawn_some(
     client: &reqwest::Client,
     config: &Config,
     db: &rsst::db::Db,
-    limiter: &std::sync::Arc<tokio::sync::Semaphore>,
+    limiter: &std::sync::Arc<limit::Gate>,
     tx: &tokio::sync::mpsc::UnboundedSender<Fetched>,
     indices: impl IntoIterator<Item = usize>,
 ) {
@@ -604,17 +604,18 @@ fn spawn_some(
             loop {
                 // Every task is spawned at once, but only a few hold a permit
                 // and are actually talking to the network at any moment.
-                let result = limit::limited(
-                    limiter.clone(),
-                    feed::fetch(
-                        &client,
-                        &source,
-                        meta.etag.as_deref(),
-                        meta.last_modified.as_deref(),
-                        limits,
-                    ),
-                )
-                .await;
+                let result = limiter
+                    .run(
+                        &source.url,
+                        feed::fetch(
+                            &client,
+                            &source,
+                            meta.etag.as_deref(),
+                            meta.last_modified.as_deref(),
+                            limits,
+                        ),
+                    )
+                    .await;
 
                 // Only what could plausibly succeed next time. A 404 is a
                 // decision someone made, not a network that will be back.
@@ -654,7 +655,7 @@ async fn screenshot(size: &str, config_override: Option<PathBuf>) -> Result<()> 
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Fetched>();
     let db = rsst::db::Db::open(&rsst::db::db_path()?)?;
-    let limiter = limit::limiter(config.fetch_limit());
+    let limiter = limit::Gate::new(config.fetch_limit(), config.per_host());
     spawn_fetches(&client, &config, &db, &limiter, &tx);
     drop(tx);
 

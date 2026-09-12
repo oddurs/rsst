@@ -9,6 +9,11 @@
 # How many feeds may be fetched at once. Default: 8.
 max_concurrent_fetches = 8
 
+# How many feeds may be fetched from one host at once. Default: 2. Eight
+# requests spread over eight sites is eight lanes of traffic; eight at one site
+# is a burst at one server, and it is how a reader earns a 429.
+max_concurrent_per_host = 2
+
 # The most a single feed may send, in megabytes. Default: 8. Zero means the
 # default. A server that sends more than this is hung up on rather than
 # believed — without a limit, how much memory rsst uses is the server's choice.
