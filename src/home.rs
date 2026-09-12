@@ -85,10 +85,18 @@ mod tests {
 
     #[test]
     fn without_an_override_the_platform_decides() {
-        let config = resolve(None, Kind::Config).expect("resolves");
-        let data = resolve(None, Kind::Data).expect("resolves");
-        assert!(config.ends_with("rsst"), "{config:?}");
-        assert!(data.ends_with("rsst"), "{data:?}");
+        // Not `ends_with`: Windows puts the data directory under `rsst\data`,
+        // so the name is a component rather than the last one.
+        for (kind, path) in [
+            (Kind::Config, resolve(None, Kind::Config).expect("resolves")),
+            (Kind::Data, resolve(None, Kind::Data).expect("resolves")),
+        ] {
+            assert!(
+                path.components()
+                    .any(|part| part.as_os_str().eq_ignore_ascii_case("rsst")),
+                "{kind:?} resolved to {path:?}, which is not rsst's own"
+            );
+        }
     }
 
     #[test]
