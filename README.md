@@ -61,6 +61,10 @@ tags = ["Rust", "Core"]      # optional; the feed's folder path in the sidebar
 # Optional. How many feeds may be fetched at once; defaults to 8.
 max_concurrent_fetches = 8
 
+# Optional. How often to refresh, in minutes; defaults to 30. Zero turns the
+# timer off. Individual feeds can override it.
+refresh_minutes = 30
+
 # Optional. `terminal` (default) follows your terminal's own palette; `dark`
 # and `light` pick the bright or dim half of it; `mono` uses no colour at all.
 # Roles take a colour, attributes, or both — "bold cyan".

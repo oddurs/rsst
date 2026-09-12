@@ -236,6 +236,7 @@ mod tests {
     fn source(url: &str) -> FeedSource {
         FeedSource {
             url: url.into(),
+            refresh_minutes: None,
             title: None,
             tags: Vec::new(),
         }

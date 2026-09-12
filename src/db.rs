@@ -11,6 +11,7 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -24,7 +25,7 @@ use crate::feed::{Entry, Feed, Status};
 /// Stored in SQLite's own `user_version`, so the database carries its version
 /// the way `docs/stability.md` requires — and, as with the TOML before it, a
 /// database from a newer rsst is refused rather than misread.
-pub const SCHEMA: i64 = 3;
+pub const SCHEMA: i64 = 4;
 
 /// What we remember about a feed's HTTP behaviour between fetches.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -335,6 +336,47 @@ impl Db {
         Ok(())
     }
 
+    /// Records that this feed was reached, whatever the answer was.
+    ///
+    /// A `304` counts: the server was asked and replied, which is exactly what
+    /// the timer wants to know.
+    pub fn mark_fetched(&self, url: &str, now: DateTime<Utc>) -> Result<()> {
+        self.connection.execute(
+            "INSERT INTO feeds (url, title, fetched_at) VALUES (?1, ?1, ?2)
+             ON CONFLICT(url) DO UPDATE SET fetched_at = excluded.fetched_at",
+            params![url, now.to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    /// Whether enough time has passed to fetch this feed again.
+    ///
+    /// A feed never fetched is due at once. A zero interval means never, which
+    /// is how someone turns the timer off.
+    pub fn due(&self, url: &str, interval: Duration, now: DateTime<Utc>) -> bool {
+        if interval.is_zero() || !self.may_fetch(url, now) {
+            return false;
+        }
+        let last: Option<DateTime<Utc>> = self
+            .connection
+            .query_row(
+                "SELECT fetched_at FROM feeds WHERE url = ?1",
+                params![url],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .flatten()
+            .and_then(|text| DateTime::parse_from_rfc3339(&text).ok())
+            .map(|time| time.with_timezone(&Utc));
+
+        match last {
+            Some(last) => now.signed_duration_since(last).to_std().unwrap_or_default() >= interval,
+            None => true,
+        }
+    }
+
     pub fn may_fetch(&self, url: &str, now: DateTime<Utc>) -> bool {
         match self.meta(url).retry_after {
             Some(until) => now >= until,
@@ -593,6 +635,13 @@ fn migrate(connection: &Connection, from: i64) -> Result<()> {
             )
             .context("adding the articles table")?;
     }
+    if from < 4 {
+        // When each feed was last actually reached, so a timer knows what is
+        // due. Absent means never, which is due immediately.
+        connection
+            .execute_batch("ALTER TABLE feeds ADD COLUMN fetched_at TEXT;")
+            .context("adding the fetched_at column")?;
+    }
     connection
         .pragma_update(None, "user_version", SCHEMA)
         .context("recording the schema version")?;
@@ -669,6 +718,7 @@ mod tests {
     fn source(url: &str) -> FeedSource {
         FeedSource {
             url: url.into(),
+            refresh_minutes: None,
             title: None,
             tags: Vec::new(),
         }
@@ -1014,6 +1064,52 @@ mod tests {
         assert!(db.flag("unread_only"));
         db.set_flag("unread_only", false);
         assert!(!db.flag("unread_only"));
+    }
+
+    #[test]
+    fn a_feed_never_fetched_is_due_at_once() {
+        let db = db();
+        assert!(db.due("https://a.example", Duration::from_secs(1800), Utc::now()));
+    }
+
+    #[test]
+    fn a_feed_just_fetched_is_not_due_again_yet() {
+        let db = db();
+        let now = Utc::now();
+        db.mark_fetched("https://a.example", now).expect("mark");
+
+        assert!(!db.due("https://a.example", Duration::from_secs(1800), now));
+        assert!(db.due(
+            "https://a.example",
+            Duration::from_secs(1800),
+            now + chrono::Duration::minutes(31)
+        ));
+    }
+
+    #[test]
+    fn a_zero_interval_turns_the_timer_off() {
+        let db = db();
+        assert!(!db.due("https://a.example", Duration::ZERO, Utc::now()));
+    }
+
+    #[test]
+    fn a_rate_limited_feed_is_never_due() {
+        // The back-off from 0016 outranks the timer; otherwise the timer would
+        // hammer exactly the server that asked us to stop.
+        let db = db();
+        let now = Utc::now();
+        db.defer_until("https://a.example", now + chrono::Duration::hours(1))
+            .expect("defer");
+        assert!(!db.due("https://a.example", Duration::from_secs(60), now));
+    }
+
+    #[test]
+    fn a_not_modified_response_still_counts_as_reached() {
+        // Otherwise a feed that never changes would be asked on every tick.
+        let db = db();
+        let now = Utc::now();
+        db.mark_fetched("https://a.example", now).expect("mark");
+        assert!(!db.due("https://a.example", Duration::from_secs(600), now));
     }
 
     #[test]

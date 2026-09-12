@@ -19,6 +19,9 @@ pub struct Config {
     /// Key overrides: action name to key, merged over the defaults.
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub keys: std::collections::HashMap<String, String>,
+    /// How often to refresh, in minutes. Zero turns the timer off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_minutes: Option<u64>,
     /// How many feeds may be fetched at once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_concurrent_fetches: Option<usize>,
@@ -27,6 +30,9 @@ pub struct Config {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FeedSource {
     pub url: String,
+    /// Overrides the global refresh interval for this feed alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_minutes: Option<u64>,
     /// Overrides the title advertised by the feed itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -66,6 +72,18 @@ impl Config {
         toml::from_str(&raw).with_context(|| format!("parsing config at {}", path.display()))
     }
 
+    /// How often a given feed should be refreshed.
+    ///
+    /// The feed's own setting, then the global one, then the default. Zero
+    /// anywhere means never, which is how the timer is turned off.
+    pub fn refresh_interval(&self, source: &FeedSource) -> std::time::Duration {
+        let minutes = source
+            .refresh_minutes
+            .or(self.refresh_minutes)
+            .unwrap_or(DEFAULT_REFRESH_MINUTES);
+        std::time::Duration::from_secs(minutes * 60)
+    }
+
     /// Simultaneous fetches allowed, falling back to the built-in default.
     pub fn fetch_limit(&self) -> usize {
         self.max_concurrent_fetches
@@ -75,11 +93,13 @@ impl Config {
     fn starter() -> Self {
         Self {
             mouse: true,
+            refresh_minutes: None,
             theme: Default::default(),
             keys: Default::default(),
             max_concurrent_fetches: None,
             feeds: vec![FeedSource {
                 url: "https://blog.rust-lang.org/feed.xml".into(),
+                refresh_minutes: None,
                 title: Some("Rust Blog".into()),
                 tags: Vec::new(),
             }],
@@ -88,6 +108,12 @@ impl Config {
 }
 
 /// The config path actually in use: an explicit one, or the platform default.
+/// How often feeds are refreshed when nothing says otherwise.
+///
+/// Half an hour: often enough that the reader is worth opening, rare enough
+/// that no publisher would call it rude.
+pub const DEFAULT_REFRESH_MINUTES: u64 = 30;
+
 fn yes() -> bool {
     true
 }
@@ -200,6 +226,41 @@ mod tests {
     }
 
     #[test]
+    fn the_refresh_interval_falls_back_from_feed_to_global_to_default() {
+        let config: Config = toml::from_str(
+            r#"
+            refresh_minutes = 10
+
+            [[feeds]]
+            url = "https://a.example/feed"
+
+            [[feeds]]
+            url = "https://b.example/feed"
+            refresh_minutes = 120
+            "#,
+        )
+        .expect("parses");
+
+        assert_eq!(config.refresh_interval(&config.feeds[0]).as_secs(), 600);
+        assert_eq!(config.refresh_interval(&config.feeds[1]).as_secs(), 7200);
+
+        let bare: Config =
+            toml::from_str("[[feeds]]\nurl = \"https://c.example\"").expect("parses");
+        assert_eq!(
+            bare.refresh_interval(&bare.feeds[0]).as_secs(),
+            DEFAULT_REFRESH_MINUTES * 60
+        );
+    }
+
+    #[test]
+    fn zero_minutes_turns_the_timer_off() {
+        let config: Config =
+            toml::from_str("refresh_minutes = 0\n\n[[feeds]]\nurl = \"https://a.example\"")
+                .expect("parses");
+        assert!(config.refresh_interval(&config.feeds[0]).is_zero());
+    }
+
+    #[test]
     fn the_mouse_is_on_unless_the_config_says_otherwise() {
         let config: Config = toml::from_str("").expect("parses");
         assert!(config.mouse);
@@ -226,6 +287,7 @@ mod tests {
         let populated = Config {
             feeds: vec![FeedSource {
                 url: "https://example.com/feed".into(),
+                refresh_minutes: None,
                 title: Some("Example".into()),
                 tags: vec!["Tag".into()],
             }],
@@ -236,6 +298,7 @@ mod tests {
             },
             keys: Default::default(),
             max_concurrent_fetches: Some(8),
+            refresh_minutes: Some(30),
             mouse: false,
         };
         let rendered = toml::to_string(&populated).expect("serializes");

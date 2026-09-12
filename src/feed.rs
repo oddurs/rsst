@@ -404,6 +404,7 @@ mod tests {
     fn source() -> FeedSource {
         FeedSource {
             url: "https://example.com/feed.xml".into(),
+            refresh_minutes: None,
             title: None,
             tags: Vec::new(),
         }

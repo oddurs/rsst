@@ -31,6 +31,7 @@ fn measure(feeds: usize) -> (f64, usize) {
     for i in 0..feeds {
         let source = FeedSource {
             url: format!("https://bench.example/{i}"),
+            refresh_minutes: None,
             title: None,
             tags: Vec::new(),
         };

@@ -74,6 +74,7 @@ pub fn parse(xml: &str) -> Result<Vec<FeedSource>> {
                                 url,
                                 title: label,
                                 tags: folders.clone(),
+                                refresh_minutes: None,
                             });
                         }
                         // A feed written as <outline>...</outline> still closes,
@@ -183,6 +184,7 @@ mod tests {
     fn source(url: &str, title: Option<&str>) -> FeedSource {
         FeedSource {
             url: url.into(),
+            refresh_minutes: None,
             title: title.map(Into::into),
             tags: Vec::new(),
         }
@@ -237,11 +239,13 @@ mod tests {
         let original = vec![
             FeedSource {
                 url: "https://a.example/feed".into(),
+                refresh_minutes: None,
                 title: Some("A".into()),
                 tags: vec!["News".into()],
             },
             FeedSource {
                 url: "https://b.example/feed".into(),
+                refresh_minutes: None,
                 title: Some("B".into()),
                 tags: Vec::new(),
             },
