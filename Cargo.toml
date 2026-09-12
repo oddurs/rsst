@@ -25,6 +25,7 @@ feed-rs = "2"
 quick-xml = "0.41"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm", "layout-cache", "underline-color"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "gzip", "http2", "charset"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 toml = "0.9"
@@ -39,6 +40,10 @@ path = "src/lib.rs"
 [[bin]]
 name = "rsst-bench"
 path = "src/bin/bench.rs"
+
+[[bin]]
+name = "rsst-scaling"
+path = "src/bin/scaling.rs"
 
 [[bin]]
 name = "rsst"

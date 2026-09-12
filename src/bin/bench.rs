@@ -70,8 +70,9 @@ fn main() {
     // list, and the size at which anything quadratic becomes obvious.
     let hundred = feed_xml(100);
     let mut feeds = Vec::new();
-    let mut cache = rsst::cache::Cache::default();
-    let state = rsst::state::ReadState::default();
+    let bench_db = std::env::temp_dir().join("rsst-bench.sqlite3");
+    let _ = std::fs::remove_file(&bench_db);
+    let mut db = rsst::db::Db::open(&bench_db).expect("opens");
     for i in 0..50 {
         let source = FeedSource {
             url: format!("https://bench.example/{i}"),
@@ -79,11 +80,10 @@ fn main() {
             tags: Vec::new(),
         };
         let feed = rsst::feed::parse(hundred.as_bytes(), &source).expect("parses");
-        cache.put(&feed, &state);
+        db.put_feed(&feed).expect("put");
         feeds.push(feed);
     }
-    let app = rsst::app::App::new(feeds, rsst::state::ReadState::default());
-    let cache_path = std::env::temp_dir().join("rsst-bench-cache.toml");
+    let app = rsst::app::App::new(feeds.clone(), rsst::state::ReadState::default());
 
     let measurements = vec![
         // Parsing dominates startup once the cache is warm.
@@ -98,10 +98,15 @@ fn main() {
         measure("sort_5000_entries", 20, || {
             let _ = app.all_entries();
         }),
-        // Saving the cache happens on exit, with everything in it.
-        measure("cache_roundtrip_50_feeds", 3, || {
-            cache.save(&cache_path).expect("save");
-            let _ = rsst::cache::Cache::load(&cache_path);
+        // The number this milestone is about: refreshing ONE feed when fifty
+        // are stored. With the old TOML cache this rewrote all fifty.
+        measure("refresh_one_of_50_feeds", 20, || {
+            db.put_feed(&feeds[0]).expect("put");
+        }),
+        // Search across the whole corpus, through the full-text index rather
+        // than a scan over everything in memory.
+        measure("search_5000_entries", 50, || {
+            let _ = db.search("entry", 500).expect("search");
         }),
     ];
 

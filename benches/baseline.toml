@@ -14,4 +14,5 @@ tolerance = 6.0
 parse_500_entries = 1920.0
 wrap_10k_chars = 48.0
 sort_5000_entries = 18.0
-cache_roundtrip_50_feeds = 13600.0
+refresh_one_of_50_feeds = 4900.0
+search_5000_entries = 540.0

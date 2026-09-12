@@ -16,7 +16,6 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
 use rsst::app::App;
-use rsst::cache::Cache;
 use rsst::cli::Action;
 use rsst::config::Config;
 use rsst::feed::Feed;
@@ -25,6 +24,12 @@ use rsst::state::ReadState;
 // Short enough that a feed landing on the channel is drawn promptly, long
 // enough that an idle reader is not busy-waiting.
 const TICK: Duration = Duration::from_millis(100);
+
+/// How many search hits to ask the index for.
+///
+/// More than anyone scrolls through, few enough that a one-letter query over a
+/// large backlog does not build a huge list to throw away.
+const SEARCH_LIMIT: usize = 500;
 
 /// A finished fetch on its way back to the event loop.
 type Fetched = (usize, Result<feed::Outcome>);
@@ -36,9 +41,7 @@ struct Session {
     client: reqwest::Client,
     limiter: std::sync::Arc<tokio::sync::Semaphore>,
     config: Config,
-    state_path: PathBuf,
-    cache_path: PathBuf,
-    cache: Cache,
+    db: rsst::db::Db,
     tx: tokio::sync::mpsc::UnboundedSender<Fetched>,
     rx: tokio::sync::mpsc::UnboundedReceiver<Fetched>,
 }
@@ -88,31 +91,35 @@ async fn main() -> Result<()> {
     // The feed list takes its final shape before a single request is made, so
     // the reader is on screen and usable while the network is still working.
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Fetched>();
-    let cache_path = cache::cache_path()?;
-    let cache = Cache::load(&cache_path);
+    let mut db = rsst::db::Db::open(&rsst::db::db_path()?)?;
+    // One-time: bring the old TOML files across rather than starting empty.
+    rsst::db::migrate_from_toml(&mut db, &cache::cache_path()?, &state_path)?;
     let limiter = limit::limiter(config.fetch_limit());
-    spawn_fetches(&client, &config, &cache, &limiter, &tx);
+    spawn_fetches(&client, &config, &db, &limiter, &tx);
 
     // Last known contents stand in until the fetch lands, so a second launch
     // has something to read immediately and an offline one still works.
     let feeds = config
         .feeds
         .iter()
-        .map(|source| cache.get(source).unwrap_or_else(|| Feed::pending(source)))
+        .map(|source| {
+            db.feed(source)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| Feed::pending(source))
+        })
         .collect();
-    let mut app = App::new(feeds, ReadState::load(&state_path))
+    let mut app = App::new(feeds, ReadState::from_db(&db)?)
         .with_tags(&config.feeds)
         .with_theme(theme);
 
     let mut session = Session {
         keymap,
         config_path: config::config_path_or(config_override)?,
+        db,
         client,
         limiter,
         config,
-        state_path,
-        cache_path,
-        cache,
         tx,
         rx,
     };
@@ -124,12 +131,11 @@ async fn main() -> Result<()> {
 
     // Save even when the loop failed: the user still read those entries, and
     // losing that is more annoying than whatever went wrong.
-    if let Err(err) = app.read.save(&session.state_path) {
+    if let Err(err) = app.read.persist(&session.db) {
         eprintln!("rsst: could not save read state: {err:#}");
     }
-    session.cache.retain_configured(&session.config.feeds);
-    if let Err(err) = session.cache.save(&session.cache_path) {
-        eprintln!("rsst: could not save cache: {err:#}");
+    if let Err(err) = session.db.retain_configured(&session.config.feeds) {
+        eprintln!("rsst: could not tidy the database: {err:#}");
     }
     result
 }
@@ -152,8 +158,9 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                     etag,
                     last_modified,
                 }) => {
-                    session.cache.put(&feed, &app.read);
-                    session.cache.set_validators(&url, etag, last_modified);
+                    // Only this feed's rows — the whole reason for the database.
+                    let _ = session.db.put_feed(&feed);
+                    let _ = session.db.set_validators(&url, etag, last_modified);
                     *slot = *feed;
                 }
                 // Nothing was downloaded or reparsed; what is on screen stands.
@@ -162,7 +169,7 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                     let until = chrono::Utc::now()
                         + chrono::Duration::from_std(retry_after)
                             .unwrap_or_else(|_| chrono::Duration::seconds(300));
-                    session.cache.defer_until(&url, until);
+                    let _ = session.db.defer_until(&url, until);
                     slot.status = feed::Status::Idle;
                     app.status = Some(format!(
                         " {}: rate limited, waiting {}s ",
@@ -219,7 +226,7 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
             match key.code {
                 KeyCode::Char('y') | KeyCode::Char('Y') => {
                     let marked = app.confirm_bulk();
-                    let _ = app.read.save(&session.state_path);
+                    let _ = app.read.persist(&session.db);
                     app.status = Some(format!(" Marked {marked} entries read. "));
                 }
                 _ => {
@@ -239,6 +246,13 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                 KeyCode::Backspace => app.pop_search(),
                 KeyCode::Char(ch) => app.push_search(ch),
                 _ => {}
+            }
+            // The full-text index answers instead of a scan over memory. A
+            // query it cannot parse leaves the in-memory result standing.
+            if let Some(query) = app.search_query()
+                && let Ok(hits) = session.db.search(query, SEARCH_LIMIT)
+            {
+                app.apply_search_hits(&hits);
             }
             continue;
         }
@@ -282,18 +296,18 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
 fn spawn_fetches(
     client: &reqwest::Client,
     config: &Config,
-    cache: &Cache,
+    db: &rsst::db::Db,
     limiter: &std::sync::Arc<tokio::sync::Semaphore>,
     tx: &tokio::sync::mpsc::UnboundedSender<Fetched>,
 ) {
-    spawn_some(client, config, cache, limiter, tx, 0..config.feeds.len());
+    spawn_some(client, config, db, limiter, tx, 0..config.feeds.len());
 }
 
 /// Starts a fetch for each of `indices`.
 fn spawn_some(
     client: &reqwest::Client,
     config: &Config,
-    cache: &Cache,
+    db: &rsst::db::Db,
     limiter: &std::sync::Arc<tokio::sync::Semaphore>,
     tx: &tokio::sync::mpsc::UnboundedSender<Fetched>,
     indices: impl IntoIterator<Item = usize>,
@@ -304,11 +318,11 @@ fn spawn_some(
             continue;
         };
         // Honour a server that asked us to wait rather than hammering it.
-        if !cache.may_fetch(&source.url, now) {
+        if !db.may_fetch(&source.url, now) {
             let _ = tx.send((index, Ok(feed::Outcome::NotModified)));
             continue;
         }
-        let meta = cache.meta(&source.url);
+        let meta = db.meta(&source.url);
         let client = client.clone();
         let tx = tx.clone();
         let limiter = limiter.clone();
@@ -345,21 +359,22 @@ async fn screenshot(size: &str, config_override: Option<PathBuf>) -> Result<()> 
     let client = http_client()?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Fetched>();
-    let cache = Cache::load(&cache::cache_path()?);
+    let db = rsst::db::Db::open(&rsst::db::db_path()?)?;
     let limiter = limit::limiter(config.fetch_limit());
-    spawn_fetches(&client, &config, &cache, &limiter, &tx);
+    spawn_fetches(&client, &config, &db, &limiter, &tx);
     drop(tx);
 
     let feeds = config
         .feeds
         .iter()
         .map(|source| {
-            cache
-                .get(source)
+            db.feed(source)
+                .ok()
+                .flatten()
                 .unwrap_or_else(|| feed::Feed::pending(source))
         })
         .collect();
-    let mut app = App::new(feeds, ReadState::load(&state::state_path()?))
+    let mut app = App::new(feeds, ReadState::from_db(&db)?)
         .with_tags(&config.feeds)
         .with_theme(theme);
 
@@ -415,17 +430,17 @@ fn dispatch(action: keys::Action, app: &mut App, session: &mut Session) -> Resul
         Action::Search => app.start_search(),
         Action::ToggleRead => {
             app.toggle_current_read();
-            let _ = app.read.save(&session.state_path);
+            let _ = app.read.persist(&session.db);
         }
         Action::MarkFeedRead => app.request_bulk(app::Bulk::Feed),
         Action::MarkAllRead => app.request_bulk(app::Bulk::Everything),
         Action::ToggleUnreadOnly => {
             app.toggle_unread_only();
-            let _ = app.read.save(&session.state_path);
+            let _ = app.read.persist(&session.db);
         }
         Action::ToggleStar => {
             let starred = app.toggle_star();
-            let _ = app.read.save(&session.state_path);
+            let _ = app.read.persist(&session.db);
             app.status = Some(if starred {
                 " Starred. ".into()
             } else {
@@ -448,7 +463,7 @@ fn dispatch(action: keys::Action, app: &mut App, session: &mut Session) -> Resul
         },
         Action::ToggleSort => {
             app.toggle_sort();
-            let _ = app.read.save(&session.state_path);
+            let _ = app.read.persist(&session.db);
             app.status = Some(if app.read.oldest_first {
                 " Oldest first. ".into()
             } else {
@@ -458,7 +473,7 @@ fn dispatch(action: keys::Action, app: &mut App, session: &mut Session) -> Resul
         Action::Open => open_selected(app),
         Action::CopyLink => copy_selected(app),
         Action::Refresh => {
-            let _ = app.read.save(&session.state_path);
+            let _ = app.read.persist(&session.db);
             let starting = app.begin_refresh();
             app.status = Some(if starting.is_empty() {
                 " Already refreshing… ".into()
@@ -468,7 +483,7 @@ fn dispatch(action: keys::Action, app: &mut App, session: &mut Session) -> Resul
             spawn_some(
                 &session.client,
                 &session.config,
-                &session.cache,
+                &session.db,
                 &session.limiter,
                 &session.tx,
                 starting,
@@ -548,7 +563,7 @@ fn reload(app: &mut App, session: &mut Session) -> Result<usize> {
     spawn_some(
         &session.client,
         &session.config,
-        &session.cache,
+        &session.db,
         &session.limiter,
         &session.tx,
         starting,

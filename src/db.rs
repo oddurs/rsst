@@ -1,0 +1,983 @@
+//! Everything rsst remembers, in one SQLite database.
+//!
+//! Replaces the two TOML files this used to keep. The reason is not that SQLite
+//! is nicer but that the files were rewritten whole on every refresh: the cost
+//! was linear in the *total* backlog rather than in what changed. Rows can be
+//! written, deleted and searched one at a time.
+//!
+//! Read and starred state is also mirrored in memory. Rendering asks "is this
+//! entry read?" once per visible row per frame, and a query per cell would be
+//! absurd — so the set is loaded once and every change is written through.
+
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
+use rusqlite::{Connection, OptionalExtension, params};
+
+use crate::config::FeedSource;
+use crate::feed::{Entry, Feed, Status};
+
+/// The schema version this build writes.
+///
+/// Stored in SQLite's own `user_version`, so the database carries its version
+/// the way `docs/stability.md` requires — and, as with the TOML before it, a
+/// database from a newer rsst is refused rather than misread.
+pub const SCHEMA: i64 = 1;
+
+/// What we remember about a feed's HTTP behaviour between fetches.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct FeedMeta {
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+    pub retry_after: Option<DateTime<Utc>>,
+}
+
+pub struct Db {
+    connection: Connection,
+    /// Mirror of `read_keys`, for rendering.
+    read: HashSet<String>,
+    /// Mirror of `starred_keys`.
+    starred: HashSet<String>,
+    /// True if this run brought the old TOML across.
+    migrated_this_run: bool,
+}
+
+impl std::fmt::Debug for Db {
+    /// Names the sets rather than the connection, which has nothing useful to
+    /// show and cannot be formatted.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Db")
+            .field("read", &self.read.len())
+            .field("starred", &self.starred.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Db {
+    /// Opens the database, creating and migrating it as needed.
+    pub fn open(path: &Path) -> Result<Self> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        let connection =
+            Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
+        Self::from_connection(connection)
+    }
+
+    fn from_connection(connection: Connection) -> Result<Self> {
+        // WAL so a refresh writing rows does not block the read that draws the
+        // next frame. Foreign keys so deleting a feed takes its entries.
+        connection
+            .pragma_update(None, "journal_mode", "WAL")
+            .context("enabling WAL")?;
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .context("enabling foreign keys")?;
+
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .context("reading the schema version")?;
+        if version > SCHEMA {
+            anyhow::bail!("this database is version {version}, and this rsst understands {SCHEMA}");
+        }
+        if version < SCHEMA {
+            migrate(&connection, version)?;
+        }
+
+        let mut db = Self {
+            connection,
+            read: HashSet::new(),
+            starred: HashSet::new(),
+            migrated_this_run: false,
+        };
+        db.read = db.keys_in("read_keys")?;
+        db.starred = db.keys_in("starred_keys")?;
+        Ok(db)
+    }
+
+    #[cfg(test)]
+    pub fn in_memory() -> Result<Self> {
+        Self::from_connection(Connection::open_in_memory()?)
+    }
+
+    fn keys_in(&self, table: &str) -> Result<HashSet<String>> {
+        let mut statement = self
+            .connection
+            .prepare(&format!("SELECT key FROM {table}"))?;
+        let keys = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<HashSet<String>>>()?;
+        Ok(keys)
+    }
+
+    // ─── Feeds and entries ───────────────────────────────────────────────
+
+    /// Replaces a feed's entries, keeping starred ones that have rolled out.
+    ///
+    /// One transaction, and only this feed's rows — which is the whole point:
+    /// refreshing one feed no longer rewrites the other forty-nine.
+    pub fn put_feed(&mut self, feed: &Feed) -> Result<()> {
+        let starred: Vec<&String> = self.starred.iter().collect();
+        let transaction = self.connection.unchecked_transaction()?;
+
+        transaction.execute(
+            "INSERT INTO feeds (url, title) VALUES (?1, ?2)
+             ON CONFLICT(url) DO UPDATE SET title = excluded.title",
+            params![feed.url, feed.title],
+        )?;
+
+        // A starred entry the publisher has dropped is kept: starring is the
+        // reader saying they want it after it rolls out of the feed.
+        let keep: Vec<i64> = if starred.is_empty() {
+            Vec::new()
+        } else {
+            let holes = vec!["?"; starred.len()].join(",");
+            let sql = format!(
+                "SELECT DISTINCT e.id FROM entries e
+                 JOIN entry_keys k ON k.entry_id = e.id
+                 WHERE e.feed_url = ?1 AND k.key IN ({holes})"
+            );
+            let mut statement = transaction.prepare(&sql)?;
+            let mut arguments: Vec<&dyn rusqlite::ToSql> = vec![&feed.url];
+            for key in &starred {
+                arguments.push(key);
+            }
+            statement
+                .query_map(arguments.as_slice(), |row| row.get(0))?
+                .collect::<rusqlite::Result<Vec<i64>>>()?
+        };
+
+        if keep.is_empty() {
+            transaction.execute("DELETE FROM entries WHERE feed_url = ?1", params![feed.url])?;
+        } else {
+            let holes = vec!["?"; keep.len()].join(",");
+            let sql = format!("DELETE FROM entries WHERE feed_url = ?1 AND id NOT IN ({holes})");
+            let mut arguments: Vec<&dyn rusqlite::ToSql> = vec![&feed.url];
+            for id in &keep {
+                arguments.push(id);
+            }
+            transaction.execute(&sql, arguments.as_slice())?;
+        }
+
+        // Kept entries move to the end, after everything the feed still lists.
+        transaction.execute(
+            "UPDATE entries SET position = position + 100000 WHERE feed_url = ?1",
+            params![feed.url],
+        )?;
+
+        for (position, entry) in feed.entries.iter().enumerate() {
+            insert_entry(&transaction, &feed.url, position as i64, entry)?;
+        }
+
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// A feed's cached contents, ready to display.
+    pub fn feed(&self, source: &FeedSource) -> Result<Option<Feed>> {
+        let title: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT title FROM feeds WHERE url = ?1",
+                params![source.url],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(title) = title else {
+            return Ok(None);
+        };
+
+        let mut statement = self.connection.prepare(
+            "SELECT id, title, link, published, summary FROM entries
+             WHERE feed_url = ?1 ORDER BY position",
+        )?;
+        let rows = statement.query_map(params![source.url], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                Entry {
+                    title: row.get(1)?,
+                    link: row.get(2)?,
+                    published: row
+                        .get::<_, Option<String>>(3)?
+                        .and_then(|t| DateTime::parse_from_rfc3339(&t).ok())
+                        .map(|t| t.with_timezone(&Utc)),
+                    summary: row.get(4)?,
+                    keys: Vec::new(),
+                },
+            ))
+        })?;
+
+        let mut entries = Vec::new();
+        for row in rows {
+            let (id, mut entry) = row?;
+            entry.keys = self.keys_of(id)?;
+            entries.push(entry);
+        }
+
+        Ok(Some(Feed {
+            // The config is the authority on what a feed is called.
+            title: source.title.clone().unwrap_or(title),
+            url: source.url.clone(),
+            entries,
+            // Still in flight: the cached copy stands until the fetch lands.
+            status: Status::Fetching,
+        }))
+    }
+
+    fn keys_of(&self, entry: i64) -> Result<Vec<String>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT key FROM entry_keys WHERE entry_id = ?1")?;
+        let keys = statement
+            .query_map(params![entry], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<String>>>()?;
+        Ok(keys)
+    }
+
+    /// Drops feeds that are no longer configured, and prunes what they held.
+    pub fn retain_configured(&mut self, sources: &[FeedSource]) -> Result<()> {
+        let urls: Vec<&str> = sources.iter().map(|s| s.url.as_str()).collect();
+        let transaction = self.connection.unchecked_transaction()?;
+        if urls.is_empty() {
+            transaction.execute("DELETE FROM feeds", [])?;
+        } else {
+            let holes = vec!["?"; urls.len()].join(",");
+            let mut arguments: Vec<&dyn rusqlite::ToSql> = Vec::new();
+            for url in &urls {
+                arguments.push(url);
+            }
+            transaction.execute(
+                &format!("DELETE FROM feeds WHERE url NOT IN ({holes})"),
+                arguments.as_slice(),
+            )?;
+        }
+        transaction.commit()?;
+        self.prune()?;
+        Ok(())
+    }
+
+    /// Forgets read and starred keys for entries nothing holds any more.
+    ///
+    /// The TOML version could not do this at all: it was a list that only grew.
+    ///
+    /// Skipped on the run that migrated from TOML. The old file holds read keys
+    /// for entries that rolled out of their feeds long ago; those entries are
+    /// not in the database yet and may never be, so pruning immediately would
+    /// throw away the history the migration just went to the trouble of saving.
+    pub fn prune(&mut self) -> Result<usize> {
+        if self.migrated_this_run {
+            return Ok(0);
+        }
+        let removed = self.connection.execute(
+            "DELETE FROM read_keys WHERE key NOT IN (SELECT key FROM entry_keys)
+             AND key NOT IN (SELECT key FROM starred_keys)",
+            [],
+        )?;
+        self.read = self.keys_in("read_keys")?;
+        Ok(removed)
+    }
+
+    // ─── Conditional requests ────────────────────────────────────────────
+
+    pub fn meta(&self, url: &str) -> FeedMeta {
+        self.connection
+            .query_row(
+                "SELECT etag, last_modified, retry_after FROM feeds WHERE url = ?1",
+                params![url],
+                |row| {
+                    Ok(FeedMeta {
+                        etag: row.get(0)?,
+                        last_modified: row.get(1)?,
+                        retry_after: row
+                            .get::<_, Option<String>>(2)?
+                            .and_then(|t| DateTime::parse_from_rfc3339(&t).ok())
+                            .map(|t| t.with_timezone(&Utc)),
+                    })
+                },
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    }
+
+    /// Records the validators a response carried, clearing any deferral.
+    pub fn set_validators(
+        &self,
+        url: &str,
+        etag: Option<String>,
+        last_modified: Option<String>,
+    ) -> Result<()> {
+        // COALESCE so a response that omits a validator it sent last time does
+        // not cost us the one we have.
+        self.connection.execute(
+            "INSERT INTO feeds (url, title, etag, last_modified, retry_after)
+             VALUES (?1, ?1, ?2, ?3, NULL)
+             ON CONFLICT(url) DO UPDATE SET
+               etag = COALESCE(excluded.etag, feeds.etag),
+               last_modified = COALESCE(excluded.last_modified, feeds.last_modified),
+               retry_after = NULL",
+            params![url, etag, last_modified],
+        )?;
+        Ok(())
+    }
+
+    pub fn defer_until(&self, url: &str, until: DateTime<Utc>) -> Result<()> {
+        self.connection.execute(
+            "INSERT INTO feeds (url, title, retry_after) VALUES (?1, ?1, ?2)
+             ON CONFLICT(url) DO UPDATE SET retry_after = excluded.retry_after",
+            params![url, until.to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    pub fn may_fetch(&self, url: &str, now: DateTime<Utc>) -> bool {
+        match self.meta(url).retry_after {
+            Some(until) => now >= until,
+            None => true,
+        }
+    }
+
+    // ─── Read and starred ────────────────────────────────────────────────
+
+    /// Every read and starred key, for the in-memory index rendering uses.
+    ///
+    /// Asking the database "is this entry read?" once per visible row per frame
+    /// would be absurd, so the sets are loaded once and kept in memory. Changes
+    /// go back as deltas.
+    pub fn load_state(&self) -> Result<(HashSet<String>, HashSet<String>)> {
+        Ok((self.keys_in("read_keys")?, self.keys_in("starred_keys")?))
+    }
+
+    /// Applies what changed since the last save — not the whole set.
+    pub fn save_state(
+        &self,
+        read_added: &HashSet<String>,
+        read_removed: &HashSet<String>,
+        starred_added: &HashSet<String>,
+        starred_removed: &HashSet<String>,
+    ) -> Result<()> {
+        let transaction = self.connection.unchecked_transaction()?;
+        for (table, added, removed) in [
+            ("read_keys", read_added, read_removed),
+            ("starred_keys", starred_added, starred_removed),
+        ] {
+            for key in added {
+                transaction.execute(
+                    &format!("INSERT OR IGNORE INTO {table} (key) VALUES (?1)"),
+                    params![key],
+                )?;
+            }
+            for key in removed {
+                transaction
+                    .execute(&format!("DELETE FROM {table} WHERE key = ?1"), params![key])?;
+            }
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    // ─── Preferences ─────────────────────────────────────────────────────
+
+    pub fn flag(&self, name: &str) -> bool {
+        self.connection
+            .query_row(
+                "SELECT value FROM prefs WHERE name = ?1",
+                params![name],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .is_some_and(|value| value == "true")
+    }
+
+    pub fn set_flag(&self, name: &str, value: bool) {
+        let _ = self.connection.execute(
+            "INSERT INTO prefs (name, value) VALUES (?1, ?2)
+             ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+            params![name, if value { "true" } else { "false" }],
+        );
+    }
+
+    // ─── Search ──────────────────────────────────────────────────────────
+
+    /// Full-text search across every cached entry.
+    ///
+    /// FTS5 rather than a scan over everything held in memory, so the cost
+    /// follows the number of matches rather than the size of the backlog.
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<(String, i64)>> {
+        if query.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT e.feed_url, e.position FROM entries_fts f
+             JOIN entries e ON e.id = f.rowid
+             WHERE entries_fts MATCH ?1
+             ORDER BY e.feed_url, e.position
+             LIMIT ?2",
+        )?;
+        let hits = statement
+            .query_map(params![fts_query(query), limit as i64], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<(String, i64)>>>()?;
+        Ok(hits)
+    }
+
+    #[cfg(test)]
+    pub fn count(&self, table: &str) -> i64 {
+        self.connection
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap_or(-1)
+    }
+}
+
+/// Turns what someone typed into an FTS5 prefix query.
+///
+/// Quoted so punctuation cannot be read as FTS syntax — a search for `c++`
+/// should find entries about C++, not raise a syntax error.
+fn fts_query(query: &str) -> String {
+    query
+        .split_whitespace()
+        .map(|word| format!("\"{}\"*", word.replace('"', "")))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn insert_entry(
+    connection: &Connection,
+    feed_url: &str,
+    position: i64,
+    entry: &Entry,
+) -> Result<()> {
+    connection.execute(
+        "INSERT INTO entries (feed_url, position, title, link, published, summary)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            feed_url,
+            position,
+            entry.title,
+            entry.link,
+            entry.published.map(|t| t.to_rfc3339()),
+            entry.summary
+        ],
+    )?;
+    let id = connection.last_insert_rowid();
+    for key in &entry.keys {
+        connection.execute(
+            "INSERT OR IGNORE INTO entry_keys (entry_id, key) VALUES (?1, ?2)",
+            params![id, key],
+        )?;
+    }
+    Ok(())
+}
+
+/// Brings a database up to [`SCHEMA`].
+fn migrate(connection: &Connection, from: i64) -> Result<()> {
+    if from < 1 {
+        connection
+            .execute_batch(
+                "BEGIN;
+                 CREATE TABLE feeds (
+                   url           TEXT PRIMARY KEY,
+                   title         TEXT NOT NULL,
+                   etag          TEXT,
+                   last_modified TEXT,
+                   retry_after   TEXT
+                 );
+                 CREATE TABLE entries (
+                   id        INTEGER PRIMARY KEY,
+                   feed_url  TEXT NOT NULL REFERENCES feeds(url) ON DELETE CASCADE,
+                   position  INTEGER NOT NULL,
+                   title     TEXT NOT NULL,
+                   link      TEXT,
+                   published TEXT,
+                   summary   TEXT NOT NULL
+                 );
+                 CREATE INDEX entries_by_feed ON entries(feed_url, position);
+                 CREATE TABLE entry_keys (
+                   entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+                   key      TEXT NOT NULL,
+                   PRIMARY KEY (entry_id, key)
+                 );
+                 CREATE INDEX entry_keys_by_key ON entry_keys(key);
+                 CREATE TABLE read_keys    (key TEXT PRIMARY KEY);
+                 CREATE TABLE starred_keys (key TEXT PRIMARY KEY);
+                 CREATE TABLE prefs (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+                 CREATE VIRTUAL TABLE entries_fts USING fts5(
+                   title, summary, content='entries', content_rowid='id'
+                 );
+                 CREATE TRIGGER entries_ai AFTER INSERT ON entries BEGIN
+                   INSERT INTO entries_fts(rowid, title, summary)
+                   VALUES (new.id, new.title, new.summary);
+                 END;
+                 CREATE TRIGGER entries_ad AFTER DELETE ON entries BEGIN
+                   INSERT INTO entries_fts(entries_fts, rowid, title, summary)
+                   VALUES ('delete', old.id, old.title, old.summary);
+                 END;
+                 CREATE TRIGGER entries_au AFTER UPDATE ON entries BEGIN
+                   INSERT INTO entries_fts(entries_fts, rowid, title, summary)
+                   VALUES ('delete', old.id, old.title, old.summary);
+                   INSERT INTO entries_fts(rowid, title, summary)
+                   VALUES (new.id, new.title, new.summary);
+                 END;
+                 COMMIT;",
+            )
+            .context("creating the schema")?;
+    }
+    connection
+        .pragma_update(None, "user_version", SCHEMA)
+        .context("recording the schema version")?;
+    Ok(())
+}
+
+/// Brings the old TOML files into the database, once.
+///
+/// Read state is the reader's own history and is not reproducible, so it is
+/// carried across rather than discarded — `docs/stability.md` requires an older
+/// format to be migrated forward, and a file is a format. The TOML is left on
+/// disk untouched: deleting someone's data to tidy up is not our call.
+pub fn migrate_from_toml(db: &mut Db, cache: &Path, state: &Path) -> Result<bool> {
+    if db.flag("migrated_from_toml") {
+        return Ok(false);
+    }
+
+    let mut brought_anything = false;
+
+    if state.exists() {
+        let old = crate::state::ReadState::load(state);
+        let (read, starred) = old.keys_and_stars();
+        if !read.is_empty() || !starred.is_empty() {
+            db.save_state(&read, &HashSet::new(), &starred, &HashSet::new())?;
+            brought_anything = true;
+        }
+        db.set_flag("unread_only", old.unread_only);
+        db.set_flag("oldest_first", old.oldest_first);
+    }
+
+    if cache.exists() {
+        for feed in crate::cache::Cache::load(cache).feeds() {
+            db.put_feed(&feed)?;
+            brought_anything = true;
+        }
+    }
+
+    db.set_flag("migrated_from_toml", true);
+    db.migrated_this_run = true;
+    Ok(brought_anything)
+}
+
+/// `$XDG_DATA_HOME/rsst/rsst.sqlite3`, or the platform equivalent.
+pub fn db_path() -> Result<PathBuf> {
+    let dirs = directories::ProjectDirs::from("", "", "rsst")
+        .context("could not determine a data directory for this platform")?;
+    Ok(dirs.data_dir().join("rsst.sqlite3"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(title: &str, keys: &[&str]) -> Entry {
+        Entry {
+            title: title.into(),
+            link: Some(format!("https://example.com/{title}")),
+            published: None,
+            summary: format!("The body of {title}, with words in it."),
+            keys: keys.iter().map(|k| (*k).to_string()).collect(),
+        }
+    }
+
+    fn feed(url: &str, entries: Vec<Entry>) -> Feed {
+        Feed {
+            title: "Feed".into(),
+            url: url.into(),
+            entries,
+            status: Status::Idle,
+        }
+    }
+
+    fn source(url: &str) -> FeedSource {
+        FeedSource {
+            url: url.into(),
+            title: None,
+            tags: Vec::new(),
+        }
+    }
+
+    fn db() -> Db {
+        Db::in_memory().expect("an in-memory database")
+    }
+
+    #[test]
+    fn a_stored_feed_comes_back_with_its_entries_and_keys() {
+        let mut db = db();
+        db.put_feed(&feed(
+            "https://a.example",
+            vec![entry("One", &["id:1", "link:1"])],
+        ))
+        .expect("put");
+
+        let restored = db
+            .feed(&source("https://a.example"))
+            .expect("query")
+            .expect("cached");
+        assert_eq!(restored.entries.len(), 1);
+        assert_eq!(restored.entries[0].title, "One");
+        assert_eq!(restored.entries[0].keys, ["id:1", "link:1"]);
+    }
+
+    #[test]
+    fn a_restored_feed_is_marked_fetching_because_a_refresh_is_coming() {
+        let mut db = db();
+        db.put_feed(&feed("https://a.example", vec![entry("One", &["id:1"])]))
+            .expect("put");
+        let restored = db
+            .feed(&source("https://a.example"))
+            .expect("query")
+            .expect("cached");
+        assert_eq!(restored.status, Status::Fetching);
+    }
+
+    #[test]
+    fn the_configured_title_overrides_the_stored_one() {
+        let mut db = db();
+        db.put_feed(&feed("https://a.example", vec![]))
+            .expect("put");
+        let mut source = source("https://a.example");
+        source.title = Some("Mine".into());
+        assert_eq!(
+            db.feed(&source).expect("query").expect("cached").title,
+            "Mine"
+        );
+    }
+
+    #[test]
+    fn an_unknown_feed_is_absent() {
+        assert!(
+            db().feed(&source("https://nope.example"))
+                .expect("query")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn refreshing_one_feed_leaves_the_others_untouched() {
+        // The whole point of the database: a refresh writes its own rows.
+        let mut db = db();
+        db.put_feed(&feed("https://a.example", vec![entry("A1", &["id:a1"])]))
+            .expect("put");
+        db.put_feed(&feed("https://b.example", vec![entry("B1", &["id:b1"])]))
+            .expect("put");
+
+        db.put_feed(&feed("https://a.example", vec![entry("A2", &["id:a2"])]))
+            .expect("put");
+
+        let b = db
+            .feed(&source("https://b.example"))
+            .expect("query")
+            .expect("cached");
+        assert_eq!(b.entries[0].title, "B1", "the other feed was rewritten");
+        let a = db
+            .feed(&source("https://a.example"))
+            .expect("query")
+            .expect("cached");
+        assert_eq!(a.entries.len(), 1);
+        assert_eq!(a.entries[0].title, "A2");
+    }
+
+    #[test]
+    fn a_starred_entry_survives_falling_out_of_the_feed() {
+        let mut db = db();
+        let original = entry("Kept", &["id:kept"]);
+        db.put_feed(&feed(
+            "https://a.example",
+            vec![original.clone(), entry("Gone", &["id:gone"])],
+        ))
+        .expect("put");
+        db.save_state(
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::from(["id:kept".to_string()]),
+            &HashSet::new(),
+        )
+        .expect("star");
+        db.starred.insert("id:kept".into());
+
+        // The publisher rolls the window: only a new entry remains.
+        db.put_feed(&feed("https://a.example", vec![entry("New", &["id:new"])]))
+            .expect("put");
+
+        let restored = db
+            .feed(&source("https://a.example"))
+            .expect("query")
+            .expect("cached");
+        let titles: Vec<_> = restored.entries.iter().map(|e| e.title.as_str()).collect();
+        assert!(titles.contains(&"New"));
+        assert!(titles.contains(&"Kept"), "the starred entry was dropped");
+        assert!(!titles.contains(&"Gone"), "unstarred entries rolled away");
+    }
+
+    #[test]
+    fn removing_a_feed_takes_its_entries_with_it() {
+        let mut db = db();
+        db.put_feed(&feed("https://a.example", vec![entry("A1", &["id:a1"])]))
+            .expect("put");
+        db.put_feed(&feed("https://b.example", vec![entry("B1", &["id:b1"])]))
+            .expect("put");
+
+        db.retain_configured(&[source("https://a.example")])
+            .expect("retain");
+        assert!(
+            db.feed(&source("https://b.example"))
+                .expect("query")
+                .is_none()
+        );
+        assert_eq!(db.count("entries"), 1, "the orphaned entries went too");
+    }
+
+    #[test]
+    fn read_keys_are_pruned_when_nothing_holds_them() {
+        let mut db = db();
+        db.put_feed(&feed("https://a.example", vec![entry("A1", &["id:a1"])]))
+            .expect("put");
+        db.save_state(
+            &HashSet::from(["id:a1".to_string(), "id:long-gone".to_string()]),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        )
+        .expect("save");
+
+        assert_eq!(db.prune().expect("prune"), 1, "the orphan went");
+        assert_eq!(db.count("read_keys"), 1, "the live one stayed");
+    }
+
+    #[test]
+    fn the_run_that_migrates_does_not_prune_what_it_just_brought_across() {
+        // The old file holds read keys for entries that rolled out of their
+        // feeds long ago. Pruning on the same run would discard exactly the
+        // history the migration went to the trouble of saving.
+        let dir = std::env::temp_dir().join(format!("rsst-mig-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let state = dir.join("read.toml");
+        let cache = dir.join("feeds.toml");
+        std::fs::write(
+            &state,
+            "version = 1\nread = [\"id:long-gone\"]\nstarred = []\n",
+        )
+        .expect("write");
+
+        let path = dir.join("migrated.sqlite3");
+        let _ = std::fs::remove_file(&path);
+        let mut db = Db::open(&path).expect("open");
+        migrate_from_toml(&mut db, &cache, &state).expect("migrate");
+
+        assert_eq!(db.prune().expect("prune"), 0, "pruned on the migrating run");
+        assert_eq!(db.count("read_keys"), 1, "the migrated key survived");
+
+        // A later run prunes normally.
+        let mut later = Db::open(&path).expect("reopen");
+        assert_eq!(later.prune().expect("prune"), 1);
+    }
+
+    #[test]
+    fn migrating_twice_is_a_no_op() {
+        let dir = std::env::temp_dir().join(format!("rsst-mig2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let state = dir.join("read.toml");
+        std::fs::write(&state, "version = 1\nread = [\"id:a\"]\n").expect("write");
+        let path = dir.join("twice.sqlite3");
+        let _ = std::fs::remove_file(&path);
+
+        let mut db = Db::open(&path).expect("open");
+        assert!(migrate_from_toml(&mut db, &dir.join("nope.toml"), &state).expect("first"));
+        assert!(
+            !migrate_from_toml(&mut db, &dir.join("nope.toml"), &state).expect("second"),
+            "the second migration did work again"
+        );
+    }
+
+    #[test]
+    fn a_starred_key_is_never_pruned_even_with_no_entry() {
+        let mut db = db();
+        db.save_state(
+            &HashSet::from(["id:x".to_string()]),
+            &HashSet::new(),
+            &HashSet::from(["id:x".to_string()]),
+            &HashSet::new(),
+        )
+        .expect("save");
+        assert_eq!(db.prune().expect("prune"), 0);
+    }
+
+    #[test]
+    fn state_is_written_as_a_delta_not_a_rewrite() {
+        let db = db();
+        db.save_state(
+            &HashSet::from(["a".to_string(), "b".to_string()]),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        )
+        .expect("add");
+        db.save_state(
+            &HashSet::new(),
+            &HashSet::from(["a".to_string()]),
+            &HashSet::new(),
+            &HashSet::new(),
+        )
+        .expect("remove");
+
+        let (read, _) = db.load_state().expect("load");
+        assert_eq!(read, HashSet::from(["b".to_string()]));
+    }
+
+    #[test]
+    fn validators_round_trip_and_a_missing_one_is_not_erased() {
+        let db = db();
+        db.set_validators("u", Some("\"abc\"".into()), Some("Mon".into()))
+            .expect("set");
+        db.set_validators("u", None, None).expect("set");
+
+        let meta = db.meta("u");
+        assert_eq!(meta.etag.as_deref(), Some("\"abc\""));
+        assert_eq!(meta.last_modified.as_deref(), Some("Mon"));
+    }
+
+    #[test]
+    fn a_deferred_feed_may_not_be_fetched_until_its_time() {
+        let db = db();
+        let now = Utc::now();
+        db.defer_until("u", now + chrono::Duration::seconds(60))
+            .expect("defer");
+        assert!(!db.may_fetch("u", now));
+        assert!(db.may_fetch("u", now + chrono::Duration::seconds(61)));
+    }
+
+    #[test]
+    fn a_successful_response_clears_a_deferral() {
+        let db = db();
+        let now = Utc::now();
+        db.defer_until("u", now + chrono::Duration::seconds(60))
+            .expect("defer");
+        db.set_validators("u", Some("\"x\"".into()), None)
+            .expect("set");
+        assert!(db.may_fetch("u", now));
+    }
+
+    #[test]
+    fn full_text_search_finds_entries_across_feeds() {
+        let mut db = db();
+        db.put_feed(&feed(
+            "https://a.example",
+            vec![entry("Rust release notes", &["id:1"])],
+        ))
+        .expect("put");
+        db.put_feed(&feed(
+            "https://b.example",
+            vec![entry("Rusty pipes", &["id:2"])],
+        ))
+        .expect("put");
+        db.put_feed(&feed(
+            "https://c.example",
+            vec![entry("Cooking", &["id:3"])],
+        ))
+        .expect("put");
+
+        let hits = db.search("rust", 50).expect("search");
+        let urls: Vec<&str> = hits.iter().map(|(url, _)| url.as_str()).collect();
+        assert!(urls.contains(&"https://a.example"));
+        assert!(urls.contains(&"https://b.example"), "prefix match");
+        assert!(!urls.contains(&"https://c.example"));
+    }
+
+    #[test]
+    fn search_is_case_insensitive_and_looks_in_the_body() {
+        let mut db = db();
+        db.put_feed(&feed(
+            "https://a.example",
+            vec![entry("Anything", &["id:1"])],
+        ))
+        .expect("put");
+        assert_eq!(db.search("ANYTHING", 10).expect("search").len(), 1);
+        // The summary is "The body of Anything, with words in it."
+        assert_eq!(db.search("words", 10).expect("search").len(), 1);
+    }
+
+    #[test]
+    fn punctuation_in_a_query_is_not_read_as_syntax() {
+        // A search for `c++` should find nothing, not raise a syntax error.
+        let db = db();
+        assert!(db.search("c++", 10).is_ok());
+        assert!(db.search("\"unbalanced", 10).is_ok());
+        assert!(db.search("a OR b AND (c", 10).is_ok());
+    }
+
+    #[test]
+    fn an_empty_query_matches_nothing() {
+        assert!(db().search("   ", 10).expect("search").is_empty());
+    }
+
+    #[test]
+    fn deleting_an_entry_removes_it_from_the_index() {
+        let mut db = db();
+        db.put_feed(&feed(
+            "https://a.example",
+            vec![entry("Findable", &["id:1"])],
+        ))
+        .expect("put");
+        assert_eq!(db.search("Findable", 10).expect("search").len(), 1);
+
+        db.put_feed(&feed("https://a.example", vec![entry("Other", &["id:2"])]))
+            .expect("put");
+        assert!(
+            db.search("Findable", 10).expect("search").is_empty(),
+            "the index still holds a deleted entry"
+        );
+    }
+
+    #[test]
+    fn flags_round_trip() {
+        let db = db();
+        assert!(!db.flag("unread_only"));
+        db.set_flag("unread_only", true);
+        assert!(db.flag("unread_only"));
+        db.set_flag("unread_only", false);
+        assert!(!db.flag("unread_only"));
+    }
+
+    #[test]
+    fn a_database_from_a_newer_rsst_is_refused_rather_than_misread() {
+        let connection = Connection::open_in_memory().expect("open");
+        connection
+            .pragma_update(None, "user_version", SCHEMA + 1)
+            .expect("set version");
+        let err = Db::from_connection(connection).expect_err("refused");
+        assert!(err.to_string().contains("understands"));
+    }
+
+    #[test]
+    fn opening_twice_does_not_migrate_twice() {
+        let dir = std::env::temp_dir().join(format!("rsst-db-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("twice.sqlite3");
+        let _ = std::fs::remove_file(&path);
+
+        {
+            let mut db = Db::open(&path).expect("open");
+            db.put_feed(&feed("https://a.example", vec![entry("One", &["id:1"])]))
+                .expect("put");
+        }
+        let db = Db::open(&path).expect("reopen");
+        assert_eq!(db.count("entries"), 1);
+        assert_eq!(db.count("feeds"), 1);
+    }
+}

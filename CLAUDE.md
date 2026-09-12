@@ -82,10 +82,18 @@ MSRV is 1.90, checked in CI. Don't reach for newer language features without
 raising it in `Cargo.toml` and `clippy.toml` together — and note that raising it
 is a minor release, per `docs/stability.md`.
 
-**The on-disk formats are versioned.** `read.toml` and `feeds.toml` both carry a
-`version`. An older file is migrated forward; a newer one is discarded rather
-than misread. Changing either format means bumping the constant, adding a branch
-to `migrate`, and a test that the old format still loads.
+**State lives in SQLite** (`src/db.rs`), versioned by `user_version`. An older
+schema is migrated forward; a newer one is refused rather than misread. Changing
+it means bumping `SCHEMA`, adding a branch to `migrate`, and a test that a
+database at the old version still opens.
+
+Read and starred keys are also held in memory: rendering asks "is this read?"
+once per visible row per frame, and a query per cell would be absurd. The sets
+are loaded once and written back as **deltas**, never as a whole-table rewrite —
+that rewrite is exactly what the TOML files did and why they did not scale.
+
+`src/cache.rs` and `ReadState::load` survive only to migrate the old TOML files
+in. Nothing else should use them.
 
 ## Git workflow
 

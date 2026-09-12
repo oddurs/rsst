@@ -621,10 +621,40 @@ impl App {
         self.mark_current_read();
     }
 
+    /// Re-runs the query using the database's full-text index.
+    ///
+    /// `hits` are (feed url, position) pairs from FTS5; they are mapped back to
+    /// what is on screen here, because the pane draws from memory.
+    pub fn apply_search_hits(&mut self, hits: &[(String, i64)]) {
+        let results: Vec<(usize, usize)> = hits
+            .iter()
+            .filter_map(|(url, position)| {
+                let feed = self.feeds.iter().position(|f| &f.url == url)?;
+                let entry = usize::try_from(*position).ok()?;
+                (entry < self.feeds[feed].entries.len()).then_some((feed, entry))
+            })
+            .collect();
+
+        if let Some(search) = &mut self.search {
+            search.results = results;
+            search.selected = 0;
+        }
+        if let Some(&(feed, entry)) = self.search.as_ref().and_then(|s| s.results.first()) {
+            self.selected_feed = feed;
+            self.selected_entry = entry;
+            self.detail_scroll = 0;
+        }
+    }
+
+    /// The query as typed, if a search is open.
+    pub fn search_query(&self) -> Option<&str> {
+        self.search.as_ref().map(|s| s.query.as_str())
+    }
+
     /// Re-runs the query over every feed and moves to the first match.
     ///
-    /// Called on every keystroke, which is what makes results update as you
-    /// type rather than on Enter.
+    /// Used when there is no database to ask — the tests, and as the fallback
+    /// if a full-text query fails.
     fn recompute_search(&mut self) {
         let Some(search) = &self.search else {
             return;
