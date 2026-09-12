@@ -713,6 +713,10 @@ fn article_line<'a>(app: &App, row: crate::article::Row) -> Line<'a> {
         Kind::Code => app.theme.accent,
         Kind::Quote => app.theme.dim.add_modifier(Modifier::ITALIC),
         Kind::Reference => app.theme.link,
+        // A picture that is not there should read as a note about the article
+        // rather than as part of it.
+        Kind::Image => app.theme.dim.add_modifier(Modifier::ITALIC),
+        Kind::Table => app.theme.dim,
         _ => Style::default(),
     };
 
@@ -1477,8 +1481,24 @@ mod tests {
                 .expect("fixture parses")
                 .with_timezone(&chrono::Utc),
         );
+        // The article body too: a table draws a rule under its header and a
+        // list draws bullets, both of which have a non-ASCII form.
+        app.article = Some(
+            concat!(
+                "<p>Body.</p><img src=\"/d.png\" alt=\"A diagram\">",
+                "<ul><li>An item</li></ul>",
+                "<table><tr><th>Version</th><th>Date</th></tr>",
+                "<tr><td>1.98</td><td>Sep 2026</td></tr></table>",
+                "<p>See <a href=\"https://example.com/one\">a link</a>.</p>",
+            )
+            .into(),
+        );
 
         let screen = render_at(&mut app, 80, 24);
+        // Without this the test would keep passing if the article stopped
+        // being drawn at all, which is the only way it could go quiet.
+        assert!(screen.contains("[image:"), "the article was not drawn");
+        assert!(screen.contains("Sep 2026"), "the table was not drawn");
         let offenders: Vec<char> = screen.chars().filter(|c| !c.is_ascii()).collect();
         assert!(offenders.is_empty(), "ascii mode still drew: {offenders:?}");
     }
