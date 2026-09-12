@@ -318,15 +318,60 @@ pub fn parse(html: &str) -> Article {
 }
 
 /// Appends `chunk` to `text`, collapsing runs of whitespace to one space.
+/// The widest line of prose worth setting.
+///
+/// Typography has converged on roughly 45–75 characters for a reason that is
+/// mechanical rather than aesthetic: at the end of a line the eye has to travel
+/// back and find the start of the next, and the further it travels the more
+/// often it lands on the wrong one. A wider window should not make a reader
+/// harder to read.
+pub const DEFAULT_MEASURE: usize = 72;
+
+/// How prose should be set in the space available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Measure {
+    /// The widest line of prose, or `None` to use whatever there is.
+    pub columns: Option<usize>,
+    /// Draw with ASCII only.
+    pub ascii: bool,
+}
+
+impl Default for Measure {
+    fn default() -> Self {
+        Self {
+            columns: Some(DEFAULT_MEASURE),
+            ascii: false,
+        }
+    }
+}
+
+impl Measure {
+    /// The width prose should wrap to, and how far to indent it.
+    ///
+    /// Centred, so a wide pane does not leave the text against one edge. A pane
+    /// narrower than the measure is simply used as it is — indenting there
+    /// would push text off the screen to honour a rule meant to help.
+    pub fn fit(&self, available: usize) -> (usize, usize) {
+        match self.columns {
+            Some(columns) if columns < available => (columns, (available - columns) / 2),
+            _ => (available, 0),
+        }
+    }
+}
+
 /// Lays an article out for a pane of the given width.
 ///
 /// `ascii` decides the glyphs, not the structure — a terminal that cannot draw
 /// a bullet still has lists.
-pub fn layout(article: &Article, width: usize, ascii: bool) -> Vec<Row> {
+pub fn layout(article: &Article, width: usize, measure: Measure) -> Vec<Row> {
     let mut rows = Vec::new();
     if width == 0 {
         return rows;
     }
+    let ascii = measure.ascii;
+    // Prose holds a measure; code keeps the full width, because its line
+    // breaks belong to whoever wrote it and narrowing them loses meaning.
+    let (prose, margin) = measure.fit(width);
 
     // A leading blank would push the article down by a row for nothing; one
     // between blocks is what separates them.
@@ -344,17 +389,22 @@ pub fn layout(article: &Article, width: usize, ascii: bool) -> Vec<Row> {
         match block {
             Block::Paragraph(spans) => {
                 blank(&mut rows);
-                rows.extend(wrap_spans(spans, width, 0, Kind::Body));
+                rows.extend(wrap_spans(spans, prose, margin, Kind::Body));
             }
             Block::Heading(_, spans) => {
                 blank(&mut rows);
-                rows.extend(wrap_spans(spans, width, 0, Kind::Heading));
+                rows.extend(wrap_spans(spans, prose, margin, Kind::Heading));
             }
             Block::Quote(spans) => {
                 blank(&mut rows);
                 // Indented rather than prefixed here; the renderer draws the
                 // rule, because only it knows what the terminal can draw.
-                rows.extend(wrap_spans(spans, width.saturating_sub(2), 2, Kind::Quote));
+                rows.extend(wrap_spans(
+                    spans,
+                    prose.saturating_sub(2),
+                    margin + 2,
+                    Kind::Quote,
+                ));
             }
             Block::Item { ordinal, body } => {
                 let marker = match ordinal {
@@ -363,11 +413,16 @@ pub fn layout(article: &Article, width: usize, ascii: bool) -> Vec<Row> {
                     None => "• ".to_string(),
                 };
                 let indent = marker.chars().count();
-                let mut lines = wrap_spans(body, width.saturating_sub(indent), indent, Kind::Body);
+                let mut lines = wrap_spans(
+                    body,
+                    prose.saturating_sub(indent),
+                    margin + indent,
+                    Kind::Body,
+                );
                 // The marker replaces the first line's indent, so the rest of
                 // the item hangs beneath the text rather than the bullet.
                 if let Some(first) = lines.first_mut() {
-                    first.indent = 0;
+                    first.indent = margin;
                     first.spans.insert(0, Inline::Text(marker));
                 }
                 rows.extend(lines);
@@ -381,7 +436,7 @@ pub fn layout(article: &Article, width: usize, ascii: bool) -> Vec<Row> {
                     let text: String = line.chars().take(width.saturating_sub(2)).collect();
                     rows.push(Row {
                         kind: Kind::Code,
-                        indent: 2,
+                        indent: margin.min(2) + 2,
                         spans: vec![Inline::Code(text)],
                     });
                 }
@@ -625,7 +680,14 @@ mod tests {
     }
 
     fn render(html: &str, width: usize) -> Vec<String> {
-        text_of(&layout(&parse(html), width, false))
+        text_of(&layout(
+            &parse(html),
+            width,
+            Measure {
+                columns: None,
+                ascii: false,
+            },
+        ))
     }
 
     #[test]
@@ -665,11 +727,113 @@ mod tests {
         assert!(!rows[2].trim_start().starts_with('•'));
     }
 
+    fn measured(html: &str, width: usize, columns: usize) -> Vec<String> {
+        text_of(&layout(
+            &parse(html),
+            width,
+            Measure {
+                columns: Some(columns),
+                ascii: false,
+            },
+        ))
+    }
+
+    #[test]
+    fn prose_holds_its_measure_on_a_wide_pane() {
+        // The point of the whole item: a wider window must not mean longer
+        // lines, because long lines are mechanically harder to read.
+        let html = format!("<p>{}</p>", "word ".repeat(200));
+        for line in measured(&html, 200, 60) {
+            assert!(
+                line.trim_end().chars().count() <= 60 + 70,
+                "a line ran to {}",
+                line.trim_end().chars().count()
+            );
+        }
+        let widest = measured(&html, 200, 60)
+            .iter()
+            .map(|line| line.trim_start().trim_end().chars().count())
+            .max()
+            .unwrap_or(0);
+        assert!(widest <= 60, "text wrapped to {widest}, not 60");
+    }
+
+    #[test]
+    fn the_measure_is_centred_in_the_pane() {
+        let rows = measured("<p>Short line.</p>", 100, 60);
+        // (100 - 60) / 2
+        assert!(rows[0].starts_with(&" ".repeat(20)), "{:?}", rows[0]);
+    }
+
+    #[test]
+    fn a_pane_narrower_than_the_measure_is_used_as_it_is() {
+        // Indenting here would push text off the screen to honour a rule
+        // that exists to make it easier to read.
+        let rows = measured("<p>Some words here.</p>", 30, 60);
+        assert!(!rows[0].starts_with(' '), "{:?}", rows[0]);
+    }
+
+    #[test]
+    fn code_keeps_the_full_width_even_when_prose_does_not() {
+        // Its line breaks are the author's; narrowing them loses meaning.
+        let long = "x".repeat(90);
+        let rows = measured(&format!("<pre>{long}</pre>"), 100, 40);
+        assert!(
+            rows[0].trim().chars().count() > 40,
+            "code was cut to the prose measure: {}",
+            rows[0].trim().chars().count()
+        );
+    }
+
+    #[test]
+    fn turning_the_measure_off_uses_the_whole_pane() {
+        let html = format!("<p>{}</p>", "word ".repeat(100));
+        let rows = text_of(&layout(
+            &parse(&html),
+            120,
+            Measure {
+                columns: None,
+                ascii: false,
+            },
+        ));
+        let widest = rows
+            .iter()
+            .map(|line| line.chars().count())
+            .max()
+            .unwrap_or(0);
+        assert!(widest > 100, "widest line was only {widest}");
+    }
+
+    #[test]
+    fn the_reference_list_follows_the_measure_too() {
+        let html = r#"<p>See <a href="https://example.com/a">a</a>.</p>"#;
+        let rows = measured(html, 100, 60);
+        let reference = rows
+            .iter()
+            .find(|row| row.contains("[1]"))
+            .expect("a reference");
+        assert!(reference.starts_with(&" ".repeat(20)), "{reference:?}");
+    }
+
     #[test]
     fn a_terminal_without_a_bullet_still_gets_a_list() {
-        let rows = text_of(&layout(&parse("<ul><li>One</li></ul>"), 40, true));
+        let rows = text_of(&layout(
+            &parse("<ul><li>One</li></ul>"),
+            40,
+            Measure {
+                columns: None,
+                ascii: true,
+            },
+        ));
         assert_eq!(rows, ["* One"]);
-        let rows = text_of(&layout(&parse("<ul><li>One</li></ul>"), 40, false));
+        let rows = text_of(&layout(
+            &parse("<ul><li>One</li></ul>"),
+            40,
+            Measure {
+                columns: None,
+                ascii: false,
+            },
+        ));
         assert_eq!(rows, ["• One"]);
     }
 
@@ -684,7 +848,10 @@ mod tests {
         let rows = layout(
             &parse("<p>Before</p><blockquote>Quoted.</blockquote>"),
             40,
-            false,
+            Measure {
+                columns: None,
+                ascii: false,
+            },
         );
         let quote = rows
             .iter()
@@ -699,7 +866,14 @@ mod tests {
 
     #[test]
     fn headings_are_distinct_from_body() {
-        let rows = layout(&parse("<h2>A heading</h2><p>Body.</p>"), 40, false);
+        let rows = layout(
+            &parse("<h2>A heading</h2><p>Body.</p>"),
+            40,
+            Measure {
+                columns: None,
+                ascii: false,
+            },
+        );
         assert!(rows.iter().any(|row| row.kind == Kind::Heading));
         assert!(rows.iter().any(|row| row.kind == Kind::Body));
     }
@@ -745,7 +919,14 @@ mod tests {
     fn styling_survives_a_line_break() {
         let html =
             "<p><strong>A long stretch of bold text that must wrap across lines</strong></p>";
-        let rows = layout(&parse(html), 20, false);
+        let rows = layout(
+            &parse(html),
+            20,
+            Measure {
+                columns: None,
+                ascii: false,
+            },
+        );
         assert!(rows.len() > 1, "should have wrapped");
         for row in &rows {
             assert!(
@@ -759,7 +940,14 @@ mod tests {
 
     #[test]
     fn inline_code_keeps_its_own_styling() {
-        let rows = layout(&parse("<p>Call <code>main()</code> first.</p>"), 60, false);
+        let rows = layout(
+            &parse("<p>Call <code>main()</code> first.</p>"),
+            60,
+            Measure {
+                columns: None,
+                ascii: false,
+            },
+        );
         assert!(
             rows[0]
                 .spans
@@ -838,13 +1026,43 @@ mod tests {
 
     #[test]
     fn a_zero_width_pane_produces_nothing_rather_than_looping() {
-        assert!(layout(&parse("<p>Anything</p>"), 0, false).is_empty());
+        assert!(
+            layout(
+                &parse("<p>Anything</p>"),
+                0,
+                Measure {
+                    columns: None,
+                    ascii: false
+                }
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn empty_input_produces_nothing() {
-        assert!(layout(&parse(""), 40, false).is_empty());
-        assert!(layout(&parse("   "), 40, false).is_empty());
+        assert!(
+            layout(
+                &parse(""),
+                40,
+                Measure {
+                    columns: None,
+                    ascii: false
+                }
+            )
+            .is_empty()
+        );
+        assert!(
+            layout(
+                &parse("   "),
+                40,
+                Measure {
+                    columns: None,
+                    ascii: false
+                }
+            )
+            .is_empty()
+        );
     }
 
     #[test]

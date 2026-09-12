@@ -128,7 +128,8 @@ async fn main() -> Result<()> {
         .collect();
     let mut app = App::new(feeds, ReadState::from_db(&db)?)
         .with_tags(&config.feeds)
-        .with_theme(theme);
+        .with_theme(theme)
+        .with_measure(config.measure(theme.ascii));
 
     let (articles_tx, articles_rx) = tokio::sync::mpsc::unbounded_channel::<Article>();
     let (added_tx, added_rx) = tokio::sync::mpsc::unbounded_channel::<Added>();
@@ -548,7 +549,8 @@ async fn screenshot(size: &str, config_override: Option<PathBuf>) -> Result<()> 
         .collect();
     let mut app = App::new(feeds, ReadState::from_db(&db)?)
         .with_tags(&config.feeds)
-        .with_theme(theme);
+        .with_theme(theme)
+        .with_measure(config.measure(theme.ascii));
 
     // Wait for what arrives promptly; a slow feed should not hold up a
     // screenshot, it should just show as still loading.

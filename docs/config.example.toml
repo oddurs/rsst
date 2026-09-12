@@ -9,6 +9,14 @@
 # How many feeds may be fetched at once. Default: 8.
 max_concurrent_fetches = 8
 
+# The widest line of prose, in columns. Default: 72. Zero uses the whole pane.
+#
+# Long lines are hard to read for a mechanical reason: at the end of one the eye
+# has to travel back to find the start of the next, and the further it travels
+# the more often it lands on the wrong line. Code is exempt — its line breaks
+# belong to whoever wrote it.
+measure = 72
+
 # How often to refresh, in minutes. Default: 30. Zero turns the timer off and
 # leaves refreshing to `r`. Conditional requests mean an unchanged feed costs a
 # few hundred bytes, and a server that asks us to back off is always obeyed

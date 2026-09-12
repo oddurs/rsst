@@ -51,7 +51,7 @@ fn exercise(bytes: &[u8]) {
             // The article renderer sees whatever the feed put in the body.
             let article = rsst::article::parse(&entry.content);
             for width in [1usize, 17, 80] {
-                let _ = rsst::article::layout(&article, width, false);
+                let _ = rsst::article::layout(&article, width, rsst::article::Measure::default());
             }
             let _ = rsst::readable::extract(&entry.content);
             let _ = rsst::feed::to_plain_text(&entry.content);
@@ -59,7 +59,11 @@ fn exercise(bytes: &[u8]) {
     }
     // The renderer and extractor must also survive bytes that are not a feed.
     let text = String::from_utf8_lossy(bytes);
-    let _ = rsst::article::layout(&rsst::article::parse(&text), 40, false);
+    let _ = rsst::article::layout(
+        &rsst::article::parse(&text),
+        40,
+        rsst::article::Measure::default(),
+    );
     let _ = rsst::readable::extract(&text);
 }
 
@@ -174,7 +178,11 @@ fn deeply_nested_markup_does_not_overflow_the_stack() {
     // the mutator would reach by chance.
     for depth in [1_000usize, 10_000, 50_000] {
         let html = format!("{}text{}", "<div>".repeat(depth), "</div>".repeat(depth));
-        let _ = rsst::article::layout(&rsst::article::parse(&html), 40, false);
+        let _ = rsst::article::layout(
+            &rsst::article::parse(&html),
+            40,
+            rsst::article::Measure::default(),
+        );
         let _ = rsst::readable::extract(&html);
     }
 }
@@ -185,7 +193,11 @@ fn a_feed_cannot_make_the_renderer_allocate_without_bound() {
     // line. It must still finish.
     let html = "word ".repeat(20_000);
     let started = Instant::now();
-    let rows = rsst::article::layout(&rsst::article::parse(&html), 1, false);
+    let rows = rsst::article::layout(
+        &rsst::article::parse(&html),
+        1,
+        rsst::article::Measure::default(),
+    );
     assert!(started.elapsed() < BUDGET);
     assert!(!rows.is_empty());
 }
