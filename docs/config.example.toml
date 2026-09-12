@@ -30,6 +30,10 @@ url = "https://this-week-in-rust.org/atom.xml"
 [theme]
 # A bundled preset: "dark" (default), "light", or "mono" for no colour.
 name = "dark"
+# Draw borders and markers with ASCII instead of box-drawing characters.
+# Unset means detect: ASCII is used when TERM is `dumb` or unset, or when the
+# locale is not UTF-8. Set it explicitly to override the detection either way.
+ascii = false
 # Any role can be overridden by colour name or #rrggbb. Roles are named for
 # what they mark, not for a hue.
 accent = "cyan"             # focused borders, unread counts, the selection

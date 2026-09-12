@@ -117,6 +117,12 @@ rsst --completions zsh  > ~/.zfunc/_rsst
 rsst --completions bash > ~/.local/share/bash-completion/completions/rsst
 ```
 
+## Terminals
+
+Tested in Apple Terminal and under a pseudo-terminal; other terminals are
+expected to work but are not verified — see [docs/terminals.md](docs/terminals.md).
+If borders come out as blocks, set `ascii = true` under `[theme]`.
+
 ## Develop
 
 ```sh

@@ -168,6 +168,7 @@ mod tests {
             }],
             theme: crate::theme::ThemeConfig {
                 name: Some("dark".into()),
+                ascii: Some(false),
                 overrides: Default::default(),
             },
             keys: Default::default(),

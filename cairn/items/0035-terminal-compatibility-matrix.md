@@ -2,9 +2,10 @@
 id: 35
 title: Terminal compatibility matrix
 type: chore
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p2
 effort: m
 area: ui
@@ -21,6 +22,6 @@ Test across the common terminals on all three platforms, document what works, an
 
 ## Acceptance criteria
 
-- [ ] A documented matrix covering the major terminals on macOS, Linux and Windows.
-- [ ] An ASCII fallback for terminals without box drawing.
-- [ ] Key handling verified on Windows, including the release-event duplication.
+- [x] A documented matrix covering the major terminals on macOS, Linux and Windows.
+- [x] An ASCII fallback for terminals without box drawing.
+- [x] Key handling verified on Windows, including the release-event duplication.

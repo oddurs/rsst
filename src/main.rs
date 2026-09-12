@@ -182,7 +182,7 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
         let Event::Key(key) = event::read()? else {
             continue;
         };
-        if key.kind != KeyEventKind::Press {
+        if !handles(key.kind) {
             continue;
         }
 
@@ -404,6 +404,17 @@ fn spawn_some(
     }
 }
 
+/// Whether a key event should be acted on.
+///
+/// Windows reports a Release for every key as well as a Press, and on some
+/// terminals a Repeat too. Acting on all of them makes every keystroke happen
+/// two or three times — which looks like a rendering bug rather than an input
+/// one, and is why this is a named function with a test rather than an inline
+/// comparison.
+fn handles(kind: KeyEventKind) -> bool {
+    matches!(kind, KeyEventKind::Press)
+}
+
 /// Re-reads the config and reconciles the running reader with it.
 ///
 /// Everything is validated before anything is changed, so a config that fails
@@ -538,4 +549,18 @@ fn install_panic_hook() {
         let _ = restore();
         default(info);
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_key_presses_are_acted_on() {
+        assert!(handles(KeyEventKind::Press));
+        // Windows sends both; acting on Release would double every keystroke.
+        assert!(!handles(KeyEventKind::Release));
+        // A held key repeats; a reader should not scroll twice per repeat tick.
+        assert!(!handles(KeyEventKind::Repeat));
+    }
 }

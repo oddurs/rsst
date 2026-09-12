@@ -6,9 +6,6 @@ use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragra
 
 use crate::app::{App, Pane};
 
-const HELP: &str =
-    " q quit · Tab · j/k move · / search · u unread · m/a/A read · o open · r refresh ";
-
 pub fn draw(frame: &mut Frame, app: &mut App, keymap: &crate::keys::Keymap) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -43,7 +40,12 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
         .map(|row| match row {
             crate::app::FeedRow::Group { name, collapsed } => ListItem::new(Line::from(vec![
                 Span::styled(
-                    if *collapsed { "▸ " } else { "▾ " },
+                    match (*collapsed, app.theme.ascii) {
+                        (true, false) => "▸ ",
+                        (false, false) => "▾ ",
+                        (true, true) => "> ",
+                        (false, true) => "v ",
+                    },
                     Style::default().fg(app.theme.dim),
                 ),
                 Span::styled(
@@ -64,6 +66,10 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
                 };
                 let mut spans = vec![Span::raw(format!("{indent}{}", feed.title))];
                 if let Some(marker) = feed.status.marker() {
+                    let marker = match (marker, app.theme.ascii) {
+                        ("…", true) => "..",
+                        (other, _) => other,
+                    };
                     let colour = if feed.status.error().is_some() {
                         app.theme.error
                     } else {
@@ -98,7 +104,7 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
         List::new(items)
             .block(block("Feeds", app.focus == Pane::Feeds, &app.theme))
             .highlight_style(highlight(&app.theme))
-            .highlight_symbol("› "),
+            .highlight_symbol(cursor(&app.theme)),
         area,
         &mut state,
     );
@@ -179,12 +185,18 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
                 )
             };
             let star = if app.is_starred(entry) {
-                Span::styled("★ ", Style::default().fg(app.theme.star))
+                Span::styled(
+                    if app.theme.ascii { "* " } else { "★ " },
+                    Style::default().fg(app.theme.star),
+                )
             } else {
                 Span::raw("  ")
             };
             ListItem::new(Line::from(vec![
-                Span::styled(entry.date_label(), Style::default().fg(app.theme.dim)),
+                Span::styled(
+                    date_label(entry, &app.theme),
+                    Style::default().fg(app.theme.dim),
+                ),
                 Span::raw("  "),
                 star,
                 title,
@@ -214,10 +226,31 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
         List::new(items)
             .block(block(&title, app.focus == Pane::Entries, &app.theme))
             .highlight_style(highlight(&app.theme))
-            .highlight_symbol("› "),
+            .highlight_symbol(cursor(&app.theme)),
         area,
         &mut state,
     );
+}
+
+/// Borders drawn with characters every terminal and font has.
+const ASCII_BORDER: ratatui::symbols::border::Set<'static> = ratatui::symbols::border::Set {
+    top_left: "+",
+    top_right: "+",
+    bottom_left: "+",
+    bottom_right: "+",
+    vertical_left: "|",
+    vertical_right: "|",
+    horizontal_top: "-",
+    horizontal_bottom: "-",
+};
+
+/// Box-drawing characters, or ASCII where those would not render.
+fn border_set(theme: &crate::theme::Theme) -> ratatui::symbols::border::Set<'static> {
+    if theme.ascii {
+        ASCII_BORDER
+    } else {
+        ratatui::symbols::border::PLAIN
+    }
 }
 
 /// The key reference, generated from [`crate::keys`] so it cannot drift.
@@ -297,14 +330,16 @@ fn draw_help(
     frame.render_widget(
         Paragraph::new(lines).scroll((scroll, 0)).block(
             Block::default()
+                .border_set(border_set(theme))
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(theme.accent))
                 // In the title rather than a row of its own: with every action
                 // listed, an 80x24 terminal has no spare line to give it.
-                .title(if overflow > 0 {
-                    " Keys — j/k to scroll, any other key closes "
-                } else {
-                    " Keys — any key to dismiss "
+                .title(match (overflow > 0, theme.ascii) {
+                    (true, false) => " Keys — j/k to scroll, any other key closes ",
+                    (false, false) => " Keys — any key to dismiss ",
+                    (true, true) => " Keys - j/k to scroll, any other key closes ",
+                    (false, true) => " Keys - any key to dismiss ",
                 }),
         ),
         popup,
@@ -354,7 +389,7 @@ fn draw_cross_feed(
         List::new(items)
             .block(block(title, true, &app.theme))
             .highlight_style(highlight(&app.theme))
-            .highlight_symbol("› "),
+            .highlight_symbol(cursor(&app.theme)),
         area,
         &mut state,
     );
@@ -423,7 +458,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
     let (text, background) = match (&app.status, error) {
         (Some(status), _) => (status.clone(), app.theme.accent),
         (None, Some((message, colour))) => (message, colour),
-        (None, None) => (HELP.to_string(), app.theme.accent),
+        (None, None) => (format!(" {} ", help_line(&app.theme)), app.theme.accent),
     };
 
     frame.render_widget(
@@ -436,12 +471,43 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
     );
 }
 
-fn block<'a>(title: &'a str, focused: bool, theme: &crate::theme::Theme) -> Block<'a> {
+fn block<'a>(title: &'a str, focused: bool, theme: &'a crate::theme::Theme) -> Block<'a> {
     let border = if focused { theme.accent } else { theme.dim };
     Block::default()
+        .border_set(border_set(theme))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border))
         .title(format!(" {title} "))
+}
+
+/// An entry's date, with a placeholder the terminal can draw.
+fn date_label(entry: &crate::feed::Entry, theme: &crate::theme::Theme) -> String {
+    match (entry.date_label().as_str(), theme.ascii) {
+        ("—", true) => "-".repeat(10),
+        (label, _) => label.to_string(),
+    }
+}
+
+/// The marker drawn against the selected row.
+fn cursor(theme: &crate::theme::Theme) -> &'static str {
+    if theme.ascii { "> " } else { "› " }
+}
+
+/// The key summary along the bottom, with a separator the terminal can draw.
+fn help_line(theme: &crate::theme::Theme) -> String {
+    let sep = if theme.ascii { " | " } else { " · " };
+    [
+        "? keys",
+        "q quit",
+        "Tab",
+        "j/k",
+        "/ search",
+        "u unread",
+        "s star",
+        "o open",
+        "r refresh",
+    ]
+    .join(sep)
 }
 
 fn highlight(theme: &crate::theme::Theme) -> Style {
@@ -877,6 +943,32 @@ mod tests {
         for style in &styles {
             assert_eq!(style, "Reset/Reset", "mono rendered a colour: {style}");
         }
+    }
+
+    #[test]
+    fn ascii_mode_draws_nothing_a_plain_terminal_cannot() {
+        let mut theme = crate::theme::Theme::dark();
+        theme.ascii = true;
+        let mut app = themed(theme);
+        app.feeds[0].status = crate::feed::Status::Fetching;
+        app.read.toggle_star(&app.feeds[0].entries[0].clone());
+
+        let screen = render_at(&mut app, 80, 24);
+        let offenders: Vec<char> = screen.chars().filter(|c| !c.is_ascii()).collect();
+        assert!(offenders.is_empty(), "ascii mode still drew: {offenders:?}");
+    }
+
+    #[test]
+    fn the_default_theme_still_uses_box_drawing() {
+        // Guards against the ASCII fallback quietly becoming the only mode.
+        let mut app = themed(crate::theme::Theme::dark());
+        let screen = render_at(&mut app, 80, 24);
+        assert!(
+            screen
+                .chars()
+                .any(|c| ('\u{2500}'..='\u{257F}').contains(&c)),
+            "box drawing disappeared from the default theme"
+        );
     }
 
     #[test]
