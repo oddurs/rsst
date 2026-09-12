@@ -68,10 +68,18 @@ against an unchanged tree surfaces without waiting for someone to push.
 versioned, and when the MSRV may be raised. Read it before changing the config
 schema, a default key binding, or either state file's format.
 
+## The changelog
+
+`CHANGELOG.md` records what a release changed, for people rather than for git.
+Add to **Unreleased** in the same pull request as the change, and only for
+things a reader would notice — a refactor with no behaviour difference does not
+belong there.
+
 ## Releasing
 
 ```sh
 cargo set-version 0.2.0      # or edit Cargo.toml by hand
+# move Unreleased into a dated section in CHANGELOG.md
 git commit -am "chore(release): v0.2.0"
 git tag -a v0.2.0 -m "v0.2.0"
 git push origin main --follow-tags
