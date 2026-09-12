@@ -55,7 +55,14 @@ pub struct Entry {
     pub title: String,
     pub link: Option<String>,
     pub published: Option<DateTime<Utc>>,
+    /// The entry's text, with the markup removed — for the list and for
+    /// full-text search.
     pub summary: String,
+    /// The entry's markup as published, for the article renderer. Kept apart
+    /// from `summary` because the two answer different questions: one is for
+    /// matching, the other for reading.
+    #[serde(default)]
+    pub content: String,
     /// Every identifier this entry could reasonably be recognised by, best
     /// first. Read state matches on any of them — see [`crate::state`].
     pub keys: Vec<String>,
@@ -218,16 +225,21 @@ pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
                 .unwrap_or_else(|| "(untitled)".into());
             let link = entry.links.into_iter().next().map(|l| l.href);
             let published = entry.published.or(entry.updated);
+            // Prefer the full content over the summary: it is what the article
+            // renderer has to work with, and a feed that publishes both means
+            // the summary to be the teaser.
+            let raw = entry
+                .content
+                .and_then(|content| content.body)
+                .or_else(|| entry.summary.map(|summary| summary.content))
+                .unwrap_or_default();
             Entry {
                 keys: entry_keys(&entry.id, link.as_deref(), &title, published),
                 title,
                 link,
                 published,
-                summary: entry
-                    .summary
-                    .map(|t| strip_html(&t.content))
-                    .or_else(|| entry.content.and_then(|c| c.body).map(|b| strip_html(&b)))
-                    .unwrap_or_default(),
+                summary: to_plain_text(&raw),
+                content: raw,
             }
         })
         .collect();
@@ -269,7 +281,7 @@ fn entry_keys(
 
 /// Drops tags, decodes entities, and collapses whitespace so summaries fit a
 /// terminal paragraph.
-fn strip_html(input: &str) -> String {
+pub fn to_plain_text(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut in_tag = false;
     for ch in input.chars() {
@@ -320,7 +332,7 @@ const NAMED_ENTITIES: &[(&str, &str)] = &[
 /// Anything unrecognised is left exactly as it was: a summary that genuinely
 /// discusses `&foo;` should still say so, and silently dropping text because we
 /// did not recognise it is worse than showing it raw.
-fn decode_entities(input: &str) -> String {
+pub fn decode_entities(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut rest = input;
 
@@ -433,7 +445,7 @@ mod tests {
     #[test]
     fn summaries_have_their_entities_decoded_and_whitespace_collapsed() {
         assert_eq!(
-            strip_html("<p>Tom &amp; Jerry&nbsp;&nbsp; say   it&#8217;s fine</p>"),
+            to_plain_text("<p>Tom &amp; Jerry&nbsp;&nbsp; say   it&#8217;s fine</p>"),
             "Tom & Jerry say it\u{2019}s fine"
         );
     }
@@ -588,6 +600,7 @@ mod tests {
             link: None,
             published: None,
             summary: String::new(),
+            content: String::new(),
             keys: Vec::new(),
         };
         assert_eq!(entry.date_label(), "—");

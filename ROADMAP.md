@@ -108,13 +108,16 @@ with the alternate screen still active.
 
 ## v1.2
 
-`··········` 0% · 0 of 5 done
+`##········` 20% · 1 of 5 done
 
 ### backlog
 
-- [ ] [`0048`](https://github.com/oddurs/rsst/blob/main/cairn/items/0048-render-articles-as-documents-not-one-long-paragraph.md) Render articles as documents, not one long paragraph <sup>feature · v1.2 · p0</sup>
 - [ ] [`0049`](https://github.com/oddurs/rsst/blob/main/cairn/items/0049-fetch-the-full-article-for-summary-only-feeds.md) Fetch the full article for summary-only feeds <sup>feature · v1.2 · p1</sup>
 - [ ] [`0050`](https://github.com/oddurs/rsst/blob/main/cairn/items/0050-refresh-in-the-background-on-a-timer.md) Refresh in the background on a timer <sup>feature · v1.2 · p1</sup>
 - [ ] [`0051`](https://github.com/oddurs/rsst/blob/main/cairn/items/0051-add-a-feed-from-inside-the-reader.md) Add a feed from inside the reader <sup>feature · v1.2 · p1</sup>
 - [ ] [`0052`](https://github.com/oddurs/rsst/blob/main/cairn/items/0052-fuzz-the-feed-parser.md) Fuzz the feed parser <sup>chore · v1.2 · p2</sup>
+
+### done
+
+- [x] [`0048`](https://github.com/oddurs/rsst/blob/main/cairn/items/0048-render-articles-as-documents-not-one-long-paragraph.md) Render articles as documents, not one long paragraph <sup>feature · v1.2 · p0</sup>
 

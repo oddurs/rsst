@@ -2,7 +2,8 @@
 id: 48
 title: Render articles as documents, not one long paragraph
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p0
@@ -41,11 +42,11 @@ Tolerant parsing: feeds in the wild are full of unclosed tags and invented marku
 
 ## Acceptance criteria
 
-- [ ] Paragraphs are separated rather than run together
-- [ ] Code blocks keep their own line breaks and indentation and are not reflowed
-- [ ] List items are bulleted with a hanging indent, ordered lists numbered
-- [ ] Block quotes are visually distinct from body text
-- [ ] Headings are distinct from body text
-- [ ] Links are numbered in the text with a reference list, so the URL is reachable without leaving
-- [ ] Malformed and hostile HTML cannot panic or hang the renderer
-- [ ] The plain-text summary used for the entry list and full-text search still works
+- [x] Paragraphs are separated rather than run together
+- [x] Code blocks keep their own line breaks and indentation and are not reflowed
+- [x] List items are bulleted with a hanging indent, ordered lists numbered
+- [x] Block quotes are visually distinct from body text
+- [x] Headings are distinct from body text
+- [x] Links are numbered in the text with a reference list, so the URL is reachable without leaving
+- [x] Malformed and hostile HTML cannot panic or hang the renderer
+- [x] The plain-text summary used for the entry list and full-text search still works

@@ -582,10 +582,9 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
     app.detail_scroll = app.detail_scroll.min(max);
 
     let lines: Vec<Line> = app
-        .detail_lines()
+        .detail_rows()
         .into_iter()
-        .enumerate()
-        .map(|(index, text)| detail_line(app, index, text))
+        .map(|row| article_line(app, row))
         .collect();
 
     // The article says where it came from and when. "Detail" said neither.
@@ -647,26 +646,49 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
     };
 }
 
-/// Styles one line of the article by what it is.
+/// Styles one laid-out line of the article.
 ///
-/// The title is the title; the link is reference data and recedes; the body is
-/// body text. Previously all three were drawn identically, so the URL read as
-/// being as important as the headline.
-fn detail_line<'a>(app: &App, index: usize, text: String) -> Line<'a> {
-    let link = app.detail_link_lines();
-    let title_lines = link.map_or(1, |(first, _)| first);
-    let is_link = link.is_some_and(|(first, count)| index >= first && index < first + count);
+/// The parser decided what each piece *is*; this decides what that looks like,
+/// so the theme stays the only place colours are chosen.
+fn article_line<'a>(app: &App, row: crate::article::Row) -> Line<'a> {
+    use crate::article::{Inline, Kind};
 
-    if index < title_lines {
-        Line::from(Span::styled(
-            text,
-            Style::default().add_modifier(Modifier::BOLD),
-        ))
-    } else if is_link {
-        Line::from(Span::styled(text, app.theme.link))
-    } else {
-        Line::raw(text)
+    let mut spans: Vec<Span> = Vec::new();
+
+    // A quote is marked down its left edge rather than indented silently.
+    if row.kind == Kind::Quote {
+        let rule = if app.theme.ascii { "| " } else { "│ " };
+        spans.push(Span::styled(rule, app.theme.accent));
+    } else if row.indent > 0 {
+        spans.push(Span::raw(" ".repeat(row.indent)));
     }
+
+    if row.kind == Kind::Rule {
+        let width = app.detail_viewport.0.max(1) as usize;
+        let dash = if app.theme.ascii { "-" } else { "─" };
+        spans.push(Span::styled(dash.repeat(width), app.theme.dim));
+        return Line::from(spans);
+    }
+
+    let base = match row.kind {
+        Kind::Heading => Style::default().add_modifier(Modifier::BOLD),
+        Kind::Code => app.theme.accent,
+        Kind::Quote => app.theme.dim.add_modifier(Modifier::ITALIC),
+        Kind::Reference => app.theme.link,
+        _ => Style::default(),
+    };
+
+    for span in row.spans {
+        let style = match &span {
+            Inline::Strong(_) => base.add_modifier(Modifier::BOLD),
+            Inline::Emphasis(_) => base.add_modifier(Modifier::ITALIC),
+            Inline::Code(_) if row.kind != Kind::Code => app.theme.accent,
+            Inline::Link(..) => app.theme.link,
+            _ => base,
+        };
+        spans.push(Span::styled(span.text().to_string(), style));
+    }
+    Line::from(spans)
 }
 
 /// How far through the article we are, as a percentage.
@@ -965,6 +987,7 @@ mod tests {
                         link: Some("https://example.com/post".into()),
                         published: None,
                         summary: "A summary body.".into(),
+                        content: String::new(),
                         keys: vec!["id:one".into()],
                     },
                     Entry {
@@ -972,6 +995,7 @@ mod tests {
                         link: None,
                         published: None,
                         summary: String::new(),
+                        content: String::new(),
                         keys: vec!["id:two".into()],
                     },
                 ],
@@ -1006,6 +1030,7 @@ mod tests {
                         link: None,
                         published: None,
                         summary: String::new(),
+                        content: String::new(),
                         keys: vec!["id:one".into()],
                     },
                     Entry {
@@ -1013,6 +1038,7 @@ mod tests {
                         link: None,
                         published: None,
                         summary: String::new(),
+                        content: String::new(),
                         keys: vec!["id:two".into()],
                     },
                 ],
@@ -1038,6 +1064,7 @@ mod tests {
                     link: None,
                     published: None,
                     summary: String::new(),
+                    content: String::new(),
                     keys: vec!["id:one".into()],
                 }],
             }],
@@ -1111,6 +1138,7 @@ mod tests {
                         .map(|i| format!("word{i}"))
                         .collect::<Vec<_>>()
                         .join(" "),
+                    content: String::new(),
                     keys: vec!["id:x".into()],
                 }],
             }],
@@ -1180,6 +1208,7 @@ mod tests {
             link: None,
             published: None,
             summary: String::new(),
+            content: String::new(),
             keys: vec!["id:a".into()],
         }];
 
@@ -1245,6 +1274,7 @@ mod tests {
                     link: None,
                     published: None,
                     summary: String::new(),
+                    content: String::new(),
                     keys: vec!["id:c".into()],
                 }],
             }],
@@ -1365,6 +1395,7 @@ mod tests {
                     link: Some("https://a.example/x".into()),
                     published: None,
                     summary: "Body.".into(),
+                    content: String::new(),
                     keys: vec!["id:x".into()],
                 }],
             }],
@@ -1491,6 +1522,7 @@ mod tests {
             link: Some(format!("https://example.com/{title}")),
             published: None,
             summary: "Body text.".into(),
+            content: String::new(),
             keys: vec![format!("id:{title}")],
         };
         let feed = |name: &str, titles: &[&str]| Feed {

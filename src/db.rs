@@ -24,7 +24,7 @@ use crate::feed::{Entry, Feed, Status};
 /// Stored in SQLite's own `user_version`, so the database carries its version
 /// the way `docs/stability.md` requires — and, as with the TOML before it, a
 /// database from a newer rsst is refused rather than misread.
-pub const SCHEMA: i64 = 1;
+pub const SCHEMA: i64 = 2;
 
 /// What we remember about a feed's HTTP behaviour between fetches.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -191,7 +191,7 @@ impl Db {
         };
 
         let mut statement = self.connection.prepare(
-            "SELECT id, title, link, published, summary FROM entries
+            "SELECT id, title, link, published, summary, content FROM entries
              WHERE feed_url = ?1 ORDER BY position",
         )?;
         let rows = statement.query_map(params![source.url], |row| {
@@ -205,6 +205,7 @@ impl Db {
                         .and_then(|t| DateTime::parse_from_rfc3339(&t).ok())
                         .map(|t| t.with_timezone(&Utc)),
                     summary: row.get(4)?,
+                    content: row.get(5)?,
                     keys: Vec::new(),
                 },
             ))
@@ -457,15 +458,16 @@ fn insert_entry(
     entry: &Entry,
 ) -> Result<()> {
     connection.execute(
-        "INSERT INTO entries (feed_url, position, title, link, published, summary)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO entries (feed_url, position, title, link, published, summary, content)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             feed_url,
             position,
             entry.title,
             entry.link,
             entry.published.map(|t| t.to_rfc3339()),
-            entry.summary
+            entry.summary,
+            entry.content
         ],
     )?;
     let id = connection.last_insert_rowid();
@@ -532,6 +534,15 @@ fn migrate(connection: &Connection, from: i64) -> Result<()> {
             )
             .context("creating the schema")?;
     }
+    if from < 2 {
+        // The article renderer needs the markup as published; `summary` is the
+        // stripped text, which is all version 1 kept. Existing rows get an
+        // empty string and fill in on the next refresh — a reader is not owed
+        // rich rendering of an article fetched before the feature existed.
+        connection
+            .execute_batch("ALTER TABLE entries ADD COLUMN content TEXT NOT NULL DEFAULT '';")
+            .context("adding the content column")?;
+    }
     connection
         .pragma_update(None, "user_version", SCHEMA)
         .context("recording the schema version")?;
@@ -591,6 +602,7 @@ mod tests {
             link: Some(format!("https://example.com/{title}")),
             published: None,
             summary: format!("The body of {title}, with words in it."),
+            content: String::new(),
             keys: keys.iter().map(|k| (*k).to_string()).collect(),
         }
     }
@@ -952,6 +964,52 @@ mod tests {
         assert!(db.flag("unread_only"));
         db.set_flag("unread_only", false);
         assert!(!db.flag("unread_only"));
+    }
+
+    #[test]
+    fn a_version_one_database_gains_the_content_column() {
+        // The migration path `docs/stability.md` promises, exercised for real.
+        let dir = std::env::temp_dir().join(format!("rsst-v1-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("v1.sqlite3");
+        let _ = std::fs::remove_file(&path);
+
+        {
+            // A version 1 schema, without `content`.
+            let connection = Connection::open(&path).expect("open");
+            connection
+                .execute_batch(
+                    "CREATE TABLE feeds (url TEXT PRIMARY KEY, title TEXT NOT NULL,
+                       etag TEXT, last_modified TEXT, retry_after TEXT);
+                     CREATE TABLE entries (id INTEGER PRIMARY KEY,
+                       feed_url TEXT NOT NULL REFERENCES feeds(url) ON DELETE CASCADE,
+                       position INTEGER NOT NULL, title TEXT NOT NULL, link TEXT,
+                       published TEXT, summary TEXT NOT NULL);
+                     CREATE TABLE entry_keys (entry_id INTEGER NOT NULL, key TEXT NOT NULL,
+                       PRIMARY KEY (entry_id, key));
+                     CREATE TABLE read_keys (key TEXT PRIMARY KEY);
+                     CREATE TABLE starred_keys (key TEXT PRIMARY KEY);
+                     CREATE TABLE prefs (name TEXT PRIMARY KEY, value TEXT NOT NULL);
+                     CREATE VIRTUAL TABLE entries_fts USING fts5(title, summary,
+                       content='entries', content_rowid='id');
+                     INSERT INTO feeds (url, title) VALUES ('https://a.example', 'A');
+                     INSERT INTO entries (feed_url, position, title, summary)
+                       VALUES ('https://a.example', 0, 'Old entry', 'Body');",
+                )
+                .expect("v1 schema");
+            connection
+                .pragma_update(None, "user_version", 1)
+                .expect("version");
+        }
+
+        let db = Db::open(&path).expect("migrates");
+        let feed = db
+            .feed(&source("https://a.example"))
+            .expect("query")
+            .expect("kept");
+        assert_eq!(feed.entries.len(), 1, "the old row survived");
+        assert_eq!(feed.entries[0].title, "Old entry");
+        assert_eq!(feed.entries[0].content, "", "no markup was invented");
     }
 
     #[test]
