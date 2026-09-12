@@ -77,18 +77,18 @@ with the alternate screen still active.
 
 ## v1.0
 
-`#######···` 63% · 5 of 8 done
+`########··` 75% · 6 of 8 done
 
 ### backlog
 
 - [ ] [`0031`](https://github.com/oddurs/rsst/blob/main/cairn/items/0031-publish-to-crates-io-and-homebrew.md) Publish to crates.io and Homebrew <sup>chore · v1.0 · p1</sup>
 - [ ] [`0034`](https://github.com/oddurs/rsst/blob/main/cairn/items/0034-readme-screenshots-and-a-demo-recording.md) README screenshots and a demo recording <sup>docs · v1.0 · p2</sup>
-- [ ] [`0035`](https://github.com/oddurs/rsst/blob/main/cairn/items/0035-terminal-compatibility-matrix.md) Terminal compatibility matrix <sup>chore · v1.0 · p2</sup>
 
 ### done
 
 - [x] [`0032`](https://github.com/oddurs/rsst/blob/main/cairn/items/0032-man-page-and-shell-completions.md) Man page and shell completions <sup>docs · v1.0 · p1</sup>
 - [x] [`0033`](https://github.com/oddurs/rsst/blob/main/cairn/items/0033-document-the-config-schema-in-full.md) Document the config schema in full <sup>docs · v1.0 · p2</sup>
+- [x] [`0035`](https://github.com/oddurs/rsst/blob/main/cairn/items/0035-terminal-compatibility-matrix.md) Terminal compatibility matrix <sup>chore · v1.0 · p2</sup>
 - [x] [`0036`](https://github.com/oddurs/rsst/blob/main/cairn/items/0036-define-the-semver-and-msrv-policy.md) Define the semver and MSRV policy <sup>chore · v1.0 · p2</sup>
 - [x] [`0037`](https://github.com/oddurs/rsst/blob/main/cairn/items/0037-benchmark-a-large-feed-list.md) Benchmark a large feed list <sup>chore · v1.0 · p3</sup>
 - [x] [`0038`](https://github.com/oddurs/rsst/blob/main/cairn/items/0038-automate-dependency-updates.md) Automate dependency updates <sup>chore · v1.0 · p2</sup>

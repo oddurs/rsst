@@ -26,6 +26,28 @@ pub struct Theme {
     pub link: Color,
     /// Text on the status bar.
     pub status_foreground: Color,
+    /// Draw borders with ASCII rather than box-drawing characters.
+    pub ascii: bool,
+}
+
+/// Whether this terminal can be trusted with box-drawing characters.
+///
+/// `TERM=dumb` says so outright. A non-UTF-8 locale is the other common case:
+/// the characters would arrive as mojibake, which is worse than plain ASCII.
+pub fn terminal_needs_ascii() -> bool {
+    let term = std::env::var("TERM").unwrap_or_default();
+    if term == "dumb" || term.is_empty() {
+        return true;
+    }
+    let locale = ["LC_ALL", "LC_CTYPE", "LANG"]
+        .iter()
+        .find_map(|name| std::env::var(name).ok())
+        .unwrap_or_default();
+    // An unset locale is not evidence of anything; a set one that is not UTF-8
+    // is.
+    !locale.is_empty()
+        && !locale.to_ascii_uppercase().contains("UTF-8")
+        && !locale.to_ascii_uppercase().contains("UTF8")
 }
 
 /// What the config can say about colours.
@@ -34,6 +56,9 @@ pub struct ThemeConfig {
     /// A bundled preset: `dark`, `light` or `mono`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Force ASCII borders on or off. Unset means detect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ascii: Option<bool>,
     #[serde(flatten, default)]
     pub overrides: std::collections::HashMap<String, String>,
 }
@@ -50,6 +75,7 @@ impl Theme {
             group: Color::Magenta,
             link: Color::Blue,
             status_foreground: Color::Black,
+            ascii: false,
         }
     }
 
@@ -67,6 +93,7 @@ impl Theme {
             group: Color::Rgb(0x6c, 0x35, 0x83),
             link: Color::Rgb(0x1a, 0x4f, 0xa0),
             status_foreground: Color::White,
+            ascii: false,
         }
     }
 
@@ -83,6 +110,7 @@ impl Theme {
             group: Color::Reset,
             link: Color::Reset,
             status_foreground: Color::Reset,
+            ascii: false,
         }
     }
 
@@ -91,7 +119,10 @@ impl Theme {
         // https://no-color.org: honour it whatever the config says, because the
         // person setting it is stating a requirement, not a preference.
         if no_color {
-            return Ok(Self::mono());
+            return Ok(Self {
+                ascii: config.ascii.unwrap_or_else(terminal_needs_ascii),
+                ..Self::mono()
+            });
         }
 
         let mut theme = match config.name.as_deref() {
@@ -100,6 +131,9 @@ impl Theme {
             Some("mono") | Some("none") => Self::mono(),
             Some(other) => bail!("unknown theme `{other}`. Try dark, light or mono."),
         };
+
+        // An explicit setting wins; otherwise ask the terminal.
+        theme.ascii = config.ascii.unwrap_or_else(terminal_needs_ascii);
 
         for (role, value) in &config.overrides {
             let colour =
@@ -164,6 +198,7 @@ mod tests {
     fn config(name: Option<&str>, overrides: &[(&str, &str)]) -> ThemeConfig {
         ThemeConfig {
             name: name.map(Into::into),
+            ascii: Some(false),
             overrides: overrides
                 .iter()
                 .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
@@ -221,6 +256,24 @@ mod tests {
     fn hex_colours_are_accepted() {
         let theme = Theme::resolve(&config(None, &[("accent", "#1a4fa0")]), false).unwrap();
         assert_eq!(theme.accent, Color::Rgb(0x1a, 0x4f, 0xa0));
+    }
+
+    #[test]
+    fn ascii_can_be_forced_either_way() {
+        let mut c = config(None, &[]);
+        c.ascii = Some(true);
+        assert!(Theme::resolve(&c, false).unwrap().ascii);
+        c.ascii = Some(false);
+        assert!(!Theme::resolve(&c, false).unwrap().ascii);
+    }
+
+    #[test]
+    fn no_color_still_honours_the_ascii_setting() {
+        let mut c = config(None, &[]);
+        c.ascii = Some(true);
+        let theme = Theme::resolve(&c, true).unwrap();
+        assert!(theme.ascii, "NO_COLOR is about colour, not box drawing");
+        assert_eq!(theme.accent, Color::Reset);
     }
 
     #[test]
