@@ -38,9 +38,9 @@ OPTIONS:
   -V, --version        show the version
 
 KEYS:
-  j / down             next item
-  k / up               previous item
-  Tab                  switch panes
+  j / down             next item, or scroll the detail pane
+  k / up               previous item, or scroll back
+  Tab                  cycle feeds / entries / detail
   o                    open the selected entry in your browser
   y                    copy its link to the clipboard
   r                    refresh all feeds

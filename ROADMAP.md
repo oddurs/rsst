@@ -23,11 +23,10 @@ with the alternate screen still active.
 
 ## v0.1
 
-`#######···` 70% · 7 of 10 done
+`########··` 80% · 8 of 10 done
 
 ### planned
 
-- [ ] [`0012`](https://github.com/oddurs/rsst/blob/main/cairn/items/0012-scroll-the-detail-pane.md) Scroll the detail pane <sup>feature · v0.1 · p1</sup>
 - [ ] [`0013`](https://github.com/oddurs/rsst/blob/main/cairn/items/0013-draw-the-ui-before-feeds-finish-loading.md) Draw the UI before feeds finish loading <sup>feature · v0.1 · p1</sup>
 - [ ] [`0014`](https://github.com/oddurs/rsst/blob/main/cairn/items/0014-refresh-without-freezing-the-ui.md) Refresh without freezing the UI <sup>feature · v0.1 · p1</sup>
 
@@ -38,6 +37,7 @@ with the alternate screen still active.
 - [x] [`0009`](https://github.com/oddurs/rsst/blob/main/cairn/items/0009-persist-read-and-unread-state.md) Persist read and unread state <sup>feature · v0.1 · p0</sup>
 - [x] [`0010`](https://github.com/oddurs/rsst/blob/main/cairn/items/0010-opml-import-and-export.md) OPML import and export <sup>feature · v0.1 · p1</sup>
 - [x] [`0011`](https://github.com/oddurs/rsst/blob/main/cairn/items/0011-open-the-selected-entry-in-a-browser.md) Open the selected entry in a browser <sup>feature · v0.1 · p1</sup>
+- [x] [`0012`](https://github.com/oddurs/rsst/blob/main/cairn/items/0012-scroll-the-detail-pane.md) Scroll the detail pane <sup>feature · v0.1 · p1</sup>
 - [x] [`0039`](https://github.com/oddurs/rsst/blob/main/cairn/items/0039-set-up-the-full-auto-agentic-git-workflow.md) Set up the full-auto agentic git workflow <sup>chore · v0.1 · p0</sup>
 - [x] [`0040`](https://github.com/oddurs/rsst/blob/main/cairn/items/0040-make-ship-refuse-to-close-an-item-with-unticked-criteria.md) Make ship refuse to close an item with unticked criteria <sup>chore · v0.1 · p0</sup>
 

@@ -5,6 +5,7 @@ mod feed;
 mod launch;
 mod opml;
 mod state;
+mod text;
 mod ui;
 
 use std::io;

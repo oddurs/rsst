@@ -48,9 +48,9 @@ url = "https://this-week-in-rust.org/atom.xml"
 
 | Key            | Action                    |
 | -------------- | ------------------------- |
-| `j` / `↓`      | Next item                 |
-| `k` / `↑`      | Previous item             |
-| `Tab`          | Switch between panes      |
+| `j` / `↓`      | Next item, or scroll the detail pane |
+| `k` / `↑`      | Previous item, or scroll back |
+| `Tab`          | Cycle feeds → entries → detail |
 | `o`            | Open the entry in your browser |
 | `y`            | Copy its link to the clipboard |
 | `r`            | Refresh all feeds         |
