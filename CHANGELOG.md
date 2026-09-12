@@ -37,6 +37,8 @@ still needs.
 - Conditional requests (`ETag` / `Last-Modified`), honouring `Retry-After`
 - Configurable key bindings, themes that follow the terminal's own palette, and
   an ASCII fallback for terminals that cannot draw box characters
+- `RSST_HOME`, which moves the config, database and read state into one
+  directory together, so a second rsst cannot touch the first one's data
 - `--help`, `--version`, `--config`, `--man`, `--completions` and `--screenshot`
 - A generated man page and bash/zsh/fish completions
 

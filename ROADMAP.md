@@ -129,3 +129,15 @@ with the alternate screen still active.
 - [x] [`0055`](https://github.com/oddurs/rsst/blob/main/cairn/items/0055-a-reading-mode-that-gives-the-article-the-screen.md) A reading mode that gives the article the screen <sup>feature · v1.3 · p1</sup>
 - [x] [`0056`](https://github.com/oddurs/rsst/blob/main/cairn/items/0056-open-a-link-from-within-an-article.md) Open a link from within an article <sup>feature · v1.3 · p2</sup>
 
+## v1.4
+
+`#####·····` 50% · 1 of 2 done
+
+### backlog
+
+- [ ] [`0058`](https://github.com/oddurs/rsst/blob/main/cairn/items/0058-a-seeded-database-and-an-offline-qa-environment.md) A seeded database and an offline QA environment <sup>feature · v1.4 · p1</sup>
+
+### done
+
+- [x] [`0057`](https://github.com/oddurs/rsst/blob/main/cairn/items/0057-run-against-a-throwaway-home-instead-of-real-data.md) Run against a throwaway home instead of real data <sup>feature · v1.4 · p1</sup>
+

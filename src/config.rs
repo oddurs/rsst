@@ -223,9 +223,7 @@ pub fn add_feed(path: &Path, url: &str, title: Option<&str>) -> Result<()> {
 }
 
 pub fn config_path() -> Result<PathBuf> {
-    let dirs = directories::ProjectDirs::from("", "", "rsst")
-        .context("could not determine a config directory for this platform")?;
-    Ok(dirs.config_dir().join("config.toml"))
+    Ok(crate::home::dir(crate::home::Kind::Config)?.join("config.toml"))
 }
 
 fn write(path: &Path, config: &Config) -> Result<()> {

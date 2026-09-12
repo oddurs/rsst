@@ -49,6 +49,14 @@ The first run writes a starter config and tells you where it lives:
 - Linux: `~/.config/rsst/config.toml`
 - Windows: `%APPDATA%\rsst\config.toml`
 
+Set `RSST_HOME` to keep the config, the database and the read state in one
+directory of your choosing instead — a second rsst run that way cannot touch
+the first one's data:
+
+```sh
+RSST_HOME=/tmp/rsst-try rsst
+```
+
 ```toml
 [[feeds]]
 url = "https://blog.rust-lang.org/feed.xml"

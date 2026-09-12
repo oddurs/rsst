@@ -102,6 +102,11 @@ pub fn man(keymap: &Keymap) -> String {
          Last known feed contents.\n\
          .SH ENVIRONMENT\n\
          .TP\n\
+         .B RSST_HOME\n\
+         Keep the config, the database and the read state in this directory\n\
+         rather than the platform's own. Everything above moves together, so a\n\
+         second rsst run this way cannot touch the first one's data.\n\
+         .TP\n\
          .B NO_COLOR\n\
          Set to anything to disable colour, whatever the config says.\n",
     );

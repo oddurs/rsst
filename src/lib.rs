@@ -12,6 +12,7 @@ pub mod config;
 pub mod db;
 pub mod feed;
 pub mod generate;
+pub mod home;
 pub mod keys;
 pub mod launch;
 pub mod limit;

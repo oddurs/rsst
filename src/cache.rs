@@ -201,11 +201,10 @@ impl Cache {
     }
 }
 
-/// `$XDG_CACHE_HOME/rsst/feeds.toml`, or the platform equivalent.
+/// `$XDG_CACHE_HOME/rsst/feeds.toml`, or the platform equivalent — or, if
+/// `RSST_HOME` is set, that directory.
 pub fn cache_path() -> Result<PathBuf> {
-    let dirs = directories::ProjectDirs::from("", "", "rsst")
-        .context("could not determine a cache directory for this platform")?;
-    Ok(dirs.cache_dir().join("feeds.toml"))
+    Ok(crate::home::dir(crate::home::Kind::Cache)?.join("feeds.toml"))
 }
 
 #[cfg(test)]
