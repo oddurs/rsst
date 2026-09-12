@@ -91,6 +91,12 @@ fn hex(colour: Color) -> String {
         Color::Magenta => "#c678dd".into(),
         Color::Cyan => "#56b6c2".into(),
         Color::Gray => "#abb2bf".into(),
+        Color::LightRed => "#ef7b85".into(),
+        Color::LightGreen => "#a9d98b".into(),
+        Color::LightYellow => "#f0ce8e".into(),
+        Color::LightBlue => "#7cc0f5".into(),
+        Color::LightMagenta => "#d38ae8".into(),
+        Color::LightCyan => "#6fc9d4".into(),
         Color::DarkGray => "#5c6370".into(),
         Color::White => "#f0f0f0".into(),
         // Reset is the terminal's own foreground, which for a dark ground is

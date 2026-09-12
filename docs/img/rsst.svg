@@ -1,119 +1,78 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 874 540" width="874" height="540" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14">
 <rect width="100%" height="100%" rx="8" fill="#12151a"/>
-<text x="0.0" y="13.5" fill="#5c6370" xml:space="preserve">┌ Feeds ─────────────────┐</text>
+<text x="0.0" y="13.5" fill="#c8ccd4" xml:space="preserve">┌ Feeds ─────────────────┐</text>
 <text x="218.4" y="13.5" fill="#56b6c2" xml:space="preserve">┌ http://127.0.0.1:8931/feed.xml ────────────────────────────────────────────┐</text>
-<text x="0.0" y="31.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="25.2" y="31.5" fill="#5c6370" xml:space="preserve">▾ </text>
+<text x="0.0" y="31.5" fill="#c8ccd4" xml:space="preserve">│  ▾ </text>
 <text x="42.0" y="31.5" fill="#c678dd" font-weight="bold" xml:space="preserve">Rust</text>
-<text x="210.0" y="31.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="75.6" y="31.5" fill="#c8ccd4" xml:space="preserve">                │</text>
 <text x="218.4" y="31.5" fill="#56b6c2" xml:space="preserve">│</text>
 <text x="226.8" y="31.5" fill="#56b6c2" font-weight="bold" xml:space="preserve">› 2026-09-03    Announcing Rust 1.94.0                                      </text>
 <text x="865.2" y="31.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="0.0" y="49.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="0.0" y="49.5" fill="#c8ccd4" xml:space="preserve">│</text>
 <text x="8.4" y="49.5" fill="#56b6c2" font-weight="bold" xml:space="preserve">›   Rust Blog  2        </text>
-<text x="210.0" y="49.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="210.0" y="49.5" fill="#c8ccd4" xml:space="preserve">│</text>
 <text x="218.4" y="49.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="243.6" y="49.5" fill="#5c6370" xml:space="preserve">2026-08-19</text>
+<text x="226.8" y="49.5" fill="#c8ccd4" xml:space="preserve">  2026-08-19    </text>
 <text x="361.2" y="49.5" fill="#c8ccd4" font-weight="bold" xml:space="preserve">Faster incremental builds land in nightly</text>
 <text x="865.2" y="49.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="0.0" y="67.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="8.4" y="67.5" fill="#c8ccd4" xml:space="preserve">    This Week in Rust</text>
+<text x="0.0" y="67.5" fill="#c8ccd4" xml:space="preserve">│    This Week in Rust</text>
 <text x="184.8" y="67.5" fill="#56b6c2" font-weight="bold" xml:space="preserve">  2</text>
-<text x="210.0" y="67.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="210.0" y="67.5" fill="#c8ccd4" xml:space="preserve">│</text>
 <text x="218.4" y="67.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="243.6" y="67.5" fill="#5c6370" xml:space="preserve">2026-08-05</text>
+<text x="226.8" y="67.5" fill="#c8ccd4" xml:space="preserve">  2026-08-05    </text>
 <text x="361.2" y="67.5" fill="#c8ccd4" font-weight="bold" xml:space="preserve">Security advisories for the 1.93 series</text>
 <text x="865.2" y="67.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="0.0" y="85.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="8.4" y="85.5" fill="#c8ccd4" xml:space="preserve">  Inside Rust</text>
+<text x="0.0" y="85.5" fill="#c8ccd4" xml:space="preserve">│  Inside Rust</text>
 <text x="117.6" y="85.5" fill="#56b6c2" font-weight="bold" xml:space="preserve">  2</text>
-<text x="210.0" y="85.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="142.8" y="85.5" fill="#c8ccd4" xml:space="preserve">        │</text>
 <text x="218.4" y="85.5" fill="#56b6c2" xml:space="preserve">│</text>
 <text x="865.2" y="85.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="0.0" y="103.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="103.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="0.0" y="103.5" fill="#c8ccd4" xml:space="preserve">│                        │</text>
 <text x="218.4" y="103.5" fill="#56b6c2" xml:space="preserve">│</text>
 <text x="865.2" y="103.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="0.0" y="121.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="121.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="0.0" y="121.5" fill="#c8ccd4" xml:space="preserve">│                        │</text>
 <text x="218.4" y="121.5" fill="#56b6c2" xml:space="preserve">│</text>
 <text x="865.2" y="121.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="0.0" y="139.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="139.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="0.0" y="139.5" fill="#c8ccd4" xml:space="preserve">│                        │</text>
 <text x="218.4" y="139.5" fill="#56b6c2" xml:space="preserve">│</text>
 <text x="865.2" y="139.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="0.0" y="157.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="157.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="0.0" y="157.5" fill="#c8ccd4" xml:space="preserve">│                        │</text>
 <text x="218.4" y="157.5" fill="#56b6c2" xml:space="preserve">│</text>
 <text x="865.2" y="157.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="0.0" y="175.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="175.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="0.0" y="175.5" fill="#c8ccd4" xml:space="preserve">│                        │</text>
 <text x="218.4" y="175.5" fill="#56b6c2" xml:space="preserve">│</text>
 <text x="865.2" y="175.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="0.0" y="193.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="193.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="0.0" y="193.5" fill="#c8ccd4" xml:space="preserve">│                        │</text>
 <text x="218.4" y="193.5" fill="#56b6c2" xml:space="preserve">│</text>
 <text x="865.2" y="193.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="0.0" y="211.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="211.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="0.0" y="211.5" fill="#c8ccd4" xml:space="preserve">│                        │</text>
 <text x="218.4" y="211.5" fill="#56b6c2" xml:space="preserve">│</text>
 <text x="865.2" y="211.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="0.0" y="229.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="229.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="0.0" y="229.5" fill="#c8ccd4" xml:space="preserve">│                        │</text>
 <text x="218.4" y="229.5" fill="#56b6c2" xml:space="preserve">│</text>
 <text x="865.2" y="229.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="0.0" y="247.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="247.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="0.0" y="247.5" fill="#c8ccd4" xml:space="preserve">│                        │</text>
 <text x="218.4" y="247.5" fill="#56b6c2" xml:space="preserve">│</text>
 <text x="865.2" y="247.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="0.0" y="265.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="265.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="0.0" y="265.5" fill="#c8ccd4" xml:space="preserve">│                        │</text>
 <text x="218.4" y="265.5" fill="#56b6c2" xml:space="preserve">│</text>
 <text x="865.2" y="265.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="0.0" y="283.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="283.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="0.0" y="283.5" fill="#c8ccd4" xml:space="preserve">│                        │</text>
 <text x="218.4" y="283.5" fill="#56b6c2" xml:space="preserve">│</text>
 <text x="865.2" y="283.5" fill="#56b6c2" xml:space="preserve">│</text>
-<text x="0.0" y="301.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="301.5" fill="#5c6370" xml:space="preserve">│</text>
+<text x="0.0" y="301.5" fill="#c8ccd4" xml:space="preserve">│                        │</text>
 <text x="218.4" y="301.5" fill="#56b6c2" xml:space="preserve">└────────────────────────────────────────────────────────────────────────────┘</text>
-<text x="0.0" y="319.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="319.5" fill="#5c6370" xml:space="preserve">│┌ Detail ────────────────────────────────────────────────────────────────────┐</text>
-<text x="0.0" y="337.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="337.5" fill="#5c6370" xml:space="preserve">││</text>
-<text x="226.8" y="337.5" fill="#c8ccd4" xml:space="preserve">Announcing Rust 1.94.0                                                      </text>
-<text x="865.2" y="337.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="0.0" y="355.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="355.5" fill="#5c6370" xml:space="preserve">││</text>
-<text x="226.8" y="355.5" fill="#c8ccd4" xml:space="preserve">https://blog.rust-lang.org/2026/09/rust-1.94.0.html                         </text>
-<text x="865.2" y="355.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="0.0" y="373.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="373.5" fill="#5c6370" xml:space="preserve">││</text>
-<text x="865.2" y="373.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="0.0" y="391.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="391.5" fill="#5c6370" xml:space="preserve">││</text>
-<text x="226.8" y="391.5" fill="#c8ccd4" xml:space="preserve">The Rust team is happy to announce a new version of Rust. This release      </text>
-<text x="865.2" y="391.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="0.0" y="409.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="409.5" fill="#5c6370" xml:space="preserve">││</text>
-<text x="226.8" y="409.5" fill="#c8ccd4" xml:space="preserve">brings improvements to the borrow checker, faster incremental builds, and a </text>
-<text x="865.2" y="409.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="0.0" y="427.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="427.5" fill="#5c6370" xml:space="preserve">││</text>
-<text x="226.8" y="427.5" fill="#c8ccd4" xml:space="preserve">handful of newly stabilised APIs.                                           </text>
-<text x="865.2" y="427.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="0.0" y="445.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="445.5" fill="#5c6370" xml:space="preserve">││</text>
-<text x="865.2" y="445.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="0.0" y="463.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="463.5" fill="#5c6370" xml:space="preserve">││</text>
-<text x="865.2" y="463.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="0.0" y="481.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="481.5" fill="#5c6370" xml:space="preserve">││</text>
-<text x="865.2" y="481.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="0.0" y="499.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="210.0" y="499.5" fill="#5c6370" xml:space="preserve">││</text>
-<text x="865.2" y="499.5" fill="#5c6370" xml:space="preserve">│</text>
-<text x="0.0" y="517.5" fill="#5c6370" xml:space="preserve">└────────────────────────┘└────────────────────────────────────────────────────────────────────────────┘</text>
-<text x="0.0" y="535.5" fill="#1c1c1c" xml:space="preserve"> ? keys · q quit · Tab · j/k · / search · u unread · s star · o open · r refresh                        </text>
+<text x="0.0" y="319.5" fill="#c8ccd4" xml:space="preserve">│                        │┌ Detail ────────────────────────────────────────────────────────────────────┐</text>
+<text x="0.0" y="337.5" fill="#c8ccd4" xml:space="preserve">│                        ││Announcing Rust 1.94.0                                                      │</text>
+<text x="0.0" y="355.5" fill="#c8ccd4" xml:space="preserve">│                        ││https://blog.rust-lang.org/2026/09/rust-1.94.0.html                         │</text>
+<text x="0.0" y="373.5" fill="#c8ccd4" xml:space="preserve">│                        ││                                                                            │</text>
+<text x="0.0" y="391.5" fill="#c8ccd4" xml:space="preserve">│                        ││The Rust team is happy to announce a new version of Rust. This release      │</text>
+<text x="0.0" y="409.5" fill="#c8ccd4" xml:space="preserve">│                        ││brings improvements to the borrow checker, faster incremental builds, and a │</text>
+<text x="0.0" y="427.5" fill="#c8ccd4" xml:space="preserve">│                        ││handful of newly stabilised APIs.                                           │</text>
+<text x="0.0" y="445.5" fill="#c8ccd4" xml:space="preserve">│                        ││                                                                            │</text>
+<text x="0.0" y="463.5" fill="#c8ccd4" xml:space="preserve">│                        ││                                                                            │</text>
+<text x="0.0" y="481.5" fill="#c8ccd4" xml:space="preserve">│                        ││                                                                            │</text>
+<text x="0.0" y="499.5" fill="#c8ccd4" xml:space="preserve">│                        ││                                                                            │</text>
+<text x="0.0" y="517.5" fill="#c8ccd4" xml:space="preserve">└────────────────────────┘└────────────────────────────────────────────────────────────────────────────┘</text>
+<text x="0.0" y="535.5" fill="#56b6c2" xml:space="preserve"> ? keys · q quit · Tab · j/k · / search · u unread · s star · o open · r refresh                        </text>
 </svg>

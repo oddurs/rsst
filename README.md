@@ -60,11 +60,13 @@ tags = ["Rust"]              # optional; groups the feed in the sidebar
 # Optional. How many feeds may be fetched at once; defaults to 8.
 max_concurrent_fetches = 8
 
-# Optional. `dark` (default), `light`, or `mono` for no colour at all.
-# Individual roles can be overridden by name or #rrggbb.
+# Optional. `terminal` (default) follows your terminal's own palette; `dark`
+# and `light` pick the bright or dim half of it; `mono` uses no colour at all.
+# Roles take a colour, attributes, or both — "bold cyan".
 [theme]
-name = "dark"
-accent = "#1a4fa0"
+name = "terminal"
+accent = "cyan"
+dim = "dim"
 
 # Optional. Rebind any action; anything you leave out keeps its default.
 # An override replaces the default, so `q` no longer quits here.
@@ -75,6 +77,12 @@ half_page_down = "ctrl-f"
 
 Run `rsst --help` for every action name, or press `?` in the app. Setting
 `NO_COLOR` disables colour whatever the config says.
+
+Colours follow your terminal. rsst uses only the sixteen ANSI colours, which
+Ghostty, iTerm2, Alacritty and the rest remap to their own themes — so it
+follows your theme rather than fighting it. The status bar reverses rather than
+picking a text colour, and read entries dim the foreground you already have
+instead of fading to a fixed grey.
 
 **[docs/config.example.toml](docs/config.example.toml) is the full reference** —
 every key the parser accepts, with its default, and every action bound. It is
