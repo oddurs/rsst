@@ -2,7 +2,8 @@
 id: 9
 title: Persist read and unread state
 type: feature
-status: planned
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
 updated: 2026-09-11
 priority: p0
@@ -21,7 +22,7 @@ A small state file keyed by entry id (falling back to link, then title+date hash
 
 ## Acceptance criteria
 
-- [ ] Reading an entry and restarting leaves it marked read.
-- [ ] Each feed shows an unread count.
-- [ ] A feed whose entry ids change between fetches does not resurrect read entries.
-- [ ] The state file is written atomically so a crash mid-write cannot corrupt it.
+- [x] Reading an entry and restarting leaves it marked read.
+- [x] Each feed shows an unread count.
+- [x] A feed whose entry ids change between fetches does not resurrect read entries.
+- [x] The state file is written atomically so a crash mid-write cannot corrupt it.

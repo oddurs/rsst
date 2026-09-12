@@ -47,6 +47,11 @@ url = "https://this-week-in-rust.org/atom.xml"
 | `r`            | Refresh all feeds         |
 | `q` / `Esc`    | Quit                      |
 
+Entries you have read are remembered between runs, and each feed shows how many
+are still unread. An entry is recognised by its guid, its link, and its title
+and date together — so a feed that regenerates its identifiers does not come
+back looking entirely unread.
+
 A feed that fails to load shows up as an `(error)` entry rather than taking the
 reader down with it.
 

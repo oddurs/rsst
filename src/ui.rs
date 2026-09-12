@@ -34,7 +34,21 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
     let items: Vec<ListItem> = app
         .feeds
         .iter()
-        .map(|feed| ListItem::new(feed.title.clone()))
+        .enumerate()
+        .map(|(index, feed)| {
+            let unread = app.unread(index);
+            let mut spans = vec![Span::raw(feed.title.clone())];
+            // Only worth the space when there is something to report.
+            if unread > 0 {
+                spans.push(Span::styled(
+                    format!("  {unread}"),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ));
+            }
+            ListItem::new(Line::from(spans))
+        })
         .collect();
 
     let mut state = ListState::default();
@@ -55,15 +69,25 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
         .current_feed()
         .map(|feed| feed.url.clone())
         .unwrap_or_else(|| "Entries".into());
-    let entries = app.current_feed().map(|feed| &feed.entries);
-    let items: Vec<ListItem> = entries
+    let items: Vec<ListItem> = app
+        .current_feed()
+        .map(|feed| &feed.entries)
         .into_iter()
         .flatten()
         .map(|entry| {
+            // Unread stands out; read recedes rather than disappearing.
+            let title = if app.is_read(entry) {
+                Span::styled(entry.title.clone(), Style::default().fg(Color::DarkGray))
+            } else {
+                Span::styled(
+                    entry.title.clone(),
+                    Style::default().add_modifier(Modifier::BOLD),
+                )
+            };
             ListItem::new(Line::from(vec![
                 Span::styled(entry.date_label(), Style::default().fg(Color::DarkGray)),
                 Span::raw("  "),
-                Span::raw(entry.title.clone()),
+                title,
             ]))
         })
         .collect();
@@ -145,6 +169,7 @@ mod tests {
 
     use super::*;
     use crate::feed::{Entry, Feed};
+    use crate::state::ReadState;
 
     fn render(app: &mut App) -> String {
         let mut terminal =
@@ -163,16 +188,29 @@ mod tests {
 
     #[test]
     fn renders_the_selected_entry_across_all_panes() {
-        let mut app = App::new(vec![Feed {
-            title: "Rust Blog".into(),
-            url: "https://blog.rust-lang.org/feed.xml".into(),
-            entries: vec![Entry {
-                title: "Announcing Rust".into(),
-                link: Some("https://example.com/post".into()),
-                published: None,
-                summary: "A summary body.".into(),
+        let mut app = App::new(
+            vec![Feed {
+                title: "Rust Blog".into(),
+                url: "https://blog.rust-lang.org/feed.xml".into(),
+                entries: vec![
+                    Entry {
+                        title: "Announcing Rust".into(),
+                        link: Some("https://example.com/post".into()),
+                        published: None,
+                        summary: "A summary body.".into(),
+                        keys: vec!["id:one".into()],
+                    },
+                    Entry {
+                        title: "Second Post".into(),
+                        link: None,
+                        published: None,
+                        summary: String::new(),
+                        keys: vec!["id:two".into()],
+                    },
+                ],
             }],
-        }]);
+            ReadState::default(),
+        );
 
         let screen = render(&mut app);
 
@@ -189,8 +227,63 @@ mod tests {
     }
 
     #[test]
+    fn the_feed_pane_shows_an_unread_count_that_shrinks_as_you_read() {
+        let mut app = App::new(
+            vec![Feed {
+                title: "Rust Blog".into(),
+                url: "https://blog.rust-lang.org/feed.xml".into(),
+                entries: vec![
+                    Entry {
+                        title: "One".into(),
+                        link: None,
+                        published: None,
+                        summary: String::new(),
+                        keys: vec!["id:one".into()],
+                    },
+                    Entry {
+                        title: "Two".into(),
+                        link: None,
+                        published: None,
+                        summary: String::new(),
+                        keys: vec!["id:two".into()],
+                    },
+                ],
+            }],
+            ReadState::default(),
+        );
+
+        assert!(render(&mut app).contains("Rust Blog  2"), "two unread");
+
+        app.mark_current_read();
+        assert!(render(&mut app).contains("Rust Blog  1"), "one unread");
+    }
+
+    #[test]
+    fn a_fully_read_feed_shows_no_count_at_all() {
+        let mut app = App::new(
+            vec![Feed {
+                title: "Rust Blog".into(),
+                url: "https://blog.rust-lang.org/feed.xml".into(),
+                entries: vec![Entry {
+                    title: "One".into(),
+                    link: None,
+                    published: None,
+                    summary: String::new(),
+                    keys: vec!["id:one".into()],
+                }],
+            }],
+            ReadState::default(),
+        );
+        app.mark_current_read();
+
+        let screen = render(&mut app);
+        assert!(screen.contains("Rust Blog"));
+        assert!(!screen.contains("Rust Blog  1"), "no count when all read");
+    }
+
+    #[test]
     fn renders_without_panicking_when_there_are_no_feeds() {
-        let mut app = App::new(Vec::new());
+        let mut app = App::new(Vec::new(), ReadState::default());
         let screen = render(&mut app);
         assert!(screen.contains("No entry selected."));
     }
