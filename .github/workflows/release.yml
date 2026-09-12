@@ -11,6 +11,29 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Publishing first, so a crates.io rejection stops the release before any
+  # binaries are attached to it.
+  crates-io:
+    name: publish to crates.io
+    runs-on: ubuntu-latest
+    # Needs CARGO_REGISTRY_TOKEN. Without it the job is skipped rather than
+    # failing, so tagging still produces binaries for anyone not publishing.
+    if: vars.PUBLISH_TO_CRATES_IO == 'true'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: The tag and Cargo.toml must agree
+        run: |
+          manifest="$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$manifest" != "$tag" ]; then
+            echo "::error::tag $tag does not match Cargo.toml $manifest"
+            exit 1
+          fi
+      - run: cargo publish --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
+
   build:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
@@ -71,3 +94,42 @@ jobs:
             *.tar.gz
             *.zip
           generate_release_notes: true
+
+  # Point the Homebrew tap at the release that was just published.
+  homebrew:
+    name: update the Homebrew tap
+    needs: build
+    runs-on: ubuntu-latest
+    # Needs HOMEBREW_TAP_TOKEN, a PAT with write access to the tap repository.
+    if: vars.UPDATE_HOMEBREW_TAP == 'true'
+    steps:
+      - uses: actions/checkout@v5
+      - name: Render the formula
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          fetch() {
+            curl -fsSL "$base/rsst-${GITHUB_REF_NAME}-$1.tar.gz" | shasum -a 256 | cut -d" " -f1
+          }
+          arm_sha="$(fetch aarch64-apple-darwin)"
+          x86_sha="$(fetch x86_64-apple-darwin)"
+          linux_sha="$(fetch x86_64-unknown-linux-gnu)"
+          mkdir -p tap
+          sed -e "s/@VERSION@/$version/g" -e "s|@BASE@|$base|g" \
+              -e "s/@ARM_SHA@/$arm_sha/g" -e "s/@X86_SHA@/$x86_sha/g" \
+              -e "s/@LINUX_SHA@/$linux_sha/g" \
+              packaging/rsst.rb.in > tap/rsst.rb
+          cat tap/rsst.rb
+      - name: Push it to the tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY_OWNER}/homebrew-tap.git" tap-repo
+          mkdir -p tap-repo/Formula
+          cp tap/rsst.rb tap-repo/Formula/rsst.rb
+          cd tap-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/rsst.rb
+          git commit -m "rsst ${GITHUB_REF_NAME}"
+          git push

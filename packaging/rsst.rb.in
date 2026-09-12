@@ -1,0 +1,39 @@
+# Template for the Homebrew formula. The release workflow substitutes the
+# version and checksums and pushes the result to the tap, so the formula is
+# never edited by hand.
+class Rsst < Formula
+  desc "Terminal RSS/Atom feed reader"
+  homepage "https://github.com/oddurs/rsst"
+  version "@VERSION@"
+  license "MIT"
+
+  on_macos do
+    on_arm do
+      url "@BASE@/rsst-v@VERSION@-aarch64-apple-darwin.tar.gz"
+      sha256 "@ARM_SHA@"
+    end
+    on_intel do
+      url "@BASE@/rsst-v@VERSION@-x86_64-apple-darwin.tar.gz"
+      sha256 "@X86_SHA@"
+    end
+  end
+
+  on_linux do
+    on_intel do
+      url "@BASE@/rsst-v@VERSION@-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "@LINUX_SHA@"
+    end
+  end
+
+  def install
+    bin.install "rsst"
+    man1.install "rsst.1" if File.exist?("rsst.1")
+    bash_completion.install "rsst.bash" => "rsst" if File.exist?("rsst.bash")
+    zsh_completion.install "_rsst" if File.exist?("_rsst")
+    fish_completion.install "rsst.fish" if File.exist?("rsst.fish")
+  end
+
+  test do
+    assert_match "rsst #{version}", shell_output("#{bin}/rsst --version")
+  end
+end
