@@ -41,6 +41,8 @@ KEYS:
   j / down             next item
   k / up               previous item
   Tab                  switch panes
+  o                    open the selected entry in your browser
+  y                    copy its link to the clipboard
   r                    refresh all feeds
   q / Esc              quit
 
@@ -194,5 +196,6 @@ mod tests {
         assert!(HELP.starts_with("rsst "));
         assert!(HELP.contains("--config"));
         assert!(HELP.contains("q / Esc"));
+        assert!(HELP.contains("open the selected entry"));
     }
 }

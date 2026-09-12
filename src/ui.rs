@@ -6,7 +6,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wra
 
 use crate::app::{App, Pane};
 
-const HELP: &str = " q quit · Tab switch pane · j/k move · r refresh ";
+const HELP: &str = " q quit · Tab pane · j/k move · o open · y copy · r refresh ";
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let rows = Layout::default()
