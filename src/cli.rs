@@ -22,10 +22,10 @@ pub enum Action {
     Version,
 }
 
-pub const HELP: &str = concat!(
-    "rsst ",
-    env!("CARGO_PKG_VERSION"),
-    " — a terminal RSS/Atom feed reader
+/// The `--help` text, with the key reference generated from [`crate::keys`].
+pub fn help() -> String {
+    format!(
+        "rsst {} — a terminal RSS/Atom feed reader
 
 USAGE:
   rsst [OPTIONS]
@@ -36,26 +36,12 @@ OPTIONS:
   -c, --config <PATH>  read this config instead of the default
   -h, --help           show this help
   -V, --version        show the version
-
-KEYS:
-  j / down             next item, or scroll the detail pane
-  k / up               previous item, or scroll back
-  Tab                  cycle feeds / entries / detail
-  g / G                first / last
-  Ctrl-d / Ctrl-u      half a pane down / up
-  n / p                next / previous unread, across feeds
-  /                    search every feed; n and N step through matches
-  s / S                star the entry / show only starred
-  m                    toggle read on the selected entry
-  a / A                mark this feed / every feed read (asks first)
-  u                    show only unread entries
-  o                    open the selected entry in your browser
-  y                    copy its link to the clipboard
-  r                    refresh all feeds
-  q / Esc              quit
-
-The config is written on first run; its path is reported if no feeds are set."
-);
+{}
+The config is written on first run; its path is reported if no feeds are set.",
+        env!("CARGO_PKG_VERSION"),
+        crate::keys::as_text()
+    )
+}
 
 /// Parses arguments, excluding the program name.
 pub fn parse<I, S>(args: I) -> Result<Action>
@@ -201,9 +187,10 @@ mod tests {
 
     #[test]
     fn the_help_text_names_the_binary_and_the_keys() {
-        assert!(HELP.starts_with("rsst "));
-        assert!(HELP.contains("--config"));
-        assert!(HELP.contains("q / Esc"));
-        assert!(HELP.contains("open the selected entry"));
+        let help = help();
+        assert!(help.starts_with("rsst "));
+        assert!(help.contains("--config"));
+        assert!(help.contains("quit"));
+        assert!(help.contains("open the entry in your browser"));
     }
 }

@@ -52,11 +52,7 @@ with the alternate screen still active.
 
 ## v0.3
 
-`#########·` 83% · 5 of 6 done
-
-### backlog
-
-- [ ] [`0025`](https://github.com/oddurs/rsst/blob/main/cairn/items/0025-keybinding-help-overlay.md) Keybinding help overlay <sup>feature · v0.3 · p2</sup>
+`##########` 100% · 6 of 6 done
 
 ### done
 
@@ -65,6 +61,7 @@ with the alternate screen still active.
 - [x] [`0022`](https://github.com/oddurs/rsst/blob/main/cairn/items/0022-mark-all-read-and-mark-an-entry-unread-again.md) Mark all read, and mark an entry unread again <sup>feature · v0.3 · p1</sup>
 - [x] [`0023`](https://github.com/oddurs/rsst/blob/main/cairn/items/0023-star-entries-and-keep-them.md) Star entries and keep them <sup>feature · v0.3 · p2</sup>
 - [x] [`0024`](https://github.com/oddurs/rsst/blob/main/cairn/items/0024-vim-style-navigation-keys.md) Vim-style navigation keys <sup>feature · v0.3 · p2</sup>
+- [x] [`0025`](https://github.com/oddurs/rsst/blob/main/cairn/items/0025-keybinding-help-overlay.md) Keybinding help overlay <sup>feature · v0.3 · p2</sup>
 
 ## v0.4
 

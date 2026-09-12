@@ -33,6 +33,8 @@ pub struct App {
     pub starred_view: bool,
     /// Inner size of the entries pane, written back by the renderer.
     pub entries_viewport: (u16, u16),
+    /// Whether the key reference is covering the screen.
+    pub help_open: bool,
 }
 
 /// A marking action that affects more than one entry, so it is worth a prompt.
