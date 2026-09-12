@@ -169,8 +169,13 @@ cargo fmt --all
 cargo run --release --bin rsst-bench   # timings vs committed baselines
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch and PR workflow, and
-[ROADMAP.md](ROADMAP.md) for where this is going.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch and PR workflow,
+[ROADMAP.md](ROADMAP.md) for where this is going, [CHANGELOG.md](CHANGELOG.md)
+for what has changed, and [docs/stability.md](docs/stability.md) for what
+semver covers.
+
+Found a security problem? [SECURITY.md](SECURITY.md) says how to report it
+privately.
 
 ## License
 

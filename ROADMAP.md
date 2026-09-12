@@ -79,7 +79,7 @@ with the alternate screen still active.
 
 ## v1.0
 
-`#########·` 88% · 7 of 8 done
+`#########·` 89% · 8 of 9 done
 
 ### blocked
 
@@ -94,6 +94,7 @@ with the alternate screen still active.
 - [x] [`0036`](https://github.com/oddurs/rsst/blob/main/cairn/items/0036-define-the-semver-and-msrv-policy.md) Define the semver and MSRV policy <sup>chore · v1.0 · p2</sup>
 - [x] [`0037`](https://github.com/oddurs/rsst/blob/main/cairn/items/0037-benchmark-a-large-feed-list.md) Benchmark a large feed list <sup>chore · v1.0 · p3</sup>
 - [x] [`0038`](https://github.com/oddurs/rsst/blob/main/cairn/items/0038-automate-dependency-updates.md) Automate dependency updates <sup>chore · v1.0 · p2</sup>
+- [x] [`0045`](https://github.com/oddurs/rsst/blob/main/cairn/items/0045-fill-in-the-missing-repository-furniture.md) Fill in the missing repository furniture <sup>chore · v1.0 · p2</sup>
 
 ## v1.1
 
