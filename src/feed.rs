@@ -348,6 +348,13 @@ pub async fn fetch(
     fetch_inner(client, source, etag, last_modified, limits, true).await
 }
 
+/// How many redirects to follow before deciding it is a loop.
+///
+/// Redirects are followed here rather than by `reqwest` because the *kind*
+/// matters: a permanent one is a server saying "stop asking here", and
+/// following it silently means paying the extra round trip forever.
+const MAX_REDIRECTS: usize = 5;
+
 /// The fetch itself. `may_discover` is false on the second request, so a page
 /// pointing at a page is a failure rather than the start of a chain.
 async fn fetch_inner(
@@ -358,23 +365,59 @@ async fn fetch_inner(
     limits: Limits,
     may_discover: bool,
 ) -> std::result::Result<Outcome, Failure> {
-    let mut request = client.get(&source.url);
-    // Either validator alone is enough; sending both is what the spec prefers.
-    if let Some(etag) = etag {
-        request = request.header(reqwest::header::IF_NONE_MATCH, etag);
-    }
-    if let Some(last_modified) = last_modified {
-        request = request.header(reqwest::header::IF_MODIFIED_SINCE, last_modified);
-    }
+    let mut hops = 0usize;
+    let mut target = source.url.clone();
+    // Stays true only while every hop so far has been permanent: one temporary
+    // hop anywhere in the chain makes the final address a temporary answer.
+    let mut permanently_moved = false;
+    let mut moved = false;
 
-    let response = request.send().await.map_err(|err| {
-        Failure::new(
-            trouble_for(&err),
-            format!("requesting {}: {err}", source.url),
-        )
-    })?;
+    let (response, status) = loop {
+        let mut request = client.get(&target);
+        // Either validator alone is enough; sending both is what the spec
+        // prefers. Re-sent on each hop, since the feed is the same feed.
+        if let Some(etag) = etag {
+            request = request.header(reqwest::header::IF_NONE_MATCH, etag);
+        }
+        if let Some(last_modified) = last_modified {
+            request = request.header(reqwest::header::IF_MODIFIED_SINCE, last_modified);
+        }
 
-    let status = response.status();
+        let response = request.send().await.map_err(|err| {
+            Failure::new(trouble_for(&err), format!("requesting {target}: {err}"))
+        })?;
+        let status = response.status();
+
+        if !status.is_redirection() {
+            break (response, status);
+        }
+        let Some(location) = response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .map(|location| resolve(location, &target))
+        else {
+            // A redirect with nowhere to go is the server's mistake, and
+            // there is nothing useful to do about it.
+            break (response, status);
+        };
+
+        if hops == MAX_REDIRECTS {
+            return Err(Failure::new(
+                Trouble::Unreachable,
+                format!("{} redirected more than {MAX_REDIRECTS} times", source.url),
+            ));
+        }
+        // Permanent only while it has been permanent all the way down.
+        permanently_moved = (!moved || permanently_moved)
+            && matches!(
+                status,
+                reqwest::StatusCode::MOVED_PERMANENTLY | reqwest::StatusCode::PERMANENT_REDIRECT
+            );
+        moved = true;
+        target = location;
+        hops += 1;
+    };
     if status == reqwest::StatusCode::NOT_MODIFIED {
         return Ok(Outcome::NotModified);
     }
@@ -428,7 +471,9 @@ async fn fetch_inner(
                 feed: Box::new(feed),
                 etag,
                 last_modified,
-                found_at: None,
+                // A permanent redirect is the server asking to be asked
+                // elsewhere. A temporary one is not, and is not remembered.
+                found_at: permanently_moved.then(|| target.clone()),
             });
         }
         Err(err) => err,
@@ -1915,5 +1960,142 @@ mod tests {
             }
             other => panic!("expected a feed, got {other:?}"),
         }
+    }
+
+    /// Serves a chain: each entry is (status, location-or-body).
+    fn serve_chain(steps: Vec<(u16, String)>, body: Vec<u8>) -> u16 {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        let port = listener.local_addr().expect("an address").port();
+        std::thread::spawn(move || {
+            let total = steps.len() + 1;
+            for (n, incoming) in listener.incoming().enumerate().take(total) {
+                let Ok(mut stream) = incoming else { return };
+                let mut scratch = [0u8; 2048];
+                let _ = stream.read(&mut scratch);
+                let out = match steps.get(n) {
+                    Some((code, location)) => format!(
+                        "HTTP/1.1 {code} Moved\r\nLocation: http://127.0.0.1:{port}{location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                    .into_bytes(),
+                    None => {
+                        let mut head = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/atom+xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        )
+                        .into_bytes();
+                        head.extend_from_slice(&body);
+                        head
+                    }
+                };
+                let _ = stream.write_all(&out);
+                let _ = stream.flush();
+            }
+        });
+        port
+    }
+
+    async fn follow(port: u16) -> Outcome {
+        fetch(
+            &reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("a client"),
+            &at(port),
+            None,
+            None,
+            Limits::default(),
+        )
+        .await
+        .expect("the chain ends in a feed")
+    }
+
+    #[tokio::test]
+    async fn a_permanent_redirect_is_remembered() {
+        for code in [301u16, 308] {
+            let port = serve_chain(vec![(code, "/moved.xml".into())], tiny_feed());
+            match follow(port).await {
+                Outcome::Updated { feed, found_at, .. } => {
+                    assert_eq!(feed.title, "Small", "the redirect was not followed");
+                    assert_eq!(
+                        found_at.as_deref(),
+                        Some(format!("http://127.0.0.1:{port}/moved.xml").as_str()),
+                        "{code} was not remembered, so it will be paid again forever"
+                    );
+                }
+                other => panic!("expected a feed, got {other:?}"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_temporary_redirect_is_followed_but_not_remembered() {
+        for code in [302u16, 303, 307] {
+            let port = serve_chain(vec![(code, "/elsewhere.xml".into())], tiny_feed());
+            match follow(port).await {
+                Outcome::Updated { feed, found_at, .. } => {
+                    assert_eq!(feed.title, "Small", "the redirect was not followed");
+                    assert_eq!(found_at, None, "{code} is temporary by definition");
+                }
+                other => panic!("expected a feed, got {other:?}"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_chain_that_is_permanent_all_the_way_down_is_remembered() {
+        let port = serve_chain(
+            vec![(301, "/one.xml".into()), (308, "/two.xml".into())],
+            tiny_feed(),
+        );
+        match follow(port).await {
+            Outcome::Updated { found_at, .. } => assert_eq!(
+                found_at.as_deref(),
+                Some(format!("http://127.0.0.1:{port}/two.xml").as_str())
+            ),
+            other => panic!("expected a feed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn one_temporary_hop_makes_the_whole_chain_temporary() {
+        // The address at the end is only reliable if every step to it was.
+        let port = serve_chain(
+            vec![(301, "/one.xml".into()), (302, "/two.xml".into())],
+            tiny_feed(),
+        );
+        match follow(port).await {
+            Outcome::Updated { found_at, .. } => assert_eq!(
+                found_at, None,
+                "a chain with a temporary hop in it is not a permanent move"
+            ),
+            other => panic!("expected a feed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_redirect_loop_gives_up_rather_than_going_round() {
+        let steps: Vec<(u16, String)> = (0..MAX_REDIRECTS + 2)
+            .map(|n| (301u16, format!("/hop{n}.xml")))
+            .collect();
+        let port = serve_chain(steps, tiny_feed());
+
+        let failure = fetch(
+            &reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("a client"),
+            &at(port),
+            None,
+            None,
+            Limits::default(),
+        )
+        .await
+        .expect_err("a chain this long is a loop");
+        assert!(
+            failure.detail.contains("redirected more than"),
+            "{}",
+            failure.detail
+        );
     }
 }
