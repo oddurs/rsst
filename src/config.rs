@@ -39,6 +39,11 @@ impl Config {
         Self::load_from(&path)
     }
 
+    /// Writes the config back, creating its directory if needed.
+    pub fn save(&self, path: &Path) -> Result<()> {
+        write(path, self)
+    }
+
     pub fn load_from(path: &Path) -> Result<Self> {
         let raw = fs::read_to_string(path)
             .with_context(|| format!("reading config at {}", path.display()))?;

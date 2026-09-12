@@ -1969,6 +1969,7 @@ dependencies = [
  "crossterm",
  "directories",
  "feed-rs",
+ "quick-xml",
  "ratatui",
  "reqwest",
  "serde",
