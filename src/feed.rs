@@ -19,6 +19,9 @@ pub struct Entry {
     pub link: Option<String>,
     pub published: Option<DateTime<Utc>>,
     pub summary: String,
+    /// Every identifier this entry could reasonably be recognised by, best
+    /// first. Read state matches on any of them — see [`crate::state`].
+    pub keys: Vec<String>,
 }
 
 impl Entry {
@@ -60,18 +63,24 @@ pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
     let mut entries: Vec<Entry> = parsed
         .entries
         .into_iter()
-        .map(|entry| Entry {
-            title: entry
+        .map(|entry| {
+            let title = entry
                 .title
                 .map(|t| t.content)
-                .unwrap_or_else(|| "(untitled)".into()),
-            link: entry.links.into_iter().next().map(|l| l.href),
-            published: entry.published.or(entry.updated),
-            summary: entry
-                .summary
-                .map(|t| strip_html(&t.content))
-                .or_else(|| entry.content.and_then(|c| c.body).map(|b| strip_html(&b)))
-                .unwrap_or_default(),
+                .unwrap_or_else(|| "(untitled)".into());
+            let link = entry.links.into_iter().next().map(|l| l.href);
+            let published = entry.published.or(entry.updated);
+            Entry {
+                keys: entry_keys(&entry.id, link.as_deref(), &title, published),
+                title,
+                link,
+                published,
+                summary: entry
+                    .summary
+                    .map(|t| strip_html(&t.content))
+                    .or_else(|| entry.content.and_then(|c| c.body).map(|b| strip_html(&b)))
+                    .unwrap_or_default(),
+            }
         })
         .collect();
 
@@ -83,6 +92,30 @@ pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
         url: source.url.clone(),
         entries,
     })
+}
+
+/// Every identifier an entry could be recognised by, most stable first.
+///
+/// Prefixed by kind so a guid that happens to equal another entry's URL cannot
+/// collide. The title-and-date fallback is last because it is the weakest: it
+/// changes if the publisher fixes a typo. Nothing is hashed — these are written
+/// to disk, and `DefaultHasher` is explicitly not stable across Rust releases.
+fn entry_keys(
+    id: &str,
+    link: Option<&str>,
+    title: &str,
+    published: Option<DateTime<Utc>>,
+) -> Vec<String> {
+    let mut keys = Vec::with_capacity(3);
+    if !id.trim().is_empty() {
+        keys.push(format!("id:{id}"));
+    }
+    if let Some(link) = link.filter(|l| !l.trim().is_empty()) {
+        keys.push(format!("link:{link}"));
+    }
+    let stamp = published.map(|p| p.to_rfc3339()).unwrap_or_default();
+    keys.push(format!("title:{title}|{stamp}"));
+    keys
 }
 
 /// Drops tags and collapses whitespace so summaries fit a terminal paragraph.
@@ -155,12 +188,45 @@ mod tests {
     }
 
     #[test]
+    fn entries_carry_id_link_and_title_keys() {
+        let feed = parse(RSS, &source()).expect("feed should parse");
+        let newer = &feed.entries[0];
+        assert!(newer.keys.iter().any(|k| k.starts_with("id:")));
+        assert!(
+            newer
+                .keys
+                .contains(&"link:https://example.com/2".to_string())
+        );
+        assert!(newer.keys.iter().any(|k| k.starts_with("title:Newer|")));
+    }
+
+    #[test]
+    fn key_kinds_are_prefixed_so_they_cannot_collide() {
+        // A guid equal to another entry's URL must not make them the same entry.
+        let keys = entry_keys(
+            "https://example.com/x",
+            Some("https://example.com/x"),
+            "t",
+            None,
+        );
+        assert_eq!(keys[0], "id:https://example.com/x");
+        assert_eq!(keys[1], "link:https://example.com/x");
+    }
+
+    #[test]
+    fn an_entry_with_no_id_or_link_still_gets_a_key() {
+        let keys = entry_keys("  ", None, "Only a title", None);
+        assert_eq!(keys, vec!["title:Only a title|".to_string()]);
+    }
+
+    #[test]
     fn undated_entries_render_a_placeholder() {
         let entry = Entry {
             title: "x".into(),
             link: None,
             published: None,
             summary: String::new(),
+            keys: Vec::new(),
         };
         assert_eq!(entry.date_label(), "—");
     }

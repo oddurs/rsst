@@ -2,6 +2,7 @@ mod app;
 mod cli;
 mod config;
 mod feed;
+mod state;
 mod ui;
 
 use std::io;
@@ -22,6 +23,7 @@ use crate::app::App;
 use crate::cli::Action;
 use crate::config::{Config, FeedSource};
 use crate::feed::Feed;
+use crate::state::ReadState;
 
 const TICK: Duration = Duration::from_millis(250);
 
@@ -47,12 +49,22 @@ async fn main() -> Result<()> {
     }
 
     let client = http_client()?;
-    let mut app = App::new(fetch_all(&client, &config).await);
+    let state_path = state::state_path()?;
+    let mut app = App::new(
+        fetch_all(&client, &config).await,
+        ReadState::load(&state_path),
+    );
 
     install_panic_hook();
     let mut terminal = enter()?;
-    let result = run(&mut terminal, &mut app, &client, &config).await;
+    let result = run(&mut terminal, &mut app, &client, &config, &state_path).await;
     restore()?;
+
+    // Save even when the loop failed: the user still read those entries, and
+    // losing that is more annoying than whatever went wrong.
+    if let Err(err) = app.read.save(&state_path) {
+        eprintln!("rsst: could not save read state: {err:#}");
+    }
     result
 }
 
@@ -63,6 +75,7 @@ async fn run(
     app: &mut App,
     client: &reqwest::Client,
     config: &Config,
+    state_path: &std::path::Path,
 ) -> Result<()> {
     while !app.should_quit {
         terminal.draw(|frame| ui::draw(frame, app))?;
@@ -86,6 +99,7 @@ async fn run(
             KeyCode::Char('r') => {
                 app.status = Some(" Refreshing… ".into());
                 terminal.draw(|frame| ui::draw(frame, app))?;
+                let _ = app.read.save(state_path);
                 app.feeds = fetch_all(client, config).await;
                 app.selected_feed = app.selected_feed.min(app.feeds.len().saturating_sub(1));
                 app.selected_entry = 0;
@@ -131,6 +145,8 @@ fn placeholder(source: &FeedSource, err: &anyhow::Error) -> Feed {
             link: Some(source.url.clone()),
             published: None,
             summary: format!("{err:#}"),
+            // No keys: a failure notice must never be remembered as read.
+            keys: Vec::new(),
         }],
     }
 }
