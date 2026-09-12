@@ -131,7 +131,7 @@ with the alternate screen still active.
 
 ## v1.4
 
-`#######···` 67% · 2 of 3 done
+`########··` 75% · 3 of 4 done
 
 ### backlog
 
@@ -141,4 +141,5 @@ with the alternate screen still active.
 
 - [x] [`0057`](https://github.com/oddurs/rsst/blob/main/cairn/items/0057-run-against-a-throwaway-home-instead-of-real-data.md) Run against a throwaway home instead of real data <sup>feature · v1.4 · p1</sup>
 - [x] [`0058`](https://github.com/oddurs/rsst/blob/main/cairn/items/0058-a-seeded-database-and-an-offline-qa-environment.md) A seeded database and an offline QA environment <sup>feature · v1.4 · p1</sup>
+- [x] [`0060`](https://github.com/oddurs/rsst/blob/main/cairn/items/0060-ship-leaves-a-half-shipped-branch-when-a-label-is-missing.md) ship leaves a half-shipped branch when a label is missing <sup>bug · v1.4 · p2</sup>
 
