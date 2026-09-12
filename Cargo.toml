@@ -9,6 +9,9 @@ repository = "https://github.com/oddurs/rsst"
 readme = "README.md"
 keywords = ["rss", "atom", "tui", "feed-reader", "terminal"]
 categories = ["command-line-utilities"]
+# Screenshots and the demo cast are for the repository, not for everyone who
+# downloads the crate.
+exclude = ["/.github", "/scripts", "/cairn", "/docs/img"]
 
 [dependencies]
 anyhow = "1"

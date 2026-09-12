@@ -79,7 +79,7 @@ with the alternate screen still active.
 
 `#########·` 88% · 7 of 8 done
 
-### backlog
+### blocked
 
 - [ ] [`0031`](https://github.com/oddurs/rsst/blob/main/cairn/items/0031-publish-to-crates-io-and-homebrew.md) Publish to crates.io and Homebrew <sup>chore · v1.0 · p1</sup>
 
