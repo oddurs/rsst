@@ -1,4 +1,5 @@
 mod app;
+mod cache;
 mod cli;
 mod config;
 mod feed;
@@ -23,6 +24,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
 use crate::app::App;
+use crate::cache::Cache;
 use crate::cli::Action;
 use crate::config::{Config, FeedSource};
 use crate::feed::Feed;
@@ -34,6 +36,17 @@ const TICK: Duration = Duration::from_millis(100);
 
 /// A finished fetch on its way back to the event loop.
 type Fetched = (usize, Result<Feed>);
+
+/// Everything the event loop needs besides the app state itself.
+struct Session {
+    client: reqwest::Client,
+    config: Config,
+    state_path: PathBuf,
+    cache_path: PathBuf,
+    cache: Cache,
+    tx: tokio::sync::mpsc::UnboundedSender<Fetched>,
+    rx: tokio::sync::mpsc::UnboundedReceiver<Fetched>,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -63,56 +76,70 @@ async fn main() -> Result<()> {
 
     // The feed list takes its final shape before a single request is made, so
     // the reader is on screen and usable while the network is still working.
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Fetched>();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Fetched>();
     spawn_fetches(&client, &config, &tx);
-    let mut app = App::new(
-        config.feeds.iter().map(Feed::pending).collect(),
-        ReadState::load(&state_path),
-    );
+
+    // Last known contents stand in until the fetch lands, so a second launch
+    // has something to read immediately and an offline one still works.
+    let cache_path = cache::cache_path()?;
+    let cache = Cache::load(&cache_path);
+    let feeds = config
+        .feeds
+        .iter()
+        .map(|source| cache.get(source).unwrap_or_else(|| Feed::pending(source)))
+        .collect();
+    let mut app = App::new(feeds, ReadState::load(&state_path));
+
+    let mut session = Session {
+        client,
+        config,
+        state_path,
+        cache_path,
+        cache,
+        tx,
+        rx,
+    };
 
     install_panic_hook();
     let mut terminal = enter()?;
-    let result = run(
-        &mut terminal,
-        &mut app,
-        &client,
-        &config,
-        &state_path,
-        &mut rx,
-        &tx,
-    )
-    .await;
+    let result = run(&mut terminal, &mut app, &mut session).await;
     restore()?;
 
     // Save even when the loop failed: the user still read those entries, and
     // losing that is more annoying than whatever went wrong.
-    if let Err(err) = app.read.save(&state_path) {
+    if let Err(err) = app.read.save(&session.state_path) {
         eprintln!("rsst: could not save read state: {err:#}");
+    }
+    session.cache.retain_configured(&session.config.feeds);
+    if let Err(err) = session.cache.save(&session.cache_path) {
+        eprintln!("rsst: could not save cache: {err:#}");
     }
     result
 }
 
 type Tui = Terminal<CrosstermBackend<io::Stdout>>;
 
-async fn run(
-    terminal: &mut Tui,
-    app: &mut App,
-    client: &reqwest::Client,
-    config: &Config,
-    state_path: &std::path::Path,
-    rx: &mut tokio::sync::mpsc::UnboundedReceiver<Fetched>,
-    tx: &tokio::sync::mpsc::UnboundedSender<Fetched>,
-) -> Result<()> {
+async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result<()> {
     while !app.should_quit {
         // Take whatever has arrived since the last frame. Never blocks, so a
         // slow feed cannot hold up the redraw.
-        while let Ok((index, result)) = rx.try_recv() {
-            let feed = match result {
-                Ok(feed) => feed,
-                Err(err) => placeholder(&config.feeds[index], &err),
+        while let Ok((index, result)) = session.rx.try_recv() {
+            let Some(slot) = app.feeds.get_mut(index) else {
+                continue;
             };
-            if let Some(slot) = app.feeds.get_mut(index) {
-                *slot = feed;
+            match result {
+                Ok(feed) => {
+                    session.cache.put(&feed);
+                    *slot = feed;
+                }
+                // Keep whatever is already on screen. When that came from the
+                // cache it is exactly what makes the reader usable offline;
+                // replacing it with an error notice would throw it away.
+                Err(err) if !slot.entries.is_empty() => {
+                    slot.loading = false;
+                    app.status = Some(format!(" {}: {err} ", slot.title));
+                }
+                Err(err) => *slot = placeholder(&session.config.feeds[index], &err),
             }
         }
 
@@ -137,14 +164,14 @@ async fn run(
             KeyCode::Char('o') => open_selected(app),
             KeyCode::Char('y') => copy_selected(app),
             KeyCode::Char('r') => {
-                let _ = app.read.save(state_path);
+                let _ = app.read.save(&session.state_path);
                 let starting = app.begin_refresh();
                 app.status = Some(if starting.is_empty() {
                     " Already refreshing… ".into()
                 } else {
                     format!(" Refreshing {} feed(s)… ", starting.len())
                 });
-                spawn_some(client, config, tx, starting);
+                spawn_some(&session.client, &session.config, &session.tx, starting);
             }
             _ => {}
         }

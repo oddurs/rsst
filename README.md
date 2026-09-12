@@ -56,6 +56,9 @@ url = "https://this-week-in-rust.org/atom.xml"
 | `r`            | Refresh all feeds         |
 | `q` / `Esc`    | Quit                      |
 
+Feeds are cached on disk, so launching is instant and a reader with no network
+still shows the last entries it fetched.
+
 Entries you have read are remembered between runs, and each feed shows how many
 are still unread. An entry is recognised by its guid, its link, and its title
 and date together — so a feed that regenerates its identifiers does not come
