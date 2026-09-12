@@ -46,14 +46,9 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
                         (true, true) => "> ",
                         (false, true) => "v ",
                     },
-                    Style::default().fg(app.theme.dim),
+                    app.theme.dim,
                 ),
-                Span::styled(
-                    name.clone(),
-                    Style::default()
-                        .fg(app.theme.group)
-                        .add_modifier(Modifier::BOLD),
-                ),
+                Span::styled(name.clone(), app.theme.group),
             ])),
             crate::app::FeedRow::Feed(index) => {
                 let feed = &app.feeds[*index];
@@ -70,23 +65,18 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
                         ("…", true) => "..",
                         (other, _) => other,
                     };
-                    let colour = if feed.status.error().is_some() {
+                    let style = if feed.status.error().is_some() {
                         app.theme.error
                     } else {
                         app.theme.dim
                     };
-                    spans.push(Span::styled(
-                        format!("  {marker}"),
-                        Style::default().fg(colour),
-                    ));
+                    spans.push(Span::styled(format!("  {marker}"), style));
                 }
                 // Only worth the space when there is something to report.
                 if unread > 0 {
                     spans.push(Span::styled(
                         format!("  {unread}"),
-                        Style::default()
-                            .fg(app.theme.accent)
-                            .add_modifier(Modifier::BOLD),
+                        app.theme.accent.add_modifier(Modifier::BOLD),
                     ));
                 }
                 ListItem::new(Line::from(spans))
@@ -177,7 +167,7 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
         .map(|entry| {
             // Unread stands out; read recedes rather than disappearing.
             let title = if app.is_read(entry) {
-                Span::styled(entry.title.clone(), Style::default().fg(app.theme.dim))
+                Span::styled(entry.title.clone(), app.theme.dim)
             } else {
                 Span::styled(
                     entry.title.clone(),
@@ -185,18 +175,12 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
                 )
             };
             let star = if app.is_starred(entry) {
-                Span::styled(
-                    if app.theme.ascii { "* " } else { "★ " },
-                    Style::default().fg(app.theme.star),
-                )
+                Span::styled(if app.theme.ascii { "* " } else { "★ " }, app.theme.star)
             } else {
                 Span::raw("  ")
             };
             ListItem::new(Line::from(vec![
-                Span::styled(
-                    date_label(entry, &app.theme),
-                    Style::default().fg(app.theme.dim),
-                ),
+                Span::styled(date_label(entry, &app.theme), app.theme.dim),
                 Span::raw("  "),
                 star,
                 title,
@@ -216,7 +200,7 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
     let items = if empty {
         vec![ListItem::new(Line::from(Span::styled(
             "Nothing unread here.",
-            Style::default().fg(app.theme.dim),
+            app.theme.dim,
         )))]
     } else {
         items
@@ -269,10 +253,7 @@ fn draw_help(
     let width = crate::keys::key_column_width(keymap);
     let row = |keys: &str, description: &str| {
         Line::from(vec![
-            Span::styled(
-                format!("  {keys:width$}  "),
-                Style::default().fg(theme.star),
-            ),
+            Span::styled(format!("  {keys:width$}  "), theme.star),
             Span::raw(description.to_string()),
         ])
     };
@@ -286,9 +267,7 @@ fn draw_help(
         }
         roomy.push(Line::from(Span::styled(
             *name,
-            Style::default()
-                .fg(theme.accent)
-                .add_modifier(Modifier::BOLD),
+            theme.accent.add_modifier(Modifier::BOLD),
         )));
         roomy.extend(rows.iter().map(|(k, d)| row(k, d)));
     }
@@ -332,7 +311,7 @@ fn draw_help(
             Block::default()
                 .border_set(border_set(theme))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.accent))
+                .border_style(theme.accent)
                 // In the title rather than a row of its own: with every action
                 // listed, an 80x24 terminal has no spare line to give it.
                 .title(match (overflow > 0, theme.ascii) {
@@ -363,10 +342,7 @@ fn draw_cross_feed(
             let entry = feed.entries.get(*e)?;
             Some(ListItem::new(Line::from(vec![
                 // Results span feeds, so each row has to say which one.
-                Span::styled(
-                    format!("{}  ", feed.title),
-                    Style::default().fg(app.theme.dim),
-                ),
+                Span::styled(format!("{}  ", feed.title), app.theme.dim),
                 Span::raw(entry.title.clone()),
             ])))
         })
@@ -376,7 +352,7 @@ fn draw_cross_feed(
     let items = if empty {
         vec![ListItem::new(Line::from(Span::styled(
             empty_message,
-            Style::default().fg(app.theme.dim),
+            app.theme.dim,
         )))]
     } else {
         items
@@ -445,30 +421,19 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
                 " Mark {} unread entries in {what} as read?  y / n ",
                 app.pending_count()
             ))
-            .style(
-                Style::default()
-                    .fg(app.theme.status_foreground)
-                    .bg(app.theme.warning),
-            ),
+            .style(app.theme.status(app.theme.warning)),
             area,
         );
         return;
     }
 
-    let (text, background) = match (&app.status, error) {
+    let (text, tone) = match (&app.status, error) {
         (Some(status), _) => (status.clone(), app.theme.accent),
-        (None, Some((message, colour))) => (message, colour),
+        (None, Some((message, tone))) => (message, tone),
         (None, None) => (format!(" {} ", help_line(&app.theme)), app.theme.accent),
     };
 
-    frame.render_widget(
-        Paragraph::new(text).style(
-            Style::default()
-                .fg(app.theme.status_foreground)
-                .bg(background),
-        ),
-        area,
-    );
+    frame.render_widget(Paragraph::new(text).style(app.theme.status(tone)), area);
 }
 
 fn block<'a>(title: &'a str, focused: bool, theme: &'a crate::theme::Theme) -> Block<'a> {
@@ -476,7 +441,7 @@ fn block<'a>(title: &'a str, focused: bool, theme: &'a crate::theme::Theme) -> B
     Block::default()
         .border_set(border_set(theme))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(border))
+        .border_style(border)
         .title(format!(" {title} "))
 }
 
@@ -511,9 +476,7 @@ fn help_line(theme: &crate::theme::Theme) -> String {
 }
 
 fn highlight(theme: &crate::theme::Theme) -> Style {
-    Style::default()
-        .fg(theme.accent)
-        .add_modifier(Modifier::BOLD)
+    theme.accent.add_modifier(Modifier::BOLD)
 }
 
 #[cfg(test)]
@@ -968,6 +931,29 @@ mod tests {
                 .chars()
                 .any(|c| ('\u{2500}'..='\u{257F}').contains(&c)),
             "box drawing disappeared from the default theme"
+        );
+    }
+
+    #[test]
+    fn the_status_bar_reverses_instead_of_pinning_a_text_colour() {
+        let mut app = themed(crate::theme::Theme::terminal());
+        let mut terminal =
+            Terminal::new(TestBackend::new(80, 24)).expect("test terminal should build");
+        terminal
+            .draw(|frame| draw(frame, &mut app, &crate::keys::Keymap::default()))
+            .expect("draw should succeed");
+        let buffer = terminal.backend().buffer().clone();
+
+        // The status bar is the last row.
+        let cell = &buffer[(1, 23)];
+        assert!(
+            cell.modifier.contains(Modifier::REVERSED),
+            "the status bar is not reversed: {cell:?}"
+        );
+        assert_eq!(
+            cell.bg,
+            ratatui::style::Color::Reset,
+            "the status bar pinned a background instead of reversing"
         );
     }
 

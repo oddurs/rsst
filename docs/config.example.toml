@@ -25,25 +25,42 @@ tags = ["Rust"]
 url = "https://this-week-in-rust.org/atom.xml"
 
 # ─── Colours ─────────────────────────────────────────────────────────────────
-# Setting NO_COLOR in the environment disables colour whatever this says.
+# rsst says what a thing *is* and lets the terminal say what colour that is.
+# The presets use only the sixteen ANSI colours, which every terminal theme
+# remaps — so rsst follows your Ghostty/iTerm2/Alacritty theme rather than
+# fighting it. Setting NO_COLOR disables colour whatever this says.
 
 [theme]
-# A bundled preset: "dark" (default), "light", or "mono" for no colour.
-name = "dark"
+# "terminal" (default) follows your palette and uses attributes for emphasis.
+# "dark" is the bright half of the palette, "light" the dim half, and "mono"
+# uses no colour at all.
+name = "terminal"
+
 # Draw borders and markers with ASCII instead of box-drawing characters.
 # Unset means detect: ASCII is used when TERM is `dumb` or unset, or when the
 # locale is not UTF-8. Set it explicitly to override the detection either way.
 ascii = false
-# Any role can be overridden by colour name or #rrggbb. Roles are named for
-# what they mark, not for a hue.
+
+# Any role can be overridden. A value is a colour, one or more attributes, or
+# both — "bold cyan". Naming no colour is deliberate: the role then follows
+# whatever foreground your terminal is using, which is what keeps `dim` from
+# vanishing into a background it was never told about.
+#
+#   colours     black red green yellow blue magenta cyan white gray darkgray
+#               lightred lightgreen lightyellow lightblue lightmagenta lightcyan
+#               default (your terminal's own foreground), or #rrggbb
+#   attributes  bold dim italic underline reverse
 accent = "cyan"             # focused borders, unread counts, the selection
-dim = "darkgray"            # dates, read entries, anything receding
+dim = "dim"                 # dates, read entries, anything receding
 error = "red"               # feeds that failed to fetch
 warning = "yellow"          # prompts waiting for an answer
 star = "yellow"             # starred entries
-group = "magenta"           # feed group headings
-link = "blue"               # the link in the detail pane
-status_foreground = "black" # text on the status bar
+group = "bold magenta"      # feed group headings
+link = "underline blue"     # the link in the detail pane
+
+# The status bar is not listed: it reverses whichever role it is carrying, so
+# its text colour is your terminal's own background and it contrasts by
+# construction rather than by guess.
 
 # ─── Keys ────────────────────────────────────────────────────────────────────
 # Rebind any action. An override REPLACES the default, so binding `quit` to `x`
