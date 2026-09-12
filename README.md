@@ -42,6 +42,9 @@ title = "Rust Blog"        # optional; defaults to the feed's own title
 
 [[feeds]]
 url = "https://this-week-in-rust.org/atom.xml"
+
+# Optional. How many feeds may be fetched at once; defaults to 8.
+max_concurrent_fetches = 8
 ```
 
 ## Keys
