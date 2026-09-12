@@ -24,8 +24,7 @@ rsst export > subs.opml     # write your feeds out as OPML
 ```
 
 Importing merges rather than replaces, so running it twice adds nothing the
-second time. Folders in the OPML are flattened — there is nowhere to put them
-yet.
+second time. OPML folders become tags, and tags become folders on the way out.
 
 ## Configure
 
@@ -42,6 +41,7 @@ title = "Rust Blog"        # optional; defaults to the feed's own title
 
 [[feeds]]
 url = "https://this-week-in-rust.org/atom.xml"
+tags = ["Rust"]              # optional; groups the feed in the sidebar
 
 # Optional. How many feeds may be fetched at once; defaults to 8.
 max_concurrent_fetches = 8
@@ -65,6 +65,7 @@ max_concurrent_fetches = 8
 | `o`            | Open the entry in your browser |
 | `y`            | Copy its link to the clipboard |
 | `r`            | Refresh all feeds         |
+| `Enter`        | Fold a feed group away (feed pane) |
 | `?`            | Show every key            |
 | `q` / `Esc`    | Quit                      |
 

@@ -20,6 +20,9 @@ pub struct FeedSource {
     /// Overrides the title advertised by the feed itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Groups this feed appears under. Empty means ungrouped.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 impl Config {
@@ -65,6 +68,7 @@ impl Config {
             feeds: vec![FeedSource {
                 url: "https://blog.rust-lang.org/feed.xml".into(),
                 title: Some("Rust Blog".into()),
+                tags: Vec::new(),
             }],
         }
     }
@@ -106,6 +110,23 @@ mod tests {
         assert_eq!(config.feeds.len(), 2);
         assert_eq!(config.feeds[0].title, None);
         assert_eq!(config.feeds[1].title.as_deref(), Some("Example Org"));
+    }
+
+    #[test]
+    fn tags_are_optional_and_default_to_none() {
+        let config: Config = toml::from_str(
+            r#"
+            [[feeds]]
+            url = "https://a.example/feed"
+
+            [[feeds]]
+            url = "https://b.example/feed"
+            tags = ["Rust", "Weekly"]
+            "#,
+        )
+        .expect("parses");
+        assert!(config.feeds[0].tags.is_empty());
+        assert_eq!(config.feeds[1].tags, ["Rust", "Weekly"]);
     }
 
     #[test]
