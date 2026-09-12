@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # An advisory published against an unchanged tree would otherwise go unnoticed
+  # until someone happened to push.
+  schedule:
+    - cron: "17 6 * * 1"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
