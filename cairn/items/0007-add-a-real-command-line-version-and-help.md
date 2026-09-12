@@ -2,7 +2,8 @@
 id: 7
 title: 'Add a real command line: --version and --help'
 type: bug
-status: planned
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
 updated: 2026-09-11
 priority: p0
