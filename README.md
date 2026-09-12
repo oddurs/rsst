@@ -59,9 +59,13 @@ quit = "x"
 half_page_down = "ctrl-f"
 ```
 
-Run `rsst --help` for every action name, or press `?` in the app.
+Run `rsst --help` for every action name, or press `?` in the app. Setting
+`NO_COLOR` disables colour whatever the config says.
 
-Setting `NO_COLOR` disables colour whatever the config says.
+**[docs/config.example.toml](docs/config.example.toml) is the full reference** —
+every key the parser accepts, with its default, and every action bound. It is
+not prose that can drift: tests assert it parses, that it mentions every field
+the config struct serializes, and that it binds every action the app knows.
 
 ## Keys
 

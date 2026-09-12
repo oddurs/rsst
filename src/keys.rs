@@ -161,6 +161,12 @@ const ACTIONS: &[(Action, &str, &str, &str)] = &[
 ];
 
 impl Action {
+    /// Every action's config name, for documentation and its tests.
+    #[cfg(test)]
+    pub fn all_names() -> Vec<&'static str> {
+        ACTIONS.iter().map(|(_, name, ..)| *name).collect()
+    }
+
     pub fn from_name(name: &str) -> Option<Self> {
         ACTIONS
             .iter()

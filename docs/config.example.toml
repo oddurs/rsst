@@ -1,0 +1,79 @@
+# A fully populated rsst config. Every key below is optional except the feed
+# URLs; the values shown are the defaults unless noted.
+#
+# Location:
+#   macOS    ~/Library/Application Support/rsst/config.toml
+#   Linux    ~/.config/rsst/config.toml
+#   Windows  %APPDATA%\rsst\config.toml
+
+# How many feeds may be fetched at once. Default: 8.
+max_concurrent_fetches = 8
+
+# ─── Feeds ───────────────────────────────────────────────────────────────────
+# Repeat [[feeds]] once per subscription. `url` is required; the rest optional.
+
+[[feeds]]
+url = "https://blog.rust-lang.org/feed.xml"
+# Overrides the title the feed advertises. Default: the feed's own title,
+# falling back to the URL.
+title = "Rust Blog"
+# Groups this feed appears under in the sidebar. Default: none (ungrouped).
+# Only the first tag decides placement; OPML folders import as tags.
+tags = ["Rust"]
+
+[[feeds]]
+url = "https://this-week-in-rust.org/atom.xml"
+
+# ─── Colours ─────────────────────────────────────────────────────────────────
+# Setting NO_COLOR in the environment disables colour whatever this says.
+
+[theme]
+# A bundled preset: "dark" (default), "light", or "mono" for no colour.
+name = "dark"
+# Any role can be overridden by colour name or #rrggbb. Roles are named for
+# what they mark, not for a hue.
+accent = "cyan"             # focused borders, unread counts, the selection
+dim = "darkgray"            # dates, read entries, anything receding
+error = "red"               # feeds that failed to fetch
+warning = "yellow"          # prompts waiting for an answer
+star = "yellow"             # starred entries
+group = "magenta"           # feed group headings
+link = "blue"               # the link in the detail pane
+status_foreground = "black" # text on the status bar
+
+# ─── Keys ────────────────────────────────────────────────────────────────────
+# Rebind any action. An override REPLACES the default, so binding `quit` to `x`
+# means `q` no longer quits. Anything left out keeps its default.
+#
+# Key spelling: a single character (`j`, `A`, `?`), a named key (`tab`, `enter`,
+# `space`, `esc`, `backspace`, `up`, `down`, `left`, `right`, `home`, `end`,
+# `pageup`, `pagedown`), optionally prefixed `ctrl-` or `alt-`.
+#
+# Run `rsst --help`, or press `?` in the app, for the current bindings.
+
+[keys]
+next = "j"                        # next item, or scroll the detail pane
+previous = "k"                    # previous item, or scroll back
+first = "g"                       # first item
+last = "G"                        # last item
+half_page_down = "ctrl-d"         # half a pane down
+half_page_up = "ctrl-u"           # half a pane up
+cycle_pane = "tab"                # cycle feeds / entries / detail
+toggle_group = "enter"            # fold a feed group away
+next_unread = "n"                 # next unread, across feeds
+previous_unread = "p"             # previous unread
+toggle_read = "m"                 # toggle read on this entry
+mark_feed_read = "a"              # mark this feed read (asks first)
+mark_all_read = "A"               # mark every feed read (asks first)
+toggle_unread_only = "u"          # show only unread
+toggle_star = "s"                 # star this entry
+toggle_starred_view = "S"         # show only starred
+toggle_all_feeds = "v"            # show every feed as one list
+toggle_sort = "t"                 # oldest first / newest first
+search = "/"                      # search every feed
+open = "o"                        # open the entry in your browser
+copy_link = "y"                   # copy its link
+refresh = "r"                     # refresh all feeds
+reload_config = "R"               # re-read this file
+help = "?"                        # show the key reference
+quit = "q"                        # quit

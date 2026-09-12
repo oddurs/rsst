@@ -2,9 +2,10 @@
 id: 33
 title: Document the config schema in full
 type: docs
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p2
 effort: s
 area: docs
@@ -21,6 +22,6 @@ A reference page covering every key, its default, and its accepted values, with 
 
 ## Acceptance criteria
 
-- [ ] Every key the parser accepts is documented.
-- [ ] Defaults are stated.
-- [ ] The example config parses — enforced by a test.
+- [x] Every key the parser accepts is documented.
+- [x] Defaults are stated.
+- [x] The example config parses — enforced by a test.

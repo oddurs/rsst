@@ -157,6 +157,73 @@ mod tests {
         assert_eq!(config.fetch_limit(), 3);
     }
 
+    /// Every key the parser accepts, taken from serde rather than a list kept
+    /// by hand — so a new field cannot be added without this noticing.
+    fn documented_keys() -> Vec<String> {
+        let populated = Config {
+            feeds: vec![FeedSource {
+                url: "https://example.com/feed".into(),
+                title: Some("Example".into()),
+                tags: vec!["Tag".into()],
+            }],
+            theme: crate::theme::ThemeConfig {
+                name: Some("dark".into()),
+                overrides: Default::default(),
+            },
+            keys: Default::default(),
+            max_concurrent_fetches: Some(8),
+        };
+        let rendered = toml::to_string(&populated).expect("serializes");
+        rendered
+            .lines()
+            .filter_map(|line| line.split('=').next())
+            .map(|key| key.trim().to_string())
+            .filter(|key| !key.is_empty() && !key.starts_with('[') && !key.starts_with('#'))
+            .collect()
+    }
+
+    #[test]
+    fn the_example_config_parses() {
+        let example = include_str!("../docs/config.example.toml");
+        let config: Config = toml::from_str(example).expect("the documented example must parse");
+        assert_eq!(config.feeds.len(), 2);
+        assert_eq!(config.fetch_limit(), 8);
+    }
+
+    #[test]
+    fn the_example_config_exercises_every_key_the_parser_accepts() {
+        let example = include_str!("../docs/config.example.toml");
+        for key in documented_keys() {
+            assert!(
+                example.contains(&key),
+                "docs/config.example.toml never mentions `{key}`"
+            );
+        }
+    }
+
+    #[test]
+    fn the_example_binds_every_action() {
+        let example = include_str!("../docs/config.example.toml");
+        let config: Config = toml::from_str(example).expect("parses");
+        // It must also be a *valid* keymap, not merely valid TOML.
+        crate::keys::Keymap::from_config(&config.keys).expect("the documented keys must be valid");
+        // Every action the app knows must appear, so nothing is undiscoverable.
+        for name in crate::keys::Action::all_names() {
+            assert!(
+                config.keys.contains_key(name),
+                "docs/config.example.toml never binds `{name}`"
+            );
+        }
+    }
+
+    #[test]
+    fn the_example_theme_resolves() {
+        let example = include_str!("../docs/config.example.toml");
+        let config: Config = toml::from_str(example).expect("parses");
+        crate::theme::Theme::resolve(&config.theme, false)
+            .expect("the documented theme must resolve");
+    }
+
     #[test]
     fn an_empty_config_is_valid() {
         let config: Config = toml::from_str("").expect("empty config should parse");
