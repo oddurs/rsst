@@ -2,7 +2,8 @@
 id: 62
 title: A feed may send as much as it likes
 type: bug
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p0
@@ -36,8 +37,12 @@ The ceiling wants to be generous — real feeds reach a few megabytes — and co
 
 ## Acceptance criteria
 
-- [ ] A body over the limit fails with an error naming the limit, rather than being buffered
-- [ ] An oversized `Content-Length` is refused before the body is read
-- [ ] Peak memory stays bounded no matter how much the server sends
-- [ ] The limit is configurable, with a sane default
-- [ ] A test serves more than the limit and asserts the refusal
+- [x] A body over the limit fails with an error naming the limit, rather than being buffered
+- [x] An oversized `Content-Length` is refused before the body is read
+- [x] Peak memory stays bounded no matter how much the server sends
+- [x] The limit is configurable, with a sane default
+- [x] A test serves more than the limit and asserts the refusal
+
+## 2026-09-12
+
+Measured before: 300MB body -> 865MB resident, 600MB -> 1.6GB, linear. After: 600MB -> 23MB, and the server sees the connection reset mid-body rather than rsst draining it politely.

@@ -47,6 +47,11 @@ still needs.
 
 ### Fixed
 
+- A feed could send as much as it liked: the body was buffered whole, so 600 MB
+  on the wire meant 1.6 GB resident and nothing stopped it going further. Bodies
+  are now streamed against a limit (`max_feed_megabytes`, 8 by default) and an
+  oversized `Content-Length` is refused before a byte is read
+
 - A panic no longer leaves the terminal in raw mode with the alternate screen
   active
 - Every capital-letter binding (`A`, `G`, `S`, `N`, `R`) was dead: terminals

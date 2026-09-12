@@ -142,11 +142,10 @@ with the alternate screen still active.
 
 ## v1.5
 
-`##········` 13% · 1 of 8 done
+`###·······` 25% · 2 of 8 done
 
 ### backlog
 
-- [ ] [`0062`](https://github.com/oddurs/rsst/blob/main/cairn/items/0062-a-feed-may-send-as-much-as-it-likes.md) A feed may send as much as it likes <sup>bug · v1.5 · p0</sup>
 - [ ] [`0063`](https://github.com/oddurs/rsst/blob/main/cairn/items/0063-say-what-kind-of-failure-a-fetch-hit.md) Say what kind of failure a fetch hit <sup>feature · v1.5 · p1</sup>
 - [ ] [`0064`](https://github.com/oddurs/rsst/blob/main/cairn/items/0064-retry-a-transient-failure-instead-of-giving-up.md) Retry a transient failure instead of giving up <sup>feature · v1.5 · p1</sup>
 - [ ] [`0065`](https://github.com/oddurs/rsst/blob/main/cairn/items/0065-remember-a-permanent-redirect.md) Remember a permanent redirect <sup>feature · v1.5 · p2</sup>
@@ -157,4 +156,5 @@ with the alternate screen still active.
 ### done
 
 - [x] [`0061`](https://github.com/oddurs/rsst/blob/main/cairn/items/0061-seed-with-real-feeds-as-well-as-fixtures.md) Seed with real feeds as well as fixtures <sup>feature · v1.5 · p1</sup>
+- [x] [`0062`](https://github.com/oddurs/rsst/blob/main/cairn/items/0062-a-feed-may-send-as-much-as-it-likes.md) A feed may send as much as it likes <sup>bug · v1.5 · p0</sup>
 
