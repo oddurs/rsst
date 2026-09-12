@@ -119,6 +119,7 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
         .current_feed()
         .map(|feed| feed.url.clone())
         .unwrap_or_else(|| "Entries".into());
+    app.entries_viewport = (area.width.saturating_sub(2), area.height.saturating_sub(2));
     let visible = app.visible_indices(app.selected_feed);
     let entries = app.current_feed().map(|feed| &feed.entries);
     let items: Vec<ListItem> = visible

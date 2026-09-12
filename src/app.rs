@@ -31,6 +31,8 @@ pub struct App {
     pub pending: Option<Bulk>,
     /// Showing only starred entries, across every feed.
     pub starred_view: bool,
+    /// Inner size of the entries pane, written back by the renderer.
+    pub entries_viewport: (u16, u16),
 }
 
 /// A marking action that affects more than one entry, so it is worth a prompt.
@@ -76,6 +78,126 @@ impl App {
         if let Some(entry) = feed.entries.get(self.selected_entry) {
             self.read.mark_read(entry);
         }
+    }
+
+    /// Jumps to the first item in the focused pane.
+    pub fn select_first(&mut self) {
+        match self.focus {
+            Pane::Feeds => {
+                self.selected_feed = 0;
+                self.selected_entry = 0;
+                self.detail_scroll = 0;
+            }
+            Pane::Entries => {
+                self.selected_entry = self.first_visible().unwrap_or(0);
+                self.detail_scroll = 0;
+                self.mark_current_read();
+            }
+            Pane::Detail => self.detail_scroll = 0,
+        }
+    }
+
+    /// Jumps to the last item in the focused pane.
+    pub fn select_last(&mut self) {
+        match self.focus {
+            Pane::Feeds => {
+                self.selected_feed = self.feeds.len().saturating_sub(1);
+                self.selected_entry = 0;
+                self.detail_scroll = 0;
+            }
+            Pane::Entries => {
+                self.selected_entry = self.last_visible().unwrap_or(0);
+                self.detail_scroll = 0;
+                self.mark_current_read();
+            }
+            Pane::Detail => self.detail_scroll = self.max_detail_scroll(),
+        }
+    }
+
+    /// Moves by half the focused pane's height, the way Ctrl-d and Ctrl-u do.
+    ///
+    /// Half a *pane*, not a fixed number: on a tall terminal it should cover
+    /// more ground, which is the whole reason the binding exists.
+    pub fn half_page(&mut self, direction: isize) {
+        let height = match self.focus {
+            Pane::Detail => self.detail_viewport.1,
+            _ => self.entries_viewport.1,
+        };
+        let steps = (height / 2).max(1);
+        for _ in 0..steps {
+            match direction {
+                d if d > 0 => self.select_next(),
+                _ => self.select_previous(),
+            }
+        }
+    }
+
+    /// Moves to the next unread entry, continuing into other feeds.
+    ///
+    /// Crossing feed boundaries is the point: working a backlog should not
+    /// require noticing that a feed is finished and moving over by hand.
+    pub fn next_unread(&mut self, forward: bool) -> bool {
+        let total: usize = self.feeds.iter().map(|f| f.entries.len()).sum();
+        if total == 0 {
+            return false;
+        }
+
+        let mut feed = self.selected_feed;
+        let mut entry = self.selected_entry;
+        for _ in 0..total {
+            let Some(next) = self.neighbour(feed, entry, forward) else {
+                return false;
+            };
+            (feed, entry) = next;
+            let unread = self.feeds[feed]
+                .entries
+                .get(entry)
+                .is_some_and(|e| !self.read.is_read(e));
+            if unread {
+                self.selected_feed = feed;
+                self.selected_entry = entry;
+                self.detail_scroll = 0;
+                self.mark_current_read();
+                return true;
+            }
+        }
+        false
+    }
+
+    /// The next (feed, entry) position, wrapping across feeds and round the end.
+    fn neighbour(&self, feed: usize, entry: usize, forward: bool) -> Option<(usize, usize)> {
+        if self.feeds.is_empty() {
+            return None;
+        }
+        let mut feed = feed;
+        let mut entry = entry as isize + if forward { 1 } else { -1 };
+
+        for _ in 0..=self.feeds.len() {
+            let len = self.feeds.get(feed)?.entries.len() as isize;
+            if entry >= 0 && entry < len {
+                return Some((feed, entry as usize));
+            }
+            if forward {
+                feed = (feed + 1) % self.feeds.len();
+                entry = 0;
+            } else {
+                feed = if feed == 0 {
+                    self.feeds.len() - 1
+                } else {
+                    feed - 1
+                };
+                entry = self.feeds.get(feed)?.entries.len() as isize - 1;
+            }
+        }
+        None
+    }
+
+    fn first_visible(&self) -> Option<usize> {
+        self.visible_indices(self.selected_feed).first().copied()
+    }
+
+    fn last_visible(&self) -> Option<usize> {
+        self.visible_indices(self.selected_feed).last().copied()
     }
 
     /// Stars the selected entry, or unstars it. Reports the new state.
@@ -917,6 +1039,107 @@ mod tests {
         assert!(app.starred_view);
         app.toggle_starred_view();
         assert!(!app.starred_view);
+    }
+
+    #[test]
+    fn g_and_shift_g_jump_to_the_ends_of_the_entry_list() {
+        let mut app = app();
+        app.focus = Pane::Entries;
+        app.select_last();
+        assert_eq!(app.selected_entry, 1);
+        app.select_first();
+        assert_eq!(app.selected_entry, 0);
+    }
+
+    #[test]
+    fn g_and_shift_g_jump_to_the_ends_of_the_feed_list() {
+        let mut app = app();
+        app.select_last();
+        assert_eq!(app.selected_feed, 1);
+        app.select_first();
+        assert_eq!(app.selected_feed, 0);
+    }
+
+    #[test]
+    fn shift_g_in_the_detail_pane_goes_to_the_last_line() {
+        let mut app = scrollable();
+        app.focus = Pane::Detail;
+        app.select_last();
+        assert_eq!(app.detail_scroll, app.max_detail_scroll());
+        app.select_first();
+        assert_eq!(app.detail_scroll, 0);
+    }
+
+    #[test]
+    fn a_half_page_scales_with_the_pane_height() {
+        let mut app = App::new(
+            vec![Feed {
+                title: "A".into(),
+                url: "https://a.example".into(),
+                status: crate::feed::Status::Idle,
+                entries: (0..40).map(|i| entry(&format!("e{i}"))).collect(),
+            }],
+            ReadState::default(),
+        );
+        app.focus = Pane::Entries;
+
+        app.entries_viewport = (80, 10);
+        app.half_page(1);
+        assert_eq!(app.selected_entry, 5, "half of ten");
+
+        app.selected_entry = 0;
+        app.entries_viewport = (80, 20);
+        app.half_page(1);
+        assert_eq!(app.selected_entry, 10, "half of twenty");
+    }
+
+    #[test]
+    fn a_half_page_in_a_tiny_pane_still_moves() {
+        let mut app = app();
+        app.focus = Pane::Entries;
+        app.entries_viewport = (80, 1);
+        app.half_page(1);
+        assert_eq!(app.selected_entry, 1);
+    }
+
+    #[test]
+    fn next_unread_crosses_into_the_following_feed() {
+        let mut app = app();
+        app.focus = Pane::Entries;
+        // Read everything in feed 0.
+        for entry in app.feeds[0].entries.clone() {
+            app.read.mark_read(&entry);
+        }
+        assert!(app.next_unread(true));
+        assert_eq!(app.selected_feed, 1, "moved on to the next feed");
+        assert_eq!(app.selected_entry, 0);
+    }
+
+    #[test]
+    fn next_unread_reports_when_there_is_nothing_left() {
+        let mut app = app();
+        for index in 0..app.feeds.len() {
+            for entry in app.feeds[index].entries.clone() {
+                app.read.mark_read(&entry);
+            }
+        }
+        assert!(!app.next_unread(true), "nothing unread anywhere");
+    }
+
+    #[test]
+    fn previous_unread_walks_backwards_across_feeds() {
+        let mut app = app();
+        app.selected_feed = 1;
+        app.selected_entry = 0;
+        assert!(app.next_unread(false));
+        assert_eq!(app.selected_feed, 0);
+        assert_eq!(app.selected_entry, 1, "last entry of the previous feed");
+    }
+
+    #[test]
+    fn next_unread_on_an_empty_reader_is_harmless() {
+        let mut app = App::new(Vec::new(), ReadState::default());
+        assert!(!app.next_unread(true));
     }
 
     #[test]

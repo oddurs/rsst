@@ -41,6 +41,9 @@ KEYS:
   j / down             next item, or scroll the detail pane
   k / up               previous item, or scroll back
   Tab                  cycle feeds / entries / detail
+  g / G                first / last
+  Ctrl-d / Ctrl-u      half a pane down / up
+  n / p                next / previous unread, across feeds
   /                    search every feed; n and N step through matches
   s / S                star the entry / show only starred
   m                    toggle read on the selected entry
