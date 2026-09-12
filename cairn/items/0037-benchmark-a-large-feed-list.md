@@ -1,0 +1,26 @@
+---
+id: 37
+title: Benchmark a large feed list
+type: chore
+status: backlog
+milestone: v1.0
+created: 2026-09-11
+updated: 2026-09-11
+priority: p3
+effort: m
+area: net
+---
+
+## Problem
+
+Nothing has been measured. Behaviour at 500 feeds and 50,000 entries is unknown — a scroll that is smooth at ten feeds may not be.
+
+## Proposal
+
+A benchmark harness over a synthetic corpus, covering startup, refresh and scroll, with the numbers recorded so regressions are visible.
+
+## Acceptance criteria
+
+- [ ] Reproducible benchmarks for startup, refresh and scrolling.
+- [ ] Baseline numbers committed.
+- [ ] CI flags a significant regression.
