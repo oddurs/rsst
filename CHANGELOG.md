@@ -53,4 +53,5 @@ still needs.
   report Shift+key with the Shift modifier set, and the keymap compared
   modifiers literally
 - Colours no longer pin absolute values that ignore the terminal's theme
-- HTML entities in summaries are decoded rather than shown raw
+- HTML entities in summaries are decoded rather than shown raw — and in titles,
+  which were the one place left showing `R&amp;D` instead of `R&D`

@@ -209,11 +209,16 @@ pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
     let parsed =
         feed_rs::parser::parse(body).with_context(|| format!("parsing feed at {}", source.url))?;
 
-    let title = source
-        .title
-        .clone()
-        .or_else(|| parsed.title.as_ref().map(|t| t.content.clone()))
-        .unwrap_or_else(|| source.url.clone());
+    // Decoded, like the body is. A feed that titles a post "Tom &amp; Jerry"
+    // means an ampersand, and the list is the one place it was shown raw.
+    // A configured title is the reader's own text, so it is left alone.
+    let title = source.title.clone().unwrap_or_else(|| {
+        parsed
+            .title
+            .as_ref()
+            .map(|t| decode_entities(&t.content))
+            .unwrap_or_else(|| source.url.clone())
+    });
 
     let mut entries: Vec<Entry> = parsed
         .entries
@@ -221,7 +226,7 @@ pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
         .map(|entry| {
             let title = entry
                 .title
-                .map(|t| t.content)
+                .map(|t| decode_entities(&t.content))
                 .unwrap_or_else(|| "(untitled)".into());
             let link = entry.links.into_iter().next().map(|l| l.href);
             let published = entry.published.or(entry.updated);
@@ -605,5 +610,46 @@ mod tests {
             keys: Vec::new(),
         };
         assert_eq!(entry.date_label(), "—");
+    }
+
+    #[test]
+    fn a_title_is_decoded_the_same_way_a_summary_is() {
+        // The same bytes in both places. They used to render two ways: the
+        // summary decoded, the headline above it raw.
+        let xml = r#"<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
+            <title>Tom &amp;amp; Jerry</title><id>u</id>
+            <entry><id>e1</id>
+              <title>R&amp;amp;D, Q&amp;amp;A and &amp;lt;tags&amp;gt;</title>
+              <summary>R&amp;amp;D, Q&amp;amp;A and &amp;lt;tags&amp;gt;</summary>
+            </entry></feed>"#;
+        let feed = parse(xml.as_bytes(), &source()).expect("parses");
+        let entry = &feed.entries[0];
+
+        assert_eq!(entry.title, "R&D, Q&A and <tags>");
+        assert_eq!(
+            entry.title, entry.summary,
+            "a title and a summary carrying the same bytes must read the same"
+        );
+        assert_eq!(feed.title, "Tom & Jerry", "the feed's own title too");
+    }
+
+    #[test]
+    fn a_numeric_entity_in_a_title_is_decoded() {
+        let xml = r#"<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
+            <title>F</title><id>u</id>
+            <entry><id>e1</id><title>it&amp;#8217;s here</title></entry></feed>"#;
+        let feed = parse(xml.as_bytes(), &source()).expect("parses");
+        assert_eq!(feed.entries[0].title, "it\u{2019}s here");
+    }
+
+    #[test]
+    fn a_configured_title_is_the_readers_own_text_and_is_left_alone() {
+        // Not a feed's markup: whatever they typed in the config is literal.
+        let xml = r#"<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
+            <title>Ignored</title><id>u</id></feed>"#;
+        let mut source = source();
+        source.title = Some("R&amp;D".into());
+        let feed = parse(xml.as_bytes(), &source).expect("parses");
+        assert_eq!(feed.title, "R&amp;D");
     }
 }
