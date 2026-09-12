@@ -9,6 +9,16 @@
 # How many feeds may be fetched at once. Default: 8.
 max_concurrent_fetches = 8
 
+# Whether rsst captures the mouse. Default: true — click a feed or an entry to
+# select it, click a group heading to fold it, click a link to open it, and roll
+# the wheel over any pane to scroll it.
+#
+# The trade-off is that while rsst holds the mouse, your terminal cannot use it
+# for selecting text. Most terminals — Ghostty, iTerm2, kitty, Alacritty —
+# hand selection back if you hold Shift while dragging. Set this to false if you
+# would rather have ordinary selection all the time.
+mouse = true
+
 # ─── Feeds ───────────────────────────────────────────────────────────────────
 # Repeat [[feeds]] once per subscription. `url` is required; the rest optional.
 

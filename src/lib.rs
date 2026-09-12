@@ -13,6 +13,7 @@ pub mod generate;
 pub mod keys;
 pub mod launch;
 pub mod limit;
+pub mod mouse;
 pub mod opml;
 pub mod screenshot;
 pub mod state;

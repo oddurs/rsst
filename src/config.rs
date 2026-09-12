@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     #[serde(default)]
     pub feeds: Vec<FeedSource>,
+    /// Whether to capture the mouse. Off gives the terminal its own
+    /// click-to-select back.
+    #[serde(default = "yes", skip_serializing_if = "is_yes")]
+    pub mouse: bool,
     /// Colours.
     #[serde(default)]
     pub theme: crate::theme::ThemeConfig,
@@ -70,6 +74,7 @@ impl Config {
 
     fn starter() -> Self {
         Self {
+            mouse: true,
             theme: Default::default(),
             keys: Default::default(),
             max_concurrent_fetches: None,
@@ -83,6 +88,14 @@ impl Config {
 }
 
 /// The config path actually in use: an explicit one, or the platform default.
+fn yes() -> bool {
+    true
+}
+
+fn is_yes(value: &bool) -> bool {
+    *value
+}
+
 pub fn config_path_or(override_path: Option<PathBuf>) -> Result<PathBuf> {
     match override_path {
         Some(path) => Ok(path),
@@ -146,6 +159,15 @@ mod tests {
     }
 
     #[test]
+    fn the_mouse_is_on_unless_the_config_says_otherwise() {
+        let config: Config = toml::from_str("").expect("parses");
+        assert!(config.mouse);
+
+        let off: Config = toml::from_str("mouse = false").expect("parses");
+        assert!(!off.mouse);
+    }
+
+    #[test]
     fn the_fetch_limit_defaults_when_unset() {
         let config: Config = toml::from_str("").expect("parses");
         assert_eq!(config.fetch_limit(), crate::limit::DEFAULT_LIMIT);
@@ -173,6 +195,7 @@ mod tests {
             },
             keys: Default::default(),
             max_concurrent_fetches: Some(8),
+            mouse: false,
         };
         let rendered = toml::to_string(&populated).expect("serializes");
         rendered

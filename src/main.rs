@@ -7,6 +7,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use crossterm::cursor::Show;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture, MouseEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -117,7 +118,7 @@ async fn main() -> Result<()> {
     };
 
     install_panic_hook();
-    let mut terminal = enter()?;
+    let mut terminal = enter(session.config.mouse)?;
     let result = run(&mut terminal, &mut app, &mut session).await;
     restore()?;
 
@@ -136,6 +137,7 @@ async fn main() -> Result<()> {
 type Tui = Terminal<CrosstermBackend<io::Stdout>>;
 
 async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result<()> {
+    let mut clicks = Clicks::default();
     while !app.should_quit {
         // Take whatever has arrived since the last frame. Never blocks, so a
         // slow feed cannot hold up the redraw.
@@ -180,7 +182,16 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
         if !event::poll(TICK)? {
             continue;
         }
-        let Event::Key(key) = event::read()? else {
+        let event = event::read()?;
+        if let Event::Mouse(mouse) = event {
+            let double = clicks.is_double(&mouse);
+            let hit = rsst::mouse::resolve(&app.hits, mouse, double);
+            if let Some(action) = rsst::mouse::apply(app, hit) {
+                dispatch(action, app, session)?;
+            }
+            continue;
+        }
+        let Event::Key(key) = event else {
             continue;
         };
         if !handles(key.kind) {
@@ -259,92 +270,7 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
         let Some(action) = session.keymap.action(key.code, key.modifiers) else {
             continue;
         };
-        use keys::Action;
-        match action {
-            Action::Quit => app.should_quit = true,
-            Action::Help => app.help_open = true,
-            Action::CyclePane => app.toggle_focus(),
-            Action::Next => app.select_next(),
-            Action::Previous => app.select_previous(),
-            Action::First => app.select_first(),
-            Action::Last => app.select_last(),
-            Action::HalfPageDown => app.half_page(1),
-            Action::HalfPageUp => app.half_page(-1),
-            Action::ToggleGroup if app.focus == app::Pane::Feeds => app.toggle_group(),
-            Action::ToggleGroup => {}
-            Action::NextUnread => {
-                if !app.next_unread(true) {
-                    app.status = Some(" No unread entries. ".into());
-                }
-            }
-            Action::PreviousUnread => {
-                if !app.next_unread(false) {
-                    app.status = Some(" No unread entries. ".into());
-                }
-            }
-            Action::Search => app.start_search(),
-            Action::ToggleRead => {
-                app.toggle_current_read();
-                let _ = app.read.save(&session.state_path);
-            }
-            Action::MarkFeedRead => app.request_bulk(app::Bulk::Feed),
-            Action::MarkAllRead => app.request_bulk(app::Bulk::Everything),
-            Action::ToggleUnreadOnly => {
-                app.toggle_unread_only();
-                let _ = app.read.save(&session.state_path);
-            }
-            Action::ToggleStar => {
-                let starred = app.toggle_star();
-                let _ = app.read.save(&session.state_path);
-                app.status = Some(if starred {
-                    " Starred. ".into()
-                } else {
-                    " Unstarred. ".into()
-                });
-            }
-            Action::ToggleStarredView => app.toggle_starred_view(),
-            Action::ToggleAllFeeds => app.toggle_all_feeds_view(),
-            Action::ReloadConfig => match reload(app, session) {
-                // A broken config must leave the running reader exactly as it
-                // was: the feeds on screen are still perfectly readable.
-                Err(err) => app.status = Some(format!(" Config not reloaded: {err} ")),
-                Ok(added) => {
-                    app.status = Some(if added == 0 {
-                        " Config reloaded. ".into()
-                    } else {
-                        format!(" Config reloaded; fetching {added} new feed(s)… ")
-                    });
-                }
-            },
-            Action::ToggleSort => {
-                app.toggle_sort();
-                let _ = app.read.save(&session.state_path);
-                app.status = Some(if app.read.oldest_first {
-                    " Oldest first. ".into()
-                } else {
-                    " Newest first. ".into()
-                });
-            }
-            Action::Open => open_selected(app),
-            Action::CopyLink => copy_selected(app),
-            Action::Refresh => {
-                let _ = app.read.save(&session.state_path);
-                let starting = app.begin_refresh();
-                app.status = Some(if starting.is_empty() {
-                    " Already refreshing… ".into()
-                } else {
-                    format!(" Refreshing {} feed(s)… ", starting.len())
-                });
-                spawn_some(
-                    &session.client,
-                    &session.config,
-                    &session.cache,
-                    &session.limiter,
-                    &session.tx,
-                    starting,
-                );
-            }
-        }
+        dispatch(action, app, session)?;
     }
     Ok(())
 }
@@ -456,6 +382,133 @@ async fn screenshot(size: &str, config_override: Option<PathBuf>) -> Result<()> 
         rsst::screenshot::svg(&mut app, &keymap, width, height)
     );
     Ok(())
+}
+
+/// Carries out one action, whatever asked for it.
+///
+/// The single place an action becomes a change, so the keyboard and the pointer
+/// cannot disagree about what `refresh` means.
+fn dispatch(action: keys::Action, app: &mut App, session: &mut Session) -> Result<()> {
+    use keys::Action;
+    match action {
+        Action::Quit => app.should_quit = true,
+        Action::Help => app.help_open = true,
+        Action::CyclePane => app.toggle_focus(),
+        Action::Next => app.select_next(),
+        Action::Previous => app.select_previous(),
+        Action::First => app.select_first(),
+        Action::Last => app.select_last(),
+        Action::HalfPageDown => app.half_page(1),
+        Action::HalfPageUp => app.half_page(-1),
+        Action::ToggleGroup if app.focus == app::Pane::Feeds => app.toggle_group(),
+        Action::ToggleGroup => {}
+        Action::NextUnread => {
+            if !app.next_unread(true) {
+                app.status = Some(" No unread entries. ".into());
+            }
+        }
+        Action::PreviousUnread => {
+            if !app.next_unread(false) {
+                app.status = Some(" No unread entries. ".into());
+            }
+        }
+        Action::Search => app.start_search(),
+        Action::ToggleRead => {
+            app.toggle_current_read();
+            let _ = app.read.save(&session.state_path);
+        }
+        Action::MarkFeedRead => app.request_bulk(app::Bulk::Feed),
+        Action::MarkAllRead => app.request_bulk(app::Bulk::Everything),
+        Action::ToggleUnreadOnly => {
+            app.toggle_unread_only();
+            let _ = app.read.save(&session.state_path);
+        }
+        Action::ToggleStar => {
+            let starred = app.toggle_star();
+            let _ = app.read.save(&session.state_path);
+            app.status = Some(if starred {
+                " Starred. ".into()
+            } else {
+                " Unstarred. ".into()
+            });
+        }
+        Action::ToggleStarredView => app.toggle_starred_view(),
+        Action::ToggleAllFeeds => app.toggle_all_feeds_view(),
+        Action::ReloadConfig => match reload(app, session) {
+            // A broken config must leave the running reader exactly as it
+            // was: the feeds on screen are still perfectly readable.
+            Err(err) => app.status = Some(format!(" Config not reloaded: {err} ")),
+            Ok(added) => {
+                app.status = Some(if added == 0 {
+                    " Config reloaded. ".into()
+                } else {
+                    format!(" Config reloaded; fetching {added} new feed(s)… ")
+                });
+            }
+        },
+        Action::ToggleSort => {
+            app.toggle_sort();
+            let _ = app.read.save(&session.state_path);
+            app.status = Some(if app.read.oldest_first {
+                " Oldest first. ".into()
+            } else {
+                " Newest first. ".into()
+            });
+        }
+        Action::Open => open_selected(app),
+        Action::CopyLink => copy_selected(app),
+        Action::Refresh => {
+            let _ = app.read.save(&session.state_path);
+            let starting = app.begin_refresh();
+            app.status = Some(if starting.is_empty() {
+                " Already refreshing… ".into()
+            } else {
+                format!(" Refreshing {} feed(s)… ", starting.len())
+            });
+            spawn_some(
+                &session.client,
+                &session.config,
+                &session.cache,
+                &session.limiter,
+                &session.tx,
+                starting,
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Remembers the last click, so a second one nearby counts as a double.
+///
+/// Terminals report clicks, not double-clicks, so the timing is ours to keep.
+#[derive(Debug, Default)]
+struct Clicks {
+    last: Option<(u16, u16, std::time::Instant)>,
+}
+
+/// How close together two clicks must be to count as one gesture.
+const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+
+impl Clicks {
+    fn is_double(&mut self, event: &crossterm::event::MouseEvent) -> bool {
+        if !matches!(
+            event.kind,
+            MouseEventKind::Down(crossterm::event::MouseButton::Left)
+        ) {
+            return false;
+        }
+        let now = std::time::Instant::now();
+        let double = self.last.is_some_and(|(column, row, at)| {
+            column == event.column && row == event.row && now.duration_since(at) < DOUBLE_CLICK
+        });
+        // A double-click does not seed a triple: the third click starts over.
+        self.last = if double {
+            None
+        } else {
+            Some((event.column, event.row, now))
+        };
+        double
+    }
 }
 
 /// Whether a key event should be acted on.
@@ -573,10 +626,13 @@ fn http_client() -> Result<reqwest::Client> {
         .context("building the HTTP client")
 }
 
-fn enter() -> Result<Tui> {
+fn enter(mouse: bool) -> Result<Tui> {
     enable_raw_mode().context("enabling raw mode")?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen).context("entering the alternate screen")?;
+    if mouse {
+        execute!(stdout, EnableMouseCapture).context("capturing the mouse")?;
+    }
     Terminal::new(CrosstermBackend::new(stdout)).context("creating the terminal")
 }
 
@@ -587,7 +643,16 @@ fn enter() -> Result<Tui> {
 /// twice — both operations are no-ops in that case.
 fn restore() -> Result<()> {
     disable_raw_mode().context("disabling raw mode")?;
-    execute!(io::stdout(), LeaveAlternateScreen, Show).context("leaving the alternate screen")
+    // Releasing the mouse unconditionally: it is harmless when it was never
+    // captured, and leaving a terminal in mouse-reporting mode is miserable —
+    // every click prints escape codes at the shell prompt.
+    execute!(
+        io::stdout(),
+        DisableMouseCapture,
+        LeaveAlternateScreen,
+        Show
+    )
+    .context("leaving the alternate screen")
 }
 
 /// Restores the terminal before a panic reaches the default handler.
