@@ -2,7 +2,8 @@
 id: 51
 title: Add a feed from inside the reader
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p1
