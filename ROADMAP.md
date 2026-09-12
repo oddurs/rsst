@@ -98,10 +98,11 @@ with the alternate screen still active.
 
 ## v1.1
 
-`##########` 100% · 2 of 2 done
+`##########` 100% · 3 of 3 done
 
 ### done
 
 - [x] [`0044`](https://github.com/oddurs/rsst/blob/main/cairn/items/0044-keep-entries-and-read-state-in-sqlite.md) Keep entries and read state in SQLite <sup>feature · v1.1 · p1</sup>
 - [x] [`0046`](https://github.com/oddurs/rsst/blob/main/cairn/items/0046-rework-the-layout-information-architecture-hierarchy-and-typography.md) Rework the layout: information architecture, hierarchy and typography <sup>feature · v1.1 · p1</sup>
+- [x] [`0047`](https://github.com/oddurs/rsst/blob/main/cairn/items/0047-a-real-folder-tree-in-the-sidebar-and-a-way-to-organise-it.md) A real folder tree in the sidebar, and a way to organise it <sup>feature · v1.1 · p1</sup>
 

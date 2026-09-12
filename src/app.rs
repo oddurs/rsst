@@ -1,11 +1,39 @@
 use crate::feed::{Entry, Feed};
 use crate::state::ReadState;
 
-/// A row of the feed pane: either a group heading or a feed.
+/// Choosing where a feed should live.
+#[derive(Debug, Clone)]
+pub struct Move {
+    /// The feed being moved.
+    pub feed: usize,
+    /// Where it could go: the top level, each existing folder, then a new one.
+    pub choices: Vec<MoveTarget>,
+    pub selected: usize,
+    /// The name being typed, when the new-folder choice is selected.
+    pub typed: String,
+}
+
+/// Somewhere a feed can be moved to.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FeedRow {
-    Group { name: String, collapsed: bool },
-    Feed(usize),
+pub enum MoveTarget {
+    /// Out of every folder.
+    TopLevel,
+    /// An existing folder, by its full path.
+    Folder(Vec<String>),
+    /// A folder that does not exist yet, named as you type.
+    New,
+}
+
+impl MoveTarget {
+    /// How this reads in the picker.
+    pub fn label(&self, typed: &str) -> String {
+        match self {
+            Self::TopLevel => "Top level".into(),
+            Self::Folder(path) => path.join(" / "),
+            Self::New if typed.is_empty() => "New folder…".into(),
+            Self::New => format!("New folder: {typed}"),
+        }
+    }
 }
 
 /// Which list the arrow keys currently drive.
@@ -42,10 +70,10 @@ pub struct App {
     pub entries_viewport: (u16, u16),
     /// Whether the key reference is covering the screen.
     pub help_open: bool,
-    /// Groups the reader has folded away, by name.
+    /// Folder paths the reader has folded shut, joined by `/`.
     pub collapsed: std::collections::HashSet<String>,
-    /// The group each feed belongs to, parallel to `feeds`.
-    tags: Vec<Option<String>>,
+    /// Each feed's folder path, parallel to `feeds`.
+    paths: Vec<Vec<String>>,
     /// Colours in use.
     pub theme: crate::theme::Theme,
     /// Showing every feed's entries as one list.
@@ -54,6 +82,8 @@ pub struct App {
     pub hits: crate::mouse::Hits,
     /// First visible line of the help overlay.
     pub help_scroll: u16,
+    /// The open "move to folder" picker, if any.
+    pub moving: Option<Move>,
 }
 
 /// A marking action that affects more than one entry, so it is worth a prompt.
@@ -81,11 +111,11 @@ pub struct Search {
 
 impl App {
     pub fn new(feeds: Vec<Feed>, read: ReadState) -> Self {
-        let tags = vec![None; feeds.len()];
+        let paths = vec![Vec::new(); feeds.len()];
         Self {
             feeds,
             read,
-            tags,
+            paths,
             ..Default::default()
         }
     }
@@ -109,10 +139,7 @@ impl App {
             })
             .collect();
 
-        self.tags = sources
-            .iter()
-            .map(|source| source.tags.first().cloned())
-            .collect();
+        self.paths = sources.iter().map(|source| source.tags.clone()).collect();
 
         // The cursor may have been pointing at a feed that is now gone.
         self.selected_feed = self.selected_feed.min(self.feeds.len().saturating_sub(1));
@@ -136,65 +163,38 @@ impl App {
         self
     }
 
-    /// Records which group each feed belongs to, from the config.
+    /// Records each feed's folder path from the config.
     ///
-    /// A feed can carry several tags, but the feed list is a list: it shows
-    /// each feed once, under the first.
+    /// The whole tag list, not just the first: it is a path into the tree, and
+    /// reading only the head of it is what flattened every nested folder.
     pub fn with_tags(mut self, sources: &[crate::config::FeedSource]) -> Self {
-        self.tags = sources
-            .iter()
-            .map(|source| source.tags.first().cloned())
-            .collect();
-        self.tags.resize(self.feeds.len(), None);
+        self.paths = sources.iter().map(|source| source.tags.clone()).collect();
+        self.paths.resize(self.feeds.len(), Vec::new());
         self
     }
 
-    /// The group a feed belongs to, if any.
-    pub fn tag_of(&self, feed: usize) -> Option<&str> {
-        self.tags.get(feed).and_then(|t| t.as_deref())
+    /// The folder path a feed sits in, empty at the top level.
+    pub fn path_of(&self, feed: usize) -> &[String] {
+        self.paths.get(feed).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Every folder in the tree, for a picker to offer.
+    pub fn folders(&self) -> Vec<Vec<String>> {
+        crate::tree::folders(&self.paths)
+    }
+
+    /// Whether a folder is folded shut.
+    pub fn is_collapsed(&self, path: &[String]) -> bool {
+        self.collapsed.contains(&path.join("/"))
     }
 
     /// The feed list as it should be drawn: group headers and their feeds.
     ///
-    /// Ungrouped feeds come first, then each group under its heading.
-    ///
-    /// Ungrouped last would put them directly beneath the final group's feeds,
-    /// where they read as members of it — a heading claims everything below it
-    /// until the next one. Before the first heading there is no group to be
-    /// mistaken for, so they need no label of their own.
-    pub fn feed_rows(&self) -> Vec<FeedRow> {
-        let mut rows = Vec::new();
-        for index in 0..self.feeds.len() {
-            if self.tag_of(index).is_none() {
-                rows.push(FeedRow::Feed(index));
-            }
-        }
-
-        let mut groups: Vec<&str> = Vec::new();
-        for index in 0..self.feeds.len() {
-            if let Some(tag) = self.tag_of(index)
-                && !groups.contains(&tag)
-            {
-                groups.push(tag);
-            }
-        }
-
-        for group in groups {
-            let collapsed = self.collapsed.contains(group);
-            rows.push(FeedRow::Group {
-                name: group.to_string(),
-                collapsed,
-            });
-            if collapsed {
-                continue;
-            }
-            for index in 0..self.feeds.len() {
-                if self.tag_of(index) == Some(group) {
-                    rows.push(FeedRow::Feed(index));
-                }
-            }
-        }
-        rows
+    /// The sidebar as drawn: folders and feeds, nested.
+    pub fn feed_rows(&self) -> Vec<crate::tree::Row> {
+        crate::tree::rows(&self.paths, &|index| self.unread(index), &|path| {
+            self.is_collapsed(path)
+        })
     }
 
     /// The feeds the cursor can currently land on.
@@ -202,20 +202,20 @@ impl App {
         self.feed_rows()
             .into_iter()
             .filter_map(|row| match row {
-                FeedRow::Feed(index) => Some(index),
-                FeedRow::Group { .. } => None,
+                crate::tree::Row::Feed { index, .. } => Some(index),
+                crate::tree::Row::Folder { .. } => None,
             })
             .collect()
     }
 
-    /// Folds a named group away, or unfolds it.
+    /// Folds a folder shut, or opens it.
     ///
-    /// Takes the name rather than using the selection, because a click lands on
-    /// a heading that may not be the selected feed's.
-    pub fn toggle_group_named(&mut self, tag: &str) {
-        let tag = tag.to_string();
-        if !self.collapsed.remove(&tag) {
-            self.collapsed.insert(tag);
+    /// Takes the path rather than using the selection, because a click lands on
+    /// a folder that may not be the selected feed's.
+    pub fn toggle_folder(&mut self, path: &[String]) {
+        let key = path.join("/");
+        if !self.collapsed.remove(&key) {
+            self.collapsed.insert(key);
             if !self.selectable_feeds().contains(&self.selected_feed)
                 && let Some(&next) = self.selectable_feeds().first()
             {
@@ -253,20 +253,13 @@ impl App {
         self.mark_current_read();
     }
 
-    /// Folds the selected feed's group away, or unfolds it.
+    /// Folds the selected feed's folder shut, or opens it.
     pub fn toggle_group(&mut self) {
-        let Some(tag) = self.tag_of(self.selected_feed).map(str::to_string) else {
+        let path = self.path_of(self.selected_feed).to_vec();
+        if path.is_empty() {
             return;
-        };
-        if !self.collapsed.remove(&tag) {
-            self.collapsed.insert(tag);
-            // The cursor cannot stay on a feed that is no longer shown.
-            if let Some(&next) = self.selectable_feeds().first() {
-                self.selected_feed = next;
-                self.selected_entry = 0;
-                self.detail_scroll = 0;
-            }
         }
+        self.toggle_folder(&path);
     }
 
     /// The next selectable feed in `delta`'s direction, wrapping.
@@ -468,6 +461,92 @@ impl App {
     /// Flips between newest-first and oldest-first.
     pub fn toggle_sort(&mut self) {
         self.read.oldest_first = !self.read.oldest_first;
+    }
+
+    /// Opens the picker for moving the selected feed.
+    ///
+    /// Offers the top level first, then every folder that exists, then a new
+    /// one — so the common cases need no typing at all.
+    pub fn start_move(&mut self) {
+        if self.feeds.is_empty() {
+            return;
+        }
+        let here = self.path_of(self.selected_feed).to_vec();
+        let folders = self.folders();
+
+        let mut choices = vec![MoveTarget::TopLevel];
+        choices.extend(folders.into_iter().map(MoveTarget::Folder));
+        choices.push(MoveTarget::New);
+
+        // Start on where the feed already is, so the picker opens showing the
+        // truth rather than an arbitrary first row.
+        let selected = choices
+            .iter()
+            .position(|choice| match choice {
+                MoveTarget::TopLevel => here.is_empty(),
+                MoveTarget::Folder(path) => path == &here,
+                MoveTarget::New => false,
+            })
+            .unwrap_or(0);
+
+        self.moving = Some(Move {
+            feed: self.selected_feed,
+            choices,
+            selected,
+            typed: String::new(),
+        });
+    }
+
+    pub fn cancel_move(&mut self) {
+        self.moving = None;
+    }
+
+    /// Moves the picker's cursor, wrapping.
+    pub fn step_move(&mut self, delta: isize) {
+        if let Some(moving) = &mut self.moving {
+            let count = moving.choices.len();
+            moving.selected = step(moving.selected, count, delta);
+        }
+    }
+
+    pub fn type_move(&mut self, ch: char) {
+        if let Some(moving) = &mut self.moving
+            && moving.choices.get(moving.selected) == Some(&MoveTarget::New)
+        {
+            moving.typed.push(ch);
+        }
+    }
+
+    pub fn backspace_move(&mut self) {
+        if let Some(moving) = &mut self.moving {
+            moving.typed.pop();
+        }
+    }
+
+    /// The chosen destination, or `None` if it is not yet usable.
+    ///
+    /// A new folder with no name is not a destination, so confirming does
+    /// nothing rather than silently moving the feed to the top level.
+    pub fn move_destination(&self) -> Option<(usize, Vec<String>)> {
+        let moving = self.moving.as_ref()?;
+        let target = moving.choices.get(moving.selected)?;
+        let path = match target {
+            MoveTarget::TopLevel => Vec::new(),
+            MoveTarget::Folder(path) => path.clone(),
+            MoveTarget::New => {
+                let name = moving.typed.trim();
+                if name.is_empty() {
+                    return None;
+                }
+                // A slash nests, so "Rust / Core" can be typed in one go.
+                name.split('/')
+                    .map(str::trim)
+                    .filter(|part| !part.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            }
+        };
+        Some((moving.feed, path))
     }
 
     /// Stars the selected entry, or unstars it. Reports the new state.
@@ -1477,7 +1556,7 @@ mod tests {
             crate::config::FeedSource {
                 url: "https://a.example".into(),
                 title: None,
-                tags: vec!["News".into()],
+                tags: vec!["News".into(), "Rust".into()],
             },
             crate::config::FeedSource {
                 url: "https://b.example".into(),
@@ -1486,101 +1565,6 @@ mod tests {
             },
         ];
         app().with_tags(&sources)
-    }
-
-    #[test]
-    fn feeds_are_listed_under_their_group() {
-        let app = tagged();
-        assert_eq!(
-            app.feed_rows(),
-            vec![
-                // Ungrouped first, then each group under its heading.
-                FeedRow::Feed(1),
-                FeedRow::Group {
-                    name: "News".into(),
-                    collapsed: false
-                },
-                FeedRow::Feed(0),
-            ]
-        );
-    }
-
-    #[test]
-    fn an_untagged_feed_is_still_listed() {
-        let app = tagged();
-        assert!(app.feed_rows().contains(&FeedRow::Feed(1)));
-        assert_eq!(app.tag_of(1), None);
-    }
-
-    #[test]
-    fn ungrouped_feeds_come_before_any_heading() {
-        // A heading claims everything below it until the next one, so an
-        // ungrouped feed listed after a group reads as a member of it.
-        let app = tagged();
-        let rows = app.feed_rows();
-        let first_heading = rows
-            .iter()
-            .position(|row| matches!(row, FeedRow::Group { .. }))
-            .expect("a heading");
-        let ungrouped = rows
-            .iter()
-            .position(|row| matches!(row, FeedRow::Feed(i) if app.tag_of(*i).is_none()))
-            .expect("an ungrouped feed");
-        assert!(ungrouped < first_heading);
-    }
-
-    #[test]
-    fn a_config_with_no_tags_at_all_lists_every_feed() {
-        let app = app();
-        assert_eq!(app.feed_rows(), vec![FeedRow::Feed(0), FeedRow::Feed(1)]);
-    }
-
-    #[test]
-    fn collapsing_a_group_hides_its_feeds_but_keeps_the_heading() {
-        let mut app = tagged();
-        app.toggle_group();
-
-        assert_eq!(
-            app.feed_rows(),
-            vec![
-                FeedRow::Feed(1),
-                FeedRow::Group {
-                    name: "News".into(),
-                    collapsed: true
-                },
-            ]
-        );
-        assert_eq!(
-            app.selectable_feeds(),
-            vec![1],
-            "cannot select a hidden feed"
-        );
-    }
-
-    #[test]
-    fn collapsing_moves_the_cursor_off_a_hidden_feed() {
-        let mut app = tagged();
-        app.selected_feed = 0;
-        app.toggle_group();
-        assert_eq!(app.selected_feed, 1);
-    }
-
-    #[test]
-    fn a_collapsed_group_unfolds_again() {
-        let mut app = tagged();
-        app.toggle_group();
-        app.selected_feed = 0; // pretend the cursor is back
-        app.toggle_group();
-        // Listed ungrouped-first, so feed 1 precedes feed 0.
-        assert_eq!(app.selectable_feeds(), vec![1, 0]);
-    }
-
-    #[test]
-    fn navigation_skips_over_collapsed_feeds() {
-        let mut app = tagged();
-        app.toggle_group();
-        app.select_next();
-        assert_eq!(app.selected_feed, 1, "wrapped over the hidden feed");
     }
 
     fn dated() -> App {
@@ -1700,8 +1684,8 @@ mod tests {
         let mut tagged = source("https://a.example");
         tagged.tags = vec!["News".into()];
         app.reconcile(&[tagged, source("https://b.example")]);
-        assert_eq!(app.tag_of(0), Some("News"));
-        assert_eq!(app.tag_of(1), None);
+        assert_eq!(app.path_of(0), ["News"]);
+        assert!(app.path_of(1).is_empty());
     }
 
     #[test]
@@ -1713,6 +1697,145 @@ mod tests {
             source("https://new.example"),
         ]);
         assert_eq!(app.indices_without_entries(), vec![2]);
+    }
+
+    #[test]
+    fn a_feed_keeps_its_whole_folder_path() {
+        // Reading only the first tag is what flattened every nested folder.
+        let app = tagged();
+        assert_eq!(app.path_of(0), ["News", "Rust"]);
+        assert!(app.path_of(1).is_empty());
+    }
+
+    #[test]
+    fn every_folder_on_the_path_can_be_moved_into() {
+        assert_eq!(
+            tagged().folders(),
+            vec![
+                vec!["News".to_string()],
+                vec!["News".to_string(), "Rust".to_string()],
+            ]
+        );
+    }
+
+    #[test]
+    fn folding_an_outer_folder_hides_the_feeds_below_it() {
+        let mut app = tagged();
+        assert_eq!(app.selectable_feeds(), vec![0, 1]);
+
+        app.toggle_folder(&["News".to_string()]);
+        assert_eq!(app.selectable_feeds(), vec![1], "the nested feed is hidden");
+
+        app.toggle_folder(&["News".to_string()]);
+        assert_eq!(app.selectable_feeds(), vec![0, 1], "and comes back");
+    }
+
+    #[test]
+    fn folding_is_per_path_not_per_name() {
+        // Two folders can share a name at different points in the tree.
+        let mut app = tagged();
+        app.toggle_folder(&["News".to_string(), "Rust".to_string()]);
+        assert!(app.is_collapsed(&["News".to_string(), "Rust".to_string()]));
+        assert!(!app.is_collapsed(&["News".to_string()]));
+    }
+
+    #[test]
+    fn the_move_picker_opens_on_where_the_feed_already_is() {
+        // Opening on an arbitrary row would show a lie about the feed.
+        let mut app = tagged();
+        app.selected_feed = 0;
+        app.start_move();
+        let moving = app.moving.as_ref().expect("open");
+        assert_eq!(
+            moving.choices[moving.selected],
+            MoveTarget::Folder(vec!["News".into(), "Rust".into()])
+        );
+    }
+
+    #[test]
+    fn the_picker_offers_the_top_level_every_folder_and_a_new_one() {
+        let mut app = tagged();
+        app.start_move();
+        let choices = &app.moving.as_ref().expect("open").choices;
+        assert_eq!(choices.first(), Some(&MoveTarget::TopLevel));
+        assert_eq!(choices.last(), Some(&MoveTarget::New));
+        assert!(choices.contains(&MoveTarget::Folder(vec!["News".into()])));
+    }
+
+    #[test]
+    fn choosing_the_top_level_clears_the_path() {
+        let mut app = tagged();
+        app.selected_feed = 0;
+        app.start_move();
+        app.moving.as_mut().expect("open").selected = 0;
+        assert_eq!(app.move_destination(), Some((0, Vec::new())));
+    }
+
+    #[test]
+    fn a_new_folder_needs_a_name_before_it_is_a_destination() {
+        let mut app = tagged();
+        app.start_move();
+        let last = app.moving.as_ref().expect("open").choices.len() - 1;
+        app.moving.as_mut().expect("open").selected = last;
+
+        assert_eq!(
+            app.move_destination(),
+            None,
+            "an unnamed folder is not a place"
+        );
+
+        for ch in "Papers".chars() {
+            app.type_move(ch);
+        }
+        assert_eq!(
+            app.move_destination().map(|(_, path)| path),
+            Some(vec!["Papers".to_string()])
+        );
+    }
+
+    #[test]
+    fn a_typed_slash_nests_in_one_go() {
+        let mut app = tagged();
+        app.start_move();
+        let last = app.moving.as_ref().expect("open").choices.len() - 1;
+        app.moving.as_mut().expect("open").selected = last;
+        for ch in "Reading / Papers".chars() {
+            app.type_move(ch);
+        }
+        assert_eq!(
+            app.move_destination().map(|(_, path)| path),
+            Some(vec!["Reading".to_string(), "Papers".to_string()])
+        );
+    }
+
+    #[test]
+    fn typing_only_reaches_the_new_folder_choice() {
+        // Otherwise typing while an existing folder is selected would quietly
+        // build a name nobody can see.
+        let mut app = tagged();
+        app.start_move();
+        app.moving.as_mut().expect("open").selected = 0;
+        app.type_move('x');
+        assert!(app.moving.as_ref().expect("open").typed.is_empty());
+    }
+
+    #[test]
+    fn the_picker_cursor_wraps() {
+        let mut app = tagged();
+        app.start_move();
+        let count = app.moving.as_ref().expect("open").choices.len();
+        app.moving.as_mut().expect("open").selected = count - 1;
+        app.step_move(1);
+        assert_eq!(app.moving.as_ref().expect("open").selected, 0);
+    }
+
+    #[test]
+    fn cancelling_the_picker_changes_nothing() {
+        let mut app = tagged();
+        app.start_move();
+        app.cancel_move();
+        assert!(app.moving.is_none());
+        assert_eq!(app.path_of(0), ["News", "Rust"], "the feed did not move");
     }
 
     #[test]

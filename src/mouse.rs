@@ -9,8 +9,9 @@
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
-use crate::app::{FeedRow, Pane};
+use crate::app::Pane;
 use crate::keys::Action;
+use crate::tree::Row as FeedRow;
 
 /// How far the wheel moves a text pane per notch.
 ///
@@ -42,7 +43,7 @@ pub struct Hits {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Hit {
     SelectFeed(usize),
-    ToggleGroup(String),
+    ToggleFolder(Vec<String>),
     SelectEntry { feed: usize, entry: usize },
     OpenEntry { feed: usize, entry: usize },
     OpenLink,
@@ -138,8 +139,8 @@ fn click(hits: &Hits, column: u16, row: u16, double: bool) -> Hit {
 
     match hits.pane_at(column, row) {
         Some(Pane::Feeds) => match hits.feed_rows.iter().find(|(y, _)| *y == row) {
-            Some((_, FeedRow::Feed(index))) => Hit::SelectFeed(*index),
-            Some((_, FeedRow::Group { name, .. })) => Hit::ToggleGroup(name.clone()),
+            Some((_, FeedRow::Feed { index, .. })) => Hit::SelectFeed(*index),
+            Some((_, FeedRow::Folder { path, .. })) => Hit::ToggleFolder(path.clone()),
             // Empty space below the list still moves focus there.
             None => Hit::Focus(Pane::Feeds),
         },
@@ -177,7 +178,7 @@ fn click(hits: &Hits, column: u16, row: u16, double: bool) -> Hit {
 pub fn apply(app: &mut crate::app::App, hit: Hit) -> Option<Action> {
     match hit {
         Hit::SelectFeed(index) => app.select_feed(index),
-        Hit::ToggleGroup(name) => app.toggle_group_named(&name),
+        Hit::ToggleFolder(path) => app.toggle_folder(&path),
         Hit::SelectEntry { feed, entry } => app.select_entry(feed, entry),
         Hit::OpenEntry { feed, entry } => {
             app.select_entry(feed, entry);
@@ -246,13 +247,27 @@ mod tests {
             feed_rows: vec![
                 (
                     1,
-                    FeedRow::Group {
-                        name: "News".into(),
+                    FeedRow::Folder {
+                        path: vec!["News".into()],
                         collapsed: false,
+                        unread: 3,
+                        guides: Vec::new(),
                     },
                 ),
-                (2, FeedRow::Feed(0)),
-                (3, FeedRow::Feed(1)),
+                (
+                    2,
+                    FeedRow::Feed {
+                        index: 0,
+                        guides: vec![true],
+                    },
+                ),
+                (
+                    3,
+                    FeedRow::Feed {
+                        index: 1,
+                        guides: vec![true],
+                    },
+                ),
             ],
             entry_rows: vec![(1, (0, 5)), (2, (0, 6))],
             link_rows: vec![(12, 22, 40), (13, 22, 30)],
@@ -267,10 +282,10 @@ mod tests {
     }
 
     #[test]
-    fn clicking_a_group_heading_folds_that_group() {
+    fn clicking_a_folder_folds_it() {
         assert_eq!(
             resolve(&hits(), down(5, 1), false),
-            Hit::ToggleGroup("News".into())
+            Hit::ToggleFolder(vec!["News".into()])
         );
     }
 
@@ -279,7 +294,22 @@ mod tests {
         // The same screen row means different things once the list scrolls,
         // which is why the renderer records it rather than this recomputing it.
         let mut hits = hits();
-        hits.feed_rows = vec![(1, FeedRow::Feed(7)), (2, FeedRow::Feed(8))];
+        hits.feed_rows = vec![
+            (
+                1,
+                FeedRow::Feed {
+                    index: 7,
+                    guides: vec![],
+                },
+            ),
+            (
+                2,
+                FeedRow::Feed {
+                    index: 8,
+                    guides: vec![],
+                },
+            ),
+        ];
         assert_eq!(resolve(&hits, down(5, 1), false), Hit::SelectFeed(7));
     }
 

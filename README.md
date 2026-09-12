@@ -55,7 +55,7 @@ title = "Rust Blog"        # optional; defaults to the feed's own title
 
 [[feeds]]
 url = "https://this-week-in-rust.org/atom.xml"
-tags = ["Rust"]              # optional; groups the feed in the sidebar
+tags = ["Rust", "Core"]      # optional; the feed's folder path in the sidebar
 
 # Optional. How many feeds may be fetched at once; defaults to 8.
 max_concurrent_fetches = 8
@@ -122,7 +122,8 @@ time, set `mouse = false`.
 | `o`            | Open the entry in your browser |
 | `y`            | Copy its link to the clipboard |
 | `r` / `R`      | Refresh all feeds / re-read the config |
-| `Enter`        | Fold a feed group away (feed pane) |
+| `Enter`        | Fold a folder shut (feed pane) |
+| `M`            | Move this feed to a folder |
 | `?`            | Show every key            |
 | `q` / `Esc`    | Quit                      |
 

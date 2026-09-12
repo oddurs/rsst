@@ -1,59 +1,73 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 874 504" width="874" height="504" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 874 468" width="874" height="468" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14">
 <rect width="100%" height="100%" rx="8" fill="#1c1c1c"/>
-<text x="0.0" y="13.5" fill="#c8ccd4" xml:space="preserve">+ Feeds  6 unread -------+ </text>
-<text x="226.8" y="13.5" fill="#56b6c2" xml:space="preserve">+ The Rust Blog  1 of 3 unread ---------------------------------------------+</text>
-<text x="0.0" y="31.5" fill="#c8ccd4" xml:space="preserve">|     ACM Queue        </text>
-<text x="193.2" y="31.5" fill="#56b6c2" font-weight="bold" xml:space="preserve">1</text>
-<text x="201.6" y="31.5" fill="#c8ccd4" xml:space="preserve"> | </text>
-<text x="226.8" y="31.5" fill="#56b6c2" xml:space="preserve">|</text>
-<text x="243.6" y="31.5" fill="#56b6c2" font-weight="bold" xml:space="preserve">&gt;   Rust debugging survey 2026 results                              7 Sep</text>
+<text x="0.0" y="13.5" fill="#c8ccd4" xml:space="preserve">+ Feeds  7 unread --------------+ </text>
+<text x="285.6" y="13.5" fill="#56b6c2" xml:space="preserve">+ The Rust Blog  1 of 3 unread --------------------------------------+</text>
+<text x="0.0" y="31.5" fill="#c8ccd4" xml:space="preserve">| v </text>
+<text x="33.6" y="31.5" fill="#c678dd" font-weight="bold" xml:space="preserve">Rust</text>
+<text x="252.0" y="31.5" fill="#c678dd" font-weight="bold" xml:space="preserve">3</text>
+<text x="260.4" y="31.5" fill="#c8ccd4" xml:space="preserve"> | </text>
+<text x="285.6" y="31.5" fill="#56b6c2" xml:space="preserve">|</text>
+<text x="302.4" y="31.5" fill="#56b6c2" font-weight="bold" xml:space="preserve">&gt;   Rust debugging survey 2026 results                       7 Sep</text>
 <text x="865.2" y="31.5" fill="#56b6c2" xml:space="preserve">|</text>
-<text x="0.0" y="49.5" fill="#c8ccd4" xml:space="preserve">|   v </text>
-<text x="50.4" y="49.5" fill="#c678dd" font-weight="bold" xml:space="preserve">Rust</text>
-<text x="84.0" y="49.5" fill="#c8ccd4" xml:space="preserve">               | </text>
-<text x="226.8" y="49.5" fill="#56b6c2" xml:space="preserve">|</text>
-<text x="235.2" y="49.5" fill="#c8ccd4" xml:space="preserve">     Announcing Rust 1.98.1                                          3 Sep </text>
+<text x="0.0" y="49.5" fill="#c8ccd4" xml:space="preserve">| | v </text>
+<text x="50.4" y="49.5" fill="#c678dd" font-weight="bold" xml:space="preserve">Core</text>
+<text x="252.0" y="49.5" fill="#c678dd" font-weight="bold" xml:space="preserve">1</text>
+<text x="260.4" y="49.5" fill="#c8ccd4" xml:space="preserve"> | </text>
+<text x="285.6" y="49.5" fill="#56b6c2" xml:space="preserve">|</text>
+<text x="294.0" y="49.5" fill="#c8ccd4" xml:space="preserve">     Announcing Rust 1.98.1                                   3 Sep </text>
 <text x="865.2" y="49.5" fill="#56b6c2" xml:space="preserve">|</text>
 <text x="0.0" y="67.5" fill="#c8ccd4" xml:space="preserve">| </text>
-<text x="16.8" y="67.5" fill="#56b6c2" font-weight="bold" xml:space="preserve">&gt;   The Rust Blog    1</text>
-<text x="201.6" y="67.5" fill="#c8ccd4" xml:space="preserve"> | </text>
-<text x="226.8" y="67.5" fill="#56b6c2" xml:space="preserve">|</text>
-<text x="277.2" y="67.5" fill="#c8ccd4" font-weight="bold" xml:space="preserve">Enabling the next-generation trait solver</text>
-<text x="621.6" y="67.5" fill="#c8ccd4" xml:space="preserve">                      21 Aug </text>
+<text x="16.8" y="67.5" fill="#56b6c2" font-weight="bold" xml:space="preserve">| |   The Rust Blog         1</text>
+<text x="260.4" y="67.5" fill="#c8ccd4" xml:space="preserve"> | </text>
+<text x="285.6" y="67.5" fill="#56b6c2" xml:space="preserve">|</text>
+<text x="336.0" y="67.5" fill="#c8ccd4" font-weight="bold" xml:space="preserve">Enabling the next-generation trait solver</text>
+<text x="680.4" y="67.5" fill="#c8ccd4" xml:space="preserve">               21 Aug </text>
 <text x="865.2" y="67.5" fill="#56b6c2" xml:space="preserve">|</text>
-<text x="0.0" y="85.5" fill="#c8ccd4" xml:space="preserve">|     This Week in Ru~ </text>
-<text x="193.2" y="85.5" fill="#56b6c2" font-weight="bold" xml:space="preserve">2</text>
-<text x="201.6" y="85.5" fill="#c8ccd4" xml:space="preserve"> | </text>
-<text x="226.8" y="85.5" fill="#56b6c2" xml:space="preserve">+---------------------------------------------------------------------------+</text>
-<text x="0.0" y="103.5" fill="#c8ccd4" xml:space="preserve">|   v </text>
-<text x="50.4" y="103.5" fill="#c678dd" font-weight="bold" xml:space="preserve">Aggregators</text>
-<text x="142.8" y="103.5" fill="#c8ccd4" xml:space="preserve">        | + The Rust Blog  -  7 September 2026 ---------------------------------------+</text>
-<text x="0.0" y="121.5" fill="#c8ccd4" xml:space="preserve">|     Lobsters         </text>
-<text x="193.2" y="121.5" fill="#56b6c2" font-weight="bold" xml:space="preserve">2</text>
-<text x="201.6" y="121.5" fill="#c8ccd4" xml:space="preserve"> | | </text>
-<text x="243.6" y="121.5" fill="#c8ccd4" font-weight="bold" xml:space="preserve">Rust debugging survey 2026 results</text>
-<text x="529.2" y="121.5" fill="#c8ccd4" xml:space="preserve">                                        |</text>
-<text x="0.0" y="139.5" fill="#c8ccd4" xml:space="preserve">|                        | | </text>
-<text x="243.6" y="139.5" fill="#61afef" xml:space="preserve">https://example.com/rust/1</text>
-<text x="462.0" y="139.5" fill="#c8ccd4" xml:space="preserve">                                                |</text>
-<text x="0.0" y="157.5" fill="#c8ccd4" xml:space="preserve">|                        | |                                                                           |</text>
-<text x="0.0" y="175.5" fill="#c8ccd4" xml:space="preserve">|                        | | Nearly four thousand people told us how they debug Rust. The headline:    |</text>
-<text x="0.0" y="193.5" fill="#c8ccd4" xml:space="preserve">|                        | | most still reach for println, and the gap between what tooling exists and |</text>
-<text x="0.0" y="211.5" fill="#c8ccd4" xml:space="preserve">|                        | | what people know about is wider than we assumed.                          |</text>
-<text x="0.0" y="229.5" fill="#c8ccd4" xml:space="preserve">|                        | |                                                                           |</text>
-<text x="0.0" y="247.5" fill="#c8ccd4" xml:space="preserve">|                        | |                                                                           |</text>
-<text x="0.0" y="265.5" fill="#c8ccd4" xml:space="preserve">|                        | |                                                                           |</text>
-<text x="0.0" y="283.5" fill="#c8ccd4" xml:space="preserve">|                        | |                                                                           |</text>
-<text x="0.0" y="301.5" fill="#c8ccd4" xml:space="preserve">|                        | |                                                                           |</text>
-<text x="0.0" y="319.5" fill="#c8ccd4" xml:space="preserve">|                        | |                                                                           |</text>
-<text x="0.0" y="337.5" fill="#c8ccd4" xml:space="preserve">|                        | |                                                                           |</text>
-<text x="0.0" y="355.5" fill="#c8ccd4" xml:space="preserve">|                        | |                                                                           |</text>
-<text x="0.0" y="373.5" fill="#c8ccd4" xml:space="preserve">|                        | |                                                                           |</text>
-<text x="0.0" y="391.5" fill="#c8ccd4" xml:space="preserve">|                        | |                                                                           |</text>
-<text x="0.0" y="409.5" fill="#c8ccd4" xml:space="preserve">|                        | |                                                                           |</text>
-<text x="0.0" y="427.5" fill="#c8ccd4" xml:space="preserve">|                        | |                                                                           |</text>
-<text x="0.0" y="445.5" fill="#c8ccd4" xml:space="preserve">|                        | |                                                                           |</text>
-<text x="0.0" y="463.5" fill="#c8ccd4" xml:space="preserve">|                        | |                                                                           |</text>
-<text x="0.0" y="481.5" fill="#c8ccd4" xml:space="preserve">+------------------------+ +---------------------------------------------------------------------------+</text>
-<text x="0.0" y="499.5" fill="#56b6c2" xml:space="preserve"> ? keys | q quit | Tab pane | / search | u unread | s star | o open | r refresh                         </text>
+<text x="0.0" y="85.5" fill="#c8ccd4" xml:space="preserve">| | v </text>
+<text x="50.4" y="85.5" fill="#c678dd" font-weight="bold" xml:space="preserve">Weekly</text>
+<text x="252.0" y="85.5" fill="#c678dd" font-weight="bold" xml:space="preserve">2</text>
+<text x="260.4" y="85.5" fill="#c8ccd4" xml:space="preserve"> | </text>
+<text x="285.6" y="85.5" fill="#56b6c2" xml:space="preserve">+--------------------------------------------------------------------+</text>
+<text x="0.0" y="103.5" fill="#c8ccd4" xml:space="preserve">| |     This Week in Rust     </text>
+<text x="252.0" y="103.5" fill="#56b6c2" font-weight="bold" xml:space="preserve">2</text>
+<text x="260.4" y="103.5" fill="#c8ccd4" xml:space="preserve"> | + The Rust Blog  -  7 September 2026 --------------------------------+</text>
+<text x="0.0" y="121.5" fill="#c8ccd4" xml:space="preserve">| v </text>
+<text x="33.6" y="121.5" fill="#c678dd" font-weight="bold" xml:space="preserve">Aggregators</text>
+<text x="252.0" y="121.5" fill="#c678dd" font-weight="bold" xml:space="preserve">2</text>
+<text x="260.4" y="121.5" fill="#c8ccd4" xml:space="preserve"> | | </text>
+<text x="302.4" y="121.5" fill="#c8ccd4" font-weight="bold" xml:space="preserve">Rust debugging survey 2026 results</text>
+<text x="588.0" y="121.5" fill="#c8ccd4" xml:space="preserve">                                 |</text>
+<text x="0.0" y="139.5" fill="#c8ccd4" xml:space="preserve">| |   Lobsters                </text>
+<text x="252.0" y="139.5" fill="#56b6c2" font-weight="bold" xml:space="preserve">2</text>
+<text x="260.4" y="139.5" fill="#c8ccd4" xml:space="preserve"> | | </text>
+<text x="302.4" y="139.5" fill="#61afef" xml:space="preserve">https://example.com/rust/1</text>
+<text x="520.8" y="139.5" fill="#c8ccd4" xml:space="preserve">                                         |</text>
+<text x="0.0" y="157.5" fill="#c8ccd4" xml:space="preserve">| v </text>
+<text x="33.6" y="157.5" fill="#c678dd" font-weight="bold" xml:space="preserve">Reading</text>
+<text x="252.0" y="157.5" fill="#c678dd" font-weight="bold" xml:space="preserve">1</text>
+<text x="260.4" y="157.5" fill="#c8ccd4" xml:space="preserve"> | |                                                                    |</text>
+<text x="0.0" y="175.5" fill="#c8ccd4" xml:space="preserve">| | v </text>
+<text x="50.4" y="175.5" fill="#c678dd" font-weight="bold" xml:space="preserve">Papers</text>
+<text x="252.0" y="175.5" fill="#c678dd" font-weight="bold" xml:space="preserve">1</text>
+<text x="260.4" y="175.5" fill="#c8ccd4" xml:space="preserve"> | | Nearly four thousand people told us how they debug Rust. The       |</text>
+<text x="0.0" y="193.5" fill="#c8ccd4" xml:space="preserve">| |     ACM Queue             </text>
+<text x="252.0" y="193.5" fill="#56b6c2" font-weight="bold" xml:space="preserve">1</text>
+<text x="260.4" y="193.5" fill="#c8ccd4" xml:space="preserve"> | | headline: most still reach for println, and the gap between what   |</text>
+<text x="0.0" y="211.5" fill="#c8ccd4" xml:space="preserve">|   Unfiled Feed              </text>
+<text x="252.0" y="211.5" fill="#56b6c2" font-weight="bold" xml:space="preserve">1</text>
+<text x="260.4" y="211.5" fill="#c8ccd4" xml:space="preserve"> | | tooling exists and what people know about is wider than we         |</text>
+<text x="0.0" y="229.5" fill="#c8ccd4" xml:space="preserve">|                               | | assumed.                                                           |</text>
+<text x="0.0" y="247.5" fill="#c8ccd4" xml:space="preserve">|                               | |                                                                    |</text>
+<text x="0.0" y="265.5" fill="#c8ccd4" xml:space="preserve">|                               | |                                                                    |</text>
+<text x="0.0" y="283.5" fill="#c8ccd4" xml:space="preserve">|                               | |                                                                    |</text>
+<text x="0.0" y="301.5" fill="#c8ccd4" xml:space="preserve">|                               | |                                                                    |</text>
+<text x="0.0" y="319.5" fill="#c8ccd4" xml:space="preserve">|                               | |                                                                    |</text>
+<text x="0.0" y="337.5" fill="#c8ccd4" xml:space="preserve">|                               | |                                                                    |</text>
+<text x="0.0" y="355.5" fill="#c8ccd4" xml:space="preserve">|                               | |                                                                    |</text>
+<text x="0.0" y="373.5" fill="#c8ccd4" xml:space="preserve">|                               | |                                                                    |</text>
+<text x="0.0" y="391.5" fill="#c8ccd4" xml:space="preserve">|                               | |                                                                    |</text>
+<text x="0.0" y="409.5" fill="#c8ccd4" xml:space="preserve">|                               | |                                                                    |</text>
+<text x="0.0" y="427.5" fill="#c8ccd4" xml:space="preserve">|                               | |                                                                    |</text>
+<text x="0.0" y="445.5" fill="#c8ccd4" xml:space="preserve">+-------------------------------+ +--------------------------------------------------------------------+</text>
+<text x="0.0" y="463.5" fill="#56b6c2" xml:space="preserve"> ? keys | q quit | Tab pane | / search | u unread | s star | o open | r refresh                         </text>
 </svg>

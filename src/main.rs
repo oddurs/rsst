@@ -221,6 +221,30 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
             continue;
         }
 
+        // The move picker owns the keyboard while it is open.
+        if app.moving.is_some() {
+            match key.code {
+                KeyCode::Esc => app.cancel_move(),
+                KeyCode::Up => app.step_move(-1),
+                KeyCode::Down => app.step_move(1),
+                KeyCode::Backspace => app.backspace_move(),
+                KeyCode::Enter => match app.move_destination() {
+                    Some((feed, path)) => {
+                        app.cancel_move();
+                        match move_feed(app, session, feed, &path) {
+                            Ok(where_to) => app.status = Some(format!(" Moved to {where_to}. ")),
+                            Err(err) => app.status = Some(format!(" Could not move: {err} ")),
+                        }
+                    }
+                    // A new folder with no name is not a destination.
+                    None => app.status = Some(" Name the folder first. ".into()),
+                },
+                KeyCode::Char(ch) => app.type_move(ch),
+                _ => {}
+            }
+            continue;
+        }
+
         // A queued bulk mark owns the keyboard until it is answered.
         if app.pending.is_some() {
             match key.code {
@@ -417,6 +441,7 @@ fn dispatch(action: keys::Action, app: &mut App, session: &mut Session) -> Resul
         Action::HalfPageUp => app.half_page(-1),
         Action::ToggleGroup if app.focus == app::Pane::Feeds => app.toggle_group(),
         Action::ToggleGroup => {}
+        Action::MoveFeed => app.start_move(),
         Action::NextUnread => {
             if !app.next_unread(true) {
                 app.status = Some(" No unread entries. ".into());
@@ -524,6 +549,38 @@ impl Clicks {
         };
         double
     }
+}
+
+/// Moves a feed into a folder, writing the change to the config.
+///
+/// The config is the source of truth for where a feed lives, so the move is
+/// written there rather than held in the database — otherwise the next edit by
+/// hand would silently undo it.
+fn move_feed(app: &mut App, session: &mut Session, feed: usize, path: &[String]) -> Result<String> {
+    let url = app
+        .feeds
+        .get(feed)
+        .map(|feed| feed.url.clone())
+        .context("that feed is gone")?;
+
+    config::set_feed_tags(&session.config_path, &url, path)?;
+
+    // Re-read rather than patching the in-memory copy, so what is on screen is
+    // what is in the file.
+    let config = Config::load_from(&session.config_path)?;
+    app.reconcile(&config.feeds);
+    app.selected_feed = app
+        .feeds
+        .iter()
+        .position(|feed| feed.url == url)
+        .unwrap_or(app.selected_feed);
+    session.config = config;
+
+    Ok(if path.is_empty() {
+        "the top level".into()
+    } else {
+        path.join(" / ")
+    })
 }
 
 /// Whether a key event should be acted on.

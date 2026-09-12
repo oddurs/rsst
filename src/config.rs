@@ -103,6 +103,47 @@ pub fn config_path_or(override_path: Option<PathBuf>) -> Result<PathBuf> {
     }
 }
 
+/// Rewrites one feed's folder path in the config file.
+///
+/// Uses `toml_edit` rather than serialising the whole `Config` back out: the
+/// config is hand-written and commented, and a round-trip through a plain
+/// serialiser would return it stripped of every comment and reordered. Someone
+/// moving a feed between folders has not asked for that.
+pub fn set_feed_tags(path: &Path, url: &str, tags: &[String]) -> Result<()> {
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("reading config at {}", path.display()))?;
+    let mut document = raw
+        .parse::<toml_edit::DocumentMut>()
+        .with_context(|| format!("parsing config at {}", path.display()))?;
+
+    let feeds = document
+        .get_mut("feeds")
+        .and_then(|feeds| feeds.as_array_of_tables_mut())
+        .context("the config has no [[feeds]] to edit")?;
+
+    let feed = feeds
+        .iter_mut()
+        .find(|table| table.get("url").and_then(|u| u.as_str()) == Some(url))
+        .with_context(|| format!("no feed in the config has the url {url}"))?;
+
+    if tags.is_empty() {
+        feed.remove("tags");
+    } else {
+        let mut array = toml_edit::Array::new();
+        for tag in tags {
+            array.push(tag.as_str());
+        }
+        feed["tags"] = toml_edit::value(array);
+    }
+
+    // Same atomic dance as everything else we write: a crash mid-write must
+    // not leave someone without a config.
+    let temporary = path.with_extension("toml.tmp");
+    fs::write(&temporary, document.to_string())
+        .with_context(|| format!("writing {}", temporary.display()))?;
+    fs::rename(&temporary, path).with_context(|| format!("replacing {}", path.display()))
+}
+
 pub fn config_path() -> Result<PathBuf> {
     let dirs = directories::ProjectDirs::from("", "", "rsst")
         .context("could not determine a config directory for this platform")?;
@@ -246,6 +287,108 @@ mod tests {
         let config: Config = toml::from_str(example).expect("parses");
         crate::theme::Theme::resolve(&config.theme, false)
             .expect("the documented theme must resolve");
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("rsst-config-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("temp dir");
+        dir.join(name)
+    }
+
+    const COMMENTED: &str = r#"# My feeds. Hand-written, and I would like to keep it that way.
+
+# How many at once.
+max_concurrent_fetches = 4
+
+[[feeds]]
+url = "https://a.example/feed"   # the good one
+title = "Alpha"
+
+[[feeds]]
+url = "https://b.example/feed"
+title = "Beta"
+tags = ["Old"]
+"#;
+
+    #[test]
+    fn moving_a_feed_keeps_every_comment_and_the_rest_of_the_file() {
+        let path = scratch("comments.toml");
+        fs::write(&path, COMMENTED).expect("write");
+
+        set_feed_tags(
+            &path,
+            "https://a.example/feed",
+            &["News".into(), "Rust".into()],
+        )
+        .expect("set");
+
+        let after = fs::read_to_string(&path).expect("read");
+        assert!(
+            after.contains("# My feeds. Hand-written"),
+            "header comment lost"
+        );
+        assert!(after.contains("# How many at once."), "comment lost");
+        assert!(after.contains("# the good one"), "inline comment lost");
+        assert!(after.contains("max_concurrent_fetches = 4"));
+        assert!(after.contains(r#"tags = ["News", "Rust"]"#), "{after}");
+    }
+
+    #[test]
+    fn moving_a_feed_leaves_the_other_feeds_alone() {
+        let path = scratch("others.toml");
+        fs::write(&path, COMMENTED).expect("write");
+        set_feed_tags(&path, "https://a.example/feed", &["New".into()]).expect("set");
+
+        let config = Config::load_from(&path).expect("parses");
+        let beta = config
+            .feeds
+            .iter()
+            .find(|feed| feed.url == "https://b.example/feed")
+            .expect("beta");
+        assert_eq!(beta.tags, ["Old"], "the other feed was rewritten");
+    }
+
+    #[test]
+    fn moving_a_feed_to_the_top_level_removes_its_tags() {
+        let path = scratch("toplevel.toml");
+        fs::write(&path, COMMENTED).expect("write");
+        set_feed_tags(&path, "https://b.example/feed", &[]).expect("set");
+
+        let after = fs::read_to_string(&path).expect("read");
+        assert!(!after.contains("tags ="), "tags survived: {after}");
+        assert!(
+            Config::load_from(&path).expect("parses").feeds[1]
+                .tags
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn the_result_still_parses_as_a_config() {
+        let path = scratch("roundtrip.toml");
+        fs::write(&path, COMMENTED).expect("write");
+        set_feed_tags(&path, "https://a.example/feed", &["X".into()]).expect("set");
+
+        let config = Config::load_from(&path).expect("the edited config must parse");
+        assert_eq!(config.feeds.len(), 2);
+        assert_eq!(config.fetch_limit(), 4);
+    }
+
+    #[test]
+    fn a_url_that_is_not_in_the_config_is_an_error() {
+        let path = scratch("missing.toml");
+        fs::write(&path, COMMENTED).expect("write");
+        let err =
+            set_feed_tags(&path, "https://nope.example/feed", &["X".into()]).expect_err("rejected");
+        assert!(err.to_string().contains("no feed in the config"));
+    }
+
+    #[test]
+    fn writing_leaves_no_temporary_file_behind() {
+        let path = scratch("clean.toml");
+        fs::write(&path, COMMENTED).expect("write");
+        set_feed_tags(&path, "https://a.example/feed", &["X".into()]).expect("set");
+        assert!(!path.with_extension("toml.tmp").exists());
     }
 
     #[test]
