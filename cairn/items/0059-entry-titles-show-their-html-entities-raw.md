@@ -2,7 +2,8 @@
 id: 59
 title: Entry titles show their HTML entities raw
 type: bug
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p2
@@ -31,6 +32,6 @@ Check the feed title too, which comes from the same place and has the same gap.
 
 ## Acceptance criteria
 
-- [ ] An entry title containing `&amp;`, `&lt;` and a numeric entity renders decoded
-- [ ] The feed's own title is decoded as well
-- [ ] A test asserts a title and a summary carrying identical bytes render identically
+- [x] An entry title containing `&amp;`, `&lt;` and a numeric entity renders decoded
+- [x] The feed's own title is decoded as well
+- [x] A test asserts a title and a summary carrying identical bytes render identically
