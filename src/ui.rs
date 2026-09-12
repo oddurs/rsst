@@ -1345,7 +1345,10 @@ mod tests {
             vec![Feed {
                 title: "Broken".into(),
                 url: "https://broken.example/feed.xml".into(),
-                status: crate::feed::Status::Failed("dns error: no such host".into()),
+                status: crate::feed::Status::Failed {
+                    trouble: crate::feed::Trouble::Unreachable,
+                    message: "dns error: no such host".into(),
+                },
                 entries: Vec::new(),
             }],
             ReadState::default(),
@@ -1374,7 +1377,10 @@ mod tests {
             entries: Vec::new(),
         };
         let mut failed = fetching.clone();
-        failed.status = crate::feed::Status::Failed("boom".into());
+        failed.status = crate::feed::Status::Failed {
+            trouble: crate::feed::Trouble::Unreachable,
+            message: "boom".into(),
+        };
 
         let mut a = App::new(vec![fetching], ReadState::default());
         let mut b = App::new(vec![failed], ReadState::default());
@@ -1388,7 +1394,10 @@ mod tests {
             vec![Feed {
                 title: "Broken".into(),
                 url: "https://broken.example/feed.xml".into(),
-                status: crate::feed::Status::Failed("offline".into()),
+                status: crate::feed::Status::Failed {
+                    trouble: crate::feed::Trouble::Unreachable,
+                    message: "offline".into(),
+                },
                 entries: vec![Entry {
                     title: "From The Cache".into(),
                     link: None,
@@ -2004,5 +2013,32 @@ mod tests {
             !app.hits.article_links.is_empty(),
             "scrolling to the link did not make it clickable"
         );
+    }
+
+    #[test]
+    fn a_failure_reads_as_a_sentence_about_the_feed() {
+        // Not "Gone", not "404", not a variant name: a person reading the bar
+        // should learn what happened without knowing how rsst is built.
+        let mut app = App::new(
+            vec![Feed {
+                title: "Old Blog".into(),
+                url: "https://old.example/feed.xml".into(),
+                status: crate::feed::Status::Failed {
+                    trouble: crate::feed::Trouble::Gone,
+                    message: format!("Old Blog {}", crate::feed::Trouble::Gone.sentence()),
+                },
+                entries: Vec::new(),
+            }],
+            ReadState::default(),
+        );
+
+        let screen = render(&mut app);
+        assert!(
+            screen.contains("Old Blog is no longer there"),
+            "the failure does not explain itself: {screen:?}"
+        );
+        for jargon in ["Trouble", "Gone", "NotAFeed", "Err("] {
+            assert!(!screen.contains(jargon), "the interface leaked {jargon}");
+        }
     }
 }

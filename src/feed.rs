@@ -19,6 +19,80 @@ pub struct Feed {
     pub status: Status,
 }
 
+/// Why a fetch failed, to the degree that changes what to do about it.
+///
+/// The distinctions are behavioural, not descriptive: two causes share a
+/// variant when nothing would treat them differently. Coming back later is the
+/// question this exists to answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trouble {
+    /// The host was never reached: DNS, a refused connection, a TLS failure.
+    Unreachable,
+    /// The request was made and took too long.
+    TimedOut,
+    /// The server answered with an error it may well recover from.
+    ServerError(u16),
+    /// The server answered with an error it will not recover from.
+    Refused(u16),
+    /// There is no feed here, and there is not going to be one.
+    Gone,
+    /// More was sent than we agreed to read.
+    TooBig,
+    /// Bytes arrived, and they are not a feed.
+    NotAFeed,
+}
+
+impl Trouble {
+    /// Whether coming back shortly could plausibly work.
+    ///
+    /// A timeout or an unreachable host is usually a network that will be back.
+    /// A 404 is a decision someone made.
+    pub fn transient(self) -> bool {
+        match self {
+            Self::Unreachable | Self::TimedOut | Self::ServerError(_) => true,
+            Self::Refused(_) | Self::Gone | Self::TooBig | Self::NotAFeed => false,
+        }
+    }
+
+    /// How this reads in the status line, in words rather than in jargon.
+    pub fn sentence(self) -> String {
+        match self {
+            Self::Unreachable => "could not be reached".into(),
+            Self::TimedOut => "took too long to answer".into(),
+            Self::ServerError(code) => format!("server error {code}"),
+            Self::Refused(code) => format!("refused the request ({code})"),
+            Self::Gone => "is no longer there".into(),
+            Self::TooBig => "sent more than the limit allows".into(),
+            Self::NotAFeed => "did not send a feed".into(),
+        }
+    }
+}
+
+/// A failed fetch: what kind, and what to show.
+#[derive(Debug, Clone)]
+pub struct Failure {
+    pub trouble: Trouble,
+    /// The detail, for someone who wants to know more than the sentence.
+    pub detail: String,
+}
+
+impl Failure {
+    fn new(trouble: Trouble, detail: impl Into<String>) -> Self {
+        Self {
+            trouble,
+            detail: detail.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.detail)
+    }
+}
+
+impl std::error::Error for Failure {}
+
 /// What happened, or is happening, to a feed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum Status {
@@ -27,9 +101,9 @@ pub enum Status {
     Idle,
     /// A request is in flight.
     Fetching,
-    /// The last attempt failed. Carries the message, which is the only place
-    /// the reason survives.
-    Failed(String),
+    /// The last attempt failed. Carries the kind, so callers can decide, and
+    /// the message, which is the only place the detail survives.
+    Failed { trouble: Trouble, message: String },
 }
 
 impl Status {
@@ -38,13 +112,21 @@ impl Status {
         match self {
             Self::Idle => None,
             Self::Fetching => Some("…"),
-            Self::Failed(_) => Some("!"),
+            Self::Failed { .. } => Some("!"),
         }
     }
 
     pub fn error(&self) -> Option<&str> {
         match self {
-            Self::Failed(message) => Some(message),
+            Self::Failed { message, .. } => Some(message),
+            _ => None,
+        }
+    }
+
+    /// What kind of trouble, when there is any.
+    pub fn trouble(&self) -> Option<Trouble> {
+        match self {
+            Self::Failed { trouble, .. } => Some(*trouble),
             _ => None,
         }
     }
@@ -139,9 +221,17 @@ impl Default for Limits {
 /// Streamed rather than buffered whole: `bytes()` allocates whatever arrives,
 /// so memory was previously the server's decision. A body of 600 MB took 1.6 GB
 /// of resident memory to receive, and nothing stopped it going further.
-async fn body_within(mut response: reqwest::Response, limit: usize, url: &str) -> Result<Vec<u8>> {
-    let too_big =
-        |seen: u64| anyhow::anyhow!("{url} sent {} bytes, over the {} byte limit", seen, limit);
+async fn body_within(
+    mut response: reqwest::Response,
+    limit: usize,
+    url: &str,
+) -> std::result::Result<Vec<u8>, Failure> {
+    let too_big = |seen: u64| {
+        Failure::new(
+            Trouble::TooBig,
+            format!("{url} sent {seen} bytes, over the {limit} byte limit"),
+        )
+    };
 
     // A declared length over the limit is refused before anything is read.
     // Downloading a gigabyte to discover it is a gigabyte is the mistake.
@@ -163,7 +253,7 @@ async fn body_within(mut response: reqwest::Response, limit: usize, url: &str) -
     while let Some(chunk) = response
         .chunk()
         .await
-        .with_context(|| format!("reading body of {url}"))?
+        .map_err(|err| Failure::new(trouble_for(&err), format!("reading body of {url}: {err}")))?
     {
         if body.len() + chunk.len() > limit {
             return Err(too_big((body.len() + chunk.len()) as u64));
@@ -180,7 +270,7 @@ pub async fn fetch(
     etag: Option<&str>,
     last_modified: Option<&str>,
     limits: Limits,
-) -> Result<Outcome> {
+) -> std::result::Result<Outcome, Failure> {
     let mut request = client.get(&source.url);
     // Either validator alone is enough; sending both is what the spec prefers.
     if let Some(etag) = etag {
@@ -190,10 +280,12 @@ pub async fn fetch(
         request = request.header(reqwest::header::IF_MODIFIED_SINCE, last_modified);
     }
 
-    let response = request
-        .send()
-        .await
-        .with_context(|| format!("requesting {}", source.url))?;
+    let response = request.send().await.map_err(|err| {
+        Failure::new(
+            trouble_for(&err),
+            format!("requesting {}: {err}", source.url),
+        )
+    })?;
 
     let status = response.status();
     if status == reqwest::StatusCode::NOT_MODIFIED {
@@ -213,9 +305,12 @@ pub async fn fetch(
         return Ok(Outcome::RateLimited { retry_after });
     }
 
-    let response = response
-        .error_for_status()
-        .with_context(|| format!("bad status from {}", source.url))?;
+    if let Err(err) = response.error_for_status_ref() {
+        return Err(Failure::new(
+            trouble_for_status(status),
+            format!("{} answered {status}: {err}", source.url),
+        ));
+    }
 
     let header = |name: reqwest::header::HeaderName| {
         response
@@ -228,12 +323,34 @@ pub async fn fetch(
     let last_modified = header(reqwest::header::LAST_MODIFIED);
 
     let body = body_within(response, limits.max_body, &source.url).await?;
+    let feed =
+        parse(&body, source).map_err(|err| Failure::new(Trouble::NotAFeed, format!("{err:#}")))?;
 
     Ok(Outcome::Updated {
-        feed: Box::new(parse(&body, source)?),
+        feed: Box::new(feed),
         etag,
         last_modified,
     })
+}
+
+/// What kind of trouble a transport error is.
+fn trouble_for(err: &reqwest::Error) -> Trouble {
+    if err.is_timeout() {
+        Trouble::TimedOut
+    } else {
+        // Connect, DNS, TLS and a body that stopped arriving all mean the same
+        // thing to a reader: the other end is not talking to us right now.
+        Trouble::Unreachable
+    }
+}
+
+/// What kind of trouble a status code is.
+fn trouble_for_status(status: reqwest::StatusCode) -> Trouble {
+    match status.as_u16() {
+        404 | 410 => Trouble::Gone,
+        code if status.is_server_error() => Trouble::ServerError(code),
+        code => Trouble::Refused(code),
+    }
 }
 
 /// How long to wait when a server says to back off but not for how long.
@@ -593,12 +710,26 @@ mod tests {
     fn markers_distinguish_fetching_from_failed() {
         assert_eq!(Status::Idle.marker(), None);
         assert_eq!(Status::Fetching.marker(), Some("…"));
-        assert_eq!(Status::Failed("boom".into()).marker(), Some("!"));
+        assert_eq!(
+            Status::Failed {
+                trouble: Trouble::Unreachable,
+                message: "boom".into()
+            }
+            .marker(),
+            Some("!")
+        );
     }
 
     #[test]
     fn only_a_failed_status_carries_an_error() {
-        assert_eq!(Status::Failed("boom".into()).error(), Some("boom"));
+        assert_eq!(
+            Status::Failed {
+                trouble: Trouble::Unreachable,
+                message: "boom".into()
+            }
+            .error(),
+            Some("boom")
+        );
         assert!(Status::Idle.error().is_none());
         assert!(Status::Fetching.error().is_none());
     }
@@ -833,5 +964,136 @@ mod tests {
         // Zero would be a limit no feed could meet, so it reads as "unset".
         config.max_feed_megabytes = Some(0);
         assert_eq!(config.limits().max_body, DEFAULT_MAX_BODY);
+    }
+
+    /// The status codes a feed reader actually meets, and what each one means.
+    #[tokio::test]
+    async fn each_status_maps_to_the_kind_that_decides_what_to_do() {
+        let cases = [
+            (404, Trouble::Gone, false),
+            (410, Trouble::Gone, false),
+            (403, Trouble::Refused(403), false),
+            (401, Trouble::Refused(401), false),
+            (418, Trouble::Refused(418), false),
+            (500, Trouble::ServerError(500), true),
+            (502, Trouble::ServerError(502), true),
+        ];
+        let client = reqwest::Client::new();
+
+        for (code, expected, transient) in cases {
+            let port = serve_once(
+                &format!("HTTP/1.1 {code} Nope\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
+                Vec::new(),
+            );
+            let failure = fetch(&client, &at(port), None, None, Limits::default())
+                .await
+                .expect_err("an error status is a failure");
+            assert_eq!(failure.trouble, expected, "{code} mapped wrong");
+            assert_eq!(
+                failure.trouble.transient(),
+                transient,
+                "{code} would be retried wrongly"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn bytes_that_are_not_a_feed_are_their_own_kind_of_trouble() {
+        let port = serve_once(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/atom+xml\r\nConnection: close\r\n\r\n",
+            b"<html><body>Not a feed at all.</body></html>".to_vec(),
+        );
+        let failure = fetch(
+            &reqwest::Client::new(),
+            &at(port),
+            None,
+            None,
+            Limits::default(),
+        )
+        .await
+        .expect_err("html is not a feed");
+
+        assert_eq!(failure.trouble, Trouble::NotAFeed);
+        assert!(
+            !failure.trouble.transient(),
+            "retrying will not turn a web page into a feed"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_host_that_is_not_listening_is_unreachable_and_worth_retrying() {
+        // Port 1 on loopback: nothing is there, and the refusal is immediate.
+        let source = FeedSource {
+            url: "http://127.0.0.1:1/feed.xml".into(),
+            refresh_minutes: None,
+            title: None,
+            tags: Vec::new(),
+        };
+        let failure = fetch(
+            &reqwest::Client::new(),
+            &source,
+            None,
+            None,
+            Limits::default(),
+        )
+        .await
+        .expect_err("nothing is listening");
+
+        assert_eq!(failure.trouble, Trouble::Unreachable);
+        assert!(failure.trouble.transient(), "a network comes back");
+    }
+
+    #[tokio::test]
+    async fn too_much_body_is_not_worth_retrying() {
+        let port = serve_once(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/atom+xml\r\nConnection: close\r\n\r\n",
+            vec![b'x'; 64 * 1024],
+        );
+        let failure = fetch(
+            &reqwest::Client::new(),
+            &at(port),
+            None,
+            None,
+            Limits { max_body: 8 * 1024 },
+        )
+        .await
+        .expect_err("over the limit");
+
+        assert_eq!(failure.trouble, Trouble::TooBig);
+        assert!(
+            !failure.trouble.transient(),
+            "asking again gets the same oversized body"
+        );
+    }
+
+    #[test]
+    fn every_kind_reads_as_a_sentence_rather_than_a_variant_name() {
+        for trouble in [
+            Trouble::Unreachable,
+            Trouble::TimedOut,
+            Trouble::ServerError(503),
+            Trouble::Refused(403),
+            Trouble::Gone,
+            Trouble::TooBig,
+            Trouble::NotAFeed,
+        ] {
+            let said = trouble.sentence();
+            assert!(
+                said.chars().next().is_some_and(|c| c.is_lowercase()),
+                "{said:?} does not continue a sentence beginning with the feed name"
+            );
+            assert!(!said.contains("Trouble"), "{said:?} leaks the type name");
+        }
+    }
+
+    #[test]
+    fn a_failed_status_carries_both_the_kind_and_the_words() {
+        let status = Status::Failed {
+            trouble: Trouble::Gone,
+            message: "Old Blog is no longer there".into(),
+        };
+        assert_eq!(status.trouble(), Some(Trouble::Gone));
+        assert_eq!(status.error(), Some("Old Blog is no longer there"));
+        assert_eq!(Status::Idle.trouble(), None);
     }
 }
