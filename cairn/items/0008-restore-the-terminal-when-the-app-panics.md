@@ -2,7 +2,8 @@
 id: 8
 title: Restore the terminal when the app panics
 type: bug
-status: planned
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
 updated: 2026-09-11
 priority: p0

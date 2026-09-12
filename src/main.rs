@@ -8,6 +8,7 @@ use std::io;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use crossterm::cursor::Show;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -48,9 +49,10 @@ async fn main() -> Result<()> {
     let client = http_client()?;
     let mut app = App::new(fetch_all(&client, &config).await);
 
+    install_panic_hook();
     let mut terminal = enter()?;
     let result = run(&mut terminal, &mut app, &client, &config).await;
-    leave(&mut terminal)?;
+    restore()?;
     result
 }
 
@@ -148,9 +150,27 @@ fn enter() -> Result<Tui> {
     Terminal::new(CrosstermBackend::new(stdout)).context("creating the terminal")
 }
 
-fn leave(terminal: &mut Tui) -> Result<()> {
+/// Undoes everything [`enter`] did.
+///
+/// Deliberately takes no terminal and holds no borrow, so the panic hook can
+/// call it too. Safe to call when the TUI was never entered, and safe to call
+/// twice — both operations are no-ops in that case.
+fn restore() -> Result<()> {
     disable_raw_mode().context("disabling raw mode")?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)
-        .context("leaving the alternate screen")?;
-    terminal.show_cursor().context("restoring the cursor")
+    execute!(io::stdout(), LeaveAlternateScreen, Show).context("leaving the alternate screen")
+}
+
+/// Restores the terminal before a panic reaches the default handler.
+///
+/// Without this a panic unwinds straight past [`restore`], leaving raw mode on
+/// and the alternate screen active — the message lands on a screen the user is
+/// about to lose, and their shell is unusable until they type a blind `reset`.
+fn install_panic_hook() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        // Best effort: we are already panicking, so a failure here must not
+        // shadow the panic the user actually needs to see.
+        let _ = restore();
+        default(info);
+    }));
 }
