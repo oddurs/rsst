@@ -46,6 +46,8 @@ pub struct App {
     pub collapsed: std::collections::HashSet<String>,
     /// The group each feed belongs to, parallel to `feeds`.
     tags: Vec<Option<String>>,
+    /// Colours in use.
+    pub theme: crate::theme::Theme,
 }
 
 /// A marking action that affects more than one entry, so it is worth a prompt.
@@ -80,6 +82,12 @@ impl App {
             tags,
             ..Default::default()
         }
+    }
+
+    /// Sets the colours the renderer should use.
+    pub fn with_theme(mut self, theme: crate::theme::Theme) -> Self {
+        self.theme = theme;
+        self
     }
 
     /// Records which group each feed belongs to, from the config.
