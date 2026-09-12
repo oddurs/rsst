@@ -79,6 +79,18 @@ jobs:
             exit 1
           }
 
+  bench:
+    name: benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Fails only when an operation is several times slower than its committed
+      # baseline — enough to catch something that has stopped being linear,
+      # loose enough not to flag a slow or noisy runner.
+      - run: cargo run --release --bin rsst-bench
+
   audit:
     name: cargo audit
     runs-on: ubuntu-latest

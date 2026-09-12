@@ -123,6 +123,7 @@ rsst --completions bash > ~/.local/share/bash-completion/completions/rsst
 cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt --all
+cargo run --release --bin rsst-bench   # timings vs committed baselines
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch and PR workflow, and

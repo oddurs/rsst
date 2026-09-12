@@ -187,8 +187,11 @@ impl Cache {
         }
     }
 
+    /// How many feeds are held. A test helper, deliberately not named `len`:
+    /// this is not a collection, and clippy is right that a `len` without
+    /// an `is_empty` reads as one.
     #[cfg(test)]
-    pub fn len(&self) -> usize {
+    pub fn count(&self) -> usize {
         self.feeds.len()
     }
 }
@@ -302,10 +305,10 @@ mod tests {
         let mut cache = Cache::default();
         cache.put_test(&feed("https://a.example/feed", 1));
         cache.put_test(&feed("https://b.example/feed", 1));
-        assert_eq!(cache.len(), 2);
+        assert_eq!(cache.count(), 2);
 
         cache.retain_configured(&[source("https://a.example/feed")]);
-        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.count(), 1);
         assert!(cache.get(&source("https://b.example/feed")).is_none());
     }
 
@@ -439,14 +442,14 @@ mod tests {
         )
         .expect("write");
 
-        assert_eq!(Cache::load(&path).len(), 0);
+        assert_eq!(Cache::load(&path).count(), 0);
     }
 
     #[test]
     fn a_corrupt_cache_is_discarded_rather_than_fatal() {
         let path = tmpdir().join("corrupt.toml");
         fs::write(&path, "{{{ not toml at all").expect("write");
-        assert_eq!(Cache::load(&path).len(), 0);
+        assert_eq!(Cache::load(&path).count(), 0);
     }
 
     #[test]
@@ -462,13 +465,13 @@ mod tests {
         let cut = full.find("title = \"").expect("a quoted value") + 9;
         fs::write(&path, &full[..cut]).expect("truncate");
 
-        assert_eq!(Cache::load(&path).len(), 0);
+        assert_eq!(Cache::load(&path).count(), 0);
     }
 
     #[test]
     fn a_missing_cache_is_empty() {
         assert_eq!(
-            Cache::load(Path::new("/nonexistent/rsst/feeds.toml")).len(),
+            Cache::load(Path::new("/nonexistent/rsst/feeds.toml")).count(),
             0
         );
     }

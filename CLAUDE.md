@@ -11,12 +11,17 @@ fetched fresh into memory on launch and on `r`.
 ## Commands
 
 ```sh
-cargo run                                    # run the TUI
+cargo run --bin rsst                         # run the TUI
+cargo run --release --bin rsst-bench         # timings vs benches/baseline.toml
 cargo test                                   # unit tests (fast, no network)
 cargo clippy --all-targets -- -D warnings    # lint; CI treats warnings as errors
 cargo fmt --all                              # format
 cargo build --release
 ```
+
+Benchmarks compare against `benches/baseline.toml` and fail past a 6x tolerance.
+That is sized to catch an operation that has stopped being linear, not one that
+is 20% slower — regenerate the baselines only when a change is understood.
 
 Run `cargo fmt --all && cargo clippy --all-targets -- -D warnings && cargo test`
 before proposing a change is done. CI runs exactly these — but on the latest
@@ -24,6 +29,10 @@ stable toolchain, which can flag lints an older local `rustc` doesn't. A green
 local clippy is necessary, not sufficient; check the CI run too.
 
 ## Layout
+
+`rsst` is a library plus two binaries. Everything lives in `src/lib.rs` so the
+benchmark — and any future integration test — can use the real code rather than
+a copy of it; `src/main.rs` is the reader, `src/bin/bench.rs` the benchmark.
 
 | File            | Holds                                                          |
 | --------------- | -------------------------------------------------------------- |
