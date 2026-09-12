@@ -6,7 +6,8 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use crate::app::{App, Pane};
 
-const HELP: &str = " q quit · Tab pane · j/k move · / search · u unread · o open · r refresh ";
+const HELP: &str =
+    " q quit · Tab · j/k move · / search · u unread · m/a/A read · o open · r refresh ";
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let rows = Layout::default()
@@ -230,6 +231,22 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
         .current_feed()
         .and_then(|feed| feed.status.error())
         .map(|message| (format!(" {message} "), Color::Red));
+
+    if let Some(pending) = app.pending {
+        let what = match pending {
+            crate::app::Bulk::Feed => "this feed",
+            crate::app::Bulk::Everything => "every feed",
+        };
+        frame.render_widget(
+            Paragraph::new(format!(
+                " Mark {} unread entries in {what} as read?  y / n ",
+                app.pending_count()
+            ))
+            .style(Style::default().fg(Color::Black).bg(Color::Yellow)),
+            area,
+        );
+        return;
+    }
 
     let (text, background) = match (&app.status, error) {
         (Some(status), _) => (status.clone(), Color::Cyan),

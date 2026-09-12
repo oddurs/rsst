@@ -2,11 +2,12 @@
 id: 22
 title: Mark all read, and mark an entry unread again
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 depends_on:
 - 20
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p1
 effort: s
 area: storage
@@ -23,6 +24,6 @@ Read state can only be set one entry at a time, by selecting it. Declaring bankr
 
 ## Acceptance criteria
 
-- [ ] Marking all read updates counts immediately and survives a restart.
-- [ ] An entry can be toggled back to unread.
-- [ ] Bulk marking asks for confirmation first.
+- [x] Marking all read updates counts immediately and survives a restart.
+- [x] An entry can be toggled back to unread.
+- [x] Bulk marking asks for confirmation first.
