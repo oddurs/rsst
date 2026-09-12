@@ -2,9 +2,10 @@
 id: 20
 title: Filter to unread entries
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p1
 effort: s
 area: ui
@@ -21,6 +22,6 @@ A toggle (`u`) switching the entry list between all and unread-only, remembered 
 
 ## Acceptance criteria
 
-- [ ] `u` toggles unread-only and the state persists.
-- [ ] Feed unread counts agree with what the filtered list shows.
-- [ ] Reading the last unread entry leaves a clear empty state rather than a blank pane.
+- [x] `u` toggles unread-only and the state persists.
+- [x] Feed unread counts agree with what the filtered list shows.
+- [x] Reading the last unread entry leaves a clear empty state rather than a blank pane.

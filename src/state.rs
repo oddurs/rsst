@@ -18,12 +18,17 @@ use crate::feed::Entry;
 #[derive(Debug, Default)]
 pub struct ReadState {
     keys: HashSet<String>,
+    /// Whether the entry list is filtered to unread. Kept here because it is
+    /// the same kind of thing — what the reader remembers between runs.
+    pub unread_only: bool,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct OnDisk {
     #[serde(default)]
     read: Vec<String>,
+    #[serde(default)]
+    unread_only: bool,
 }
 
 impl ReadState {
@@ -38,6 +43,7 @@ impl ReadState {
         let parsed: OnDisk = toml::from_str(&raw).unwrap_or_default();
         Self {
             keys: parsed.read.into_iter().collect(),
+            unread_only: parsed.unread_only,
         }
     }
 
@@ -57,6 +63,7 @@ impl ReadState {
         read.sort(); // stable on disk, so the file diffs cleanly and tests can compare
         let body = toml::to_string_pretty(&OnDisk {
             read: read.into_iter().cloned().collect(),
+            unread_only: self.unread_only,
         })
         .context("serializing read state")?;
 
@@ -163,6 +170,17 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
             .collect();
         assert!(leftovers.is_empty(), "temporary file was not renamed away");
+    }
+
+    #[test]
+    fn the_unread_filter_survives_a_restart() {
+        let path = tmpdir().join("filter.toml");
+        let state = ReadState {
+            unread_only: true,
+            ..Default::default()
+        };
+        state.save(&path).expect("save");
+        assert!(ReadState::load(&path).unread_only);
     }
 
     #[test]

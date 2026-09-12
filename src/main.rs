@@ -181,6 +181,10 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
             KeyCode::Tab | KeyCode::BackTab => app.toggle_focus(),
             KeyCode::Char('j') | KeyCode::Down => app.select_next(),
             KeyCode::Char('k') | KeyCode::Up => app.select_previous(),
+            KeyCode::Char('u') => {
+                app.toggle_unread_only();
+                let _ = app.read.save(&session.state_path);
+            }
             KeyCode::Char('o') => open_selected(app),
             KeyCode::Char('y') => copy_selected(app),
             KeyCode::Char('r') => {

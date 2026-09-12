@@ -6,7 +6,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use crate::app::{App, Pane};
 
-const HELP: &str = " q quit · Tab pane · j/k move/scroll · o open · y copy · r refresh ";
+const HELP: &str = " q quit · Tab pane · j/k move · u unread · o open · y copy · r refresh ";
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let rows = Layout::default()
@@ -80,11 +80,11 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
         .current_feed()
         .map(|feed| feed.url.clone())
         .unwrap_or_else(|| "Entries".into());
-    let items: Vec<ListItem> = app
-        .current_feed()
-        .map(|feed| &feed.entries)
-        .into_iter()
-        .flatten()
+    let visible = app.visible_indices(app.selected_feed);
+    let entries = app.current_feed().map(|feed| &feed.entries);
+    let items: Vec<ListItem> = visible
+        .iter()
+        .filter_map(|index| entries.and_then(|entries| entries.get(*index)))
         .map(|entry| {
             // Unread stands out; read recedes rather than disappearing.
             let title = if app.is_read(entry) {
@@ -104,7 +104,22 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
         .collect();
 
     let mut state = ListState::default();
-    state.select((!items.is_empty()).then_some(app.selected_entry));
+    state.select(visible.iter().position(|i| *i == app.selected_entry));
+
+    let title = if app.read.unread_only {
+        format!("{title}  [unread]")
+    } else {
+        title
+    };
+    let empty = items.is_empty();
+    let items = if empty {
+        vec![ListItem::new(Line::from(Span::styled(
+            "Nothing unread here.",
+            Style::default().fg(Color::DarkGray),
+        )))]
+    } else {
+        items
+    };
 
     frame.render_stateful_widget(
         List::new(items)

@@ -52,16 +52,19 @@ with the alternate screen still active.
 
 ## v0.3
 
-`··········` 0% · 0 of 6 done
+`##········` 17% · 1 of 6 done
 
 ### backlog
 
-- [ ] [`0020`](https://github.com/oddurs/rsst/blob/main/cairn/items/0020-filter-to-unread-entries.md) Filter to unread entries <sup>feature · v0.3 · p1</sup>
 - [ ] [`0021`](https://github.com/oddurs/rsst/blob/main/cairn/items/0021-search-and-filter-entries.md) Search and filter entries <sup>feature · v0.3 · p1</sup>
 - [ ] [`0022`](https://github.com/oddurs/rsst/blob/main/cairn/items/0022-mark-all-read-and-mark-an-entry-unread-again.md) Mark all read, and mark an entry unread again <sup>feature · v0.3 · p1</sup>
 - [ ] [`0023`](https://github.com/oddurs/rsst/blob/main/cairn/items/0023-star-entries-and-keep-them.md) Star entries and keep them <sup>feature · v0.3 · p2</sup>
 - [ ] [`0024`](https://github.com/oddurs/rsst/blob/main/cairn/items/0024-vim-style-navigation-keys.md) Vim-style navigation keys <sup>feature · v0.3 · p2</sup>
 - [ ] [`0025`](https://github.com/oddurs/rsst/blob/main/cairn/items/0025-keybinding-help-overlay.md) Keybinding help overlay <sup>feature · v0.3 · p2</sup>
+
+### done
+
+- [x] [`0020`](https://github.com/oddurs/rsst/blob/main/cairn/items/0020-filter-to-unread-entries.md) Filter to unread entries <sup>feature · v0.3 · p1</sup>
 
 ## v0.4
 
