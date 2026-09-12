@@ -2,7 +2,8 @@
 id: 55
 title: A reading mode that gives the article the screen
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p1

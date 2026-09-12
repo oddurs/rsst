@@ -124,6 +124,7 @@ time, set `mouse = false`.
 | `n` / `p`      | Next / previous unread, across feeds |
 | `/`            | Search every feed (`n`/`N` step matches, `Esc` cancels) |
 | `f`            | Fetch the full article for a summary-only feed |
+| `z`            | Give the article the whole screen (`Space` pages, `Esc` leaves) |
 | `s` / `S`      | Star the entry / show only starred |
 | `m`            | Toggle read on the selected entry |
 | `a` / `A`      | Mark this feed / every feed read (asks first) |
@@ -137,7 +138,7 @@ time, set `mouse = false`.
 | `M`            | Move this feed to a folder |
 | `+`            | Add a feed by URL         |
 | `?`            | Show every key            |
-| `q` / `Esc`    | Quit                      |
+| `q` / `Esc`    | Quit (`Esc` leaves reading mode or a search first) |
 
 Starred entries are kept even after they fall out of the upstream feed, which is
 the point of starring them.

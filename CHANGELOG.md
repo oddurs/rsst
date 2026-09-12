@@ -15,6 +15,12 @@ still needs.
 ### Added
 
 - A three-pane reader: feeds, that feed's entries, and the selected entry's text
+- **A reading experience, not a dump of tags** — entry HTML is laid out as
+  headings, lists, quotes, code, figures and aligned tables, set to a readable
+  measure rather than stretched across the terminal; links are numbered against
+  a reference list; `f` fetches the full text behind a teaser
+- A reading mode (`z`) that gives the article the whole screen, pages with
+  `Space`, and returns to each article where you left it
 - **Mouse-first interaction** — click a feed, entry or group heading; wheel over
   any pane to scroll it; click a link to open it; the status hints are buttons.
   `mouse = false` gives the terminal its selection back

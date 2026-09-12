@@ -310,6 +310,7 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
             showing = keys;
         }
 
+        app.keep_place();
         terminal.draw(|frame| ui::draw(frame, app, &session.keymap))?;
 
         if !event::poll(TICK)? {
@@ -434,6 +435,8 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
         if key.code == KeyCode::Esc {
             if app.search.is_some() {
                 app.cancel_search();
+            } else if app.reading {
+                app.toggle_reading();
             } else {
                 app.should_quit = true;
             }
@@ -589,6 +592,10 @@ fn dispatch(action: keys::Action, app: &mut App, session: &mut Session) -> Resul
         Action::Last => app.select_last(),
         Action::HalfPageDown => app.half_page(1),
         Action::HalfPageUp => app.half_page(-1),
+        Action::ToggleReading => app.toggle_reading(),
+        // With the article alone on screen, space is a page turn — the one
+        // key every other reader in the world already binds to that.
+        Action::ToggleGroup if app.reading => app.page(1),
         Action::ToggleGroup if app.focus == app::Pane::Feeds => app.toggle_group(),
         Action::ToggleGroup => {}
         Action::MoveFeed => app.start_move(),
