@@ -2,8 +2,22 @@
 
 A terminal RSS/Atom feed reader, built with [ratatui](https://ratatui.rs).
 
+![rsst](docs/img/rsst.svg)
+
 Three panes: your feeds on the left, that feed's entries top-right, the selected
 entry's text below. Feeds are fetched concurrently on launch and on demand.
+
+There is a 20-second tour in [docs/img/demo.cast](docs/img/demo.cast) — play it
+with `asciinema play docs/img/demo.cast`. Both it and the screenshot are
+generated from the real binary, so neither can drift from the interface:
+
+```sh
+rsst --screenshot 104x30 > docs/img/rsst.svg
+scripts/record-demo > docs/img/demo.cast
+```
+
+In a terminal that cannot draw box characters, `ascii = true` gives you
+[this](docs/img/rsst-ascii.svg) instead.
 
 ## Install
 

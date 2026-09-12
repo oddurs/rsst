@@ -14,6 +14,7 @@ pub mod keys;
 pub mod launch;
 pub mod limit;
 pub mod opml;
+pub mod screenshot;
 pub mod state;
 pub mod text;
 pub mod theme;

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Record a short demo of rsst as an asciinema v2 cast.
+#
+# The cast is captured from the real binary in a real pty, so it cannot drift
+# from the interface. It is text — a few kilobytes that compress and diff like
+# source, rather than a video in the repository forever.
+#
+#   scripts/record-demo [config.toml] > docs/img/demo.cast
+set -euo pipefail
+exec python3 "$(dirname "$0")/record_demo.py" "$@"

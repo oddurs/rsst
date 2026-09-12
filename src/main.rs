@@ -63,6 +63,7 @@ async fn main() -> Result<()> {
             print!("{}", generate::completions(&shell)?);
             return Ok(());
         }
+        Action::Screenshot { size, config } => return screenshot(&size, config).await,
         Action::Import { path, config } => return import(&path, config),
         Action::Export { config } => return export(config),
         Action::Run { config } => config,
@@ -402,6 +403,59 @@ fn spawn_some(
             let _ = tx.send((index, result));
         });
     }
+}
+
+/// Renders one frame of the real interface as SVG, then exits.
+///
+/// Fetches first so the frame has real content; a screenshot of an empty
+/// reader would be honest about nothing.
+async fn screenshot(size: &str, config_override: Option<PathBuf>) -> Result<()> {
+    let (width, height) = rsst::screenshot::parse_size(size)
+        .context("--screenshot wants WIDTHxHEIGHT, like 100x30")?;
+
+    let config = Config::load_or_init(config_override)?;
+    let keymap = keys::Keymap::from_config(&config.keys)?;
+    let theme = theme::Theme::resolve(&config.theme, false)?;
+    let client = http_client()?;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Fetched>();
+    let cache = Cache::load(&cache::cache_path()?);
+    let limiter = limit::limiter(config.fetch_limit());
+    spawn_fetches(&client, &config, &cache, &limiter, &tx);
+    drop(tx);
+
+    let feeds = config
+        .feeds
+        .iter()
+        .map(|source| {
+            cache
+                .get(source)
+                .unwrap_or_else(|| feed::Feed::pending(source))
+        })
+        .collect();
+    let mut app = App::new(feeds, ReadState::load(&state::state_path()?))
+        .with_tags(&config.feeds)
+        .with_theme(theme);
+
+    // Wait for what arrives promptly; a slow feed should not hold up a
+    // screenshot, it should just show as still loading.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while let Ok(Some((index, result))) = tokio::time::timeout_at(deadline, rx.recv()).await
+        && let Some(slot) = app.feeds.get_mut(index)
+    {
+        match result {
+            Ok(feed::Outcome::Updated { feed, .. }) => *slot = *feed,
+            _ => slot.status = feed::Status::Idle,
+        }
+    }
+
+    app.focus = app::Pane::Entries;
+    app.mark_current_read();
+    print!(
+        "{}",
+        rsst::screenshot::svg(&mut app, &keymap, width, height)
+    );
+    Ok(())
 }
 
 /// Whether a key event should be acted on.
