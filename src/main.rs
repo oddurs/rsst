@@ -34,6 +34,9 @@ const SEARCH_LIMIT: usize = 500;
 /// A finished fetch on its way back to the event loop.
 type Fetched = (usize, Result<feed::Outcome>);
 
+/// A fetched article, keyed by the entry it belongs to.
+type Article = (Vec<String>, Result<String>);
+
 /// Everything the event loop needs besides the app state itself.
 struct Session {
     keymap: keys::Keymap,
@@ -44,6 +47,8 @@ struct Session {
     db: rsst::db::Db,
     tx: tokio::sync::mpsc::UnboundedSender<Fetched>,
     rx: tokio::sync::mpsc::UnboundedReceiver<Fetched>,
+    articles_tx: tokio::sync::mpsc::UnboundedSender<Article>,
+    articles_rx: tokio::sync::mpsc::UnboundedReceiver<Article>,
 }
 
 #[tokio::main]
@@ -113,6 +118,7 @@ async fn main() -> Result<()> {
         .with_tags(&config.feeds)
         .with_theme(theme);
 
+    let (articles_tx, articles_rx) = tokio::sync::mpsc::unbounded_channel::<Article>();
     let mut session = Session {
         keymap,
         config_path: config::config_path_or(config_override)?,
@@ -122,6 +128,8 @@ async fn main() -> Result<()> {
         config,
         tx,
         rx,
+        articles_tx,
+        articles_rx,
     };
 
     install_panic_hook();
@@ -144,6 +152,9 @@ type Tui = Terminal<CrosstermBackend<io::Stdout>>;
 
 async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result<()> {
     let mut clicks = Clicks::default();
+    // The entry the article pane is currently showing, so the lookup happens
+    // when the selection changes rather than on every frame.
+    let mut showing: Option<Vec<String>> = None;
     while !app.should_quit {
         // Take whatever has arrived since the last frame. Never blocks, so a
         // slow feed cannot hold up the redraw.
@@ -182,6 +193,33 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                 // is recorded on the feed rather than invented as an entry.
                 Err(err) => slot.status = feed::Status::Failed(format!("{err:#}")),
             }
+        }
+
+        // A fetched article arriving is the only other thing worth a redraw.
+        while let Ok((keys, result)) = session.articles_rx.try_recv() {
+            let current = app.current_entry().map(|entry| entry.keys.clone());
+            match result {
+                Ok(html) => {
+                    if let Some(entry) = app.current_entry().cloned() {
+                        let _ = session.db.put_article(&entry, &html);
+                    }
+                    if current.as_deref() == Some(keys.as_slice()) {
+                        app.article = Some(html);
+                        app.detail_scroll = 0;
+                        app.status = Some(" Full article. ".into());
+                    }
+                }
+                Err(err) => app.status = Some(format!(" Could not fetch: {err} ")),
+            }
+        }
+
+        // Whatever is selected, show the article that was fetched for it.
+        let keys = app.current_entry().map(|entry| entry.keys.clone());
+        if keys != showing {
+            app.article = app
+                .current_entry()
+                .and_then(|entry| session.db.article(entry));
+            showing = keys;
         }
 
         terminal.draw(|frame| ui::draw(frame, app, &session.keymap))?;
@@ -495,6 +533,12 @@ fn dispatch(action: keys::Action, app: &mut App, session: &mut Session) -> Resul
                 " Newest first. ".into()
             });
         }
+        Action::FetchArticle => {
+            app.status = Some(match fetch_article(app, session) {
+                Some(message) => message,
+                None => " Fetching the full article… ".into(),
+            });
+        }
         Action::Open => open_selected(app),
         Action::CopyLink => copy_selected(app),
         Action::Refresh => {
@@ -581,6 +625,47 @@ fn move_feed(app: &mut App, session: &mut Session, feed: usize, path: &[String])
     } else {
         path.join(" / ")
     })
+}
+
+/// Starts fetching the selected entry's page, unless there is nothing to fetch.
+///
+/// Never automatic: fetching every article of every feed is neither polite to
+/// the publishers nor something anyone asked for.
+fn fetch_article(app: &mut App, session: &Session) -> Option<String> {
+    let entry = app.current_entry()?.clone();
+    let link = entry.link.clone().filter(|link| !link.is_empty());
+    let Some(link) = link else {
+        return Some(" This entry has no link to fetch. ".into());
+    };
+    if app.article.is_some() {
+        return Some(" Already showing the full article. ".into());
+    }
+
+    let client = session.client.clone();
+    let tx = session.articles_tx.clone();
+    tokio::spawn(async move {
+        let result = download(&client, &link).await;
+        let _ = tx.send((entry.keys.clone(), result));
+    });
+    None
+}
+
+/// Downloads a page and pulls the article out of it.
+async fn download(client: &reqwest::Client, url: &str) -> Result<String> {
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .with_context(|| format!("requesting {url}"))?
+        .error_for_status()
+        .with_context(|| format!("bad status from {url}"))?;
+
+    let html = response
+        .text()
+        .await
+        .with_context(|| format!("reading {url}"))?;
+
+    rsst::readable::extract(&html).context("nothing on that page reads like an article")
 }
 
 /// Whether a key event should be acted on.

@@ -24,7 +24,7 @@ use crate::feed::{Entry, Feed, Status};
 /// Stored in SQLite's own `user_version`, so the database carries its version
 /// the way `docs/stability.md` requires — and, as with the TOML before it, a
 /// database from a newer rsst is refused rather than misread.
-pub const SCHEMA: i64 = 2;
+pub const SCHEMA: i64 = 3;
 
 /// What we remember about a feed's HTTP behaviour between fetches.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -404,6 +404,42 @@ impl Db {
         );
     }
 
+    // ─── Fetched articles ────────────────────────────────────────────────
+
+    /// The full article fetched for this entry, if one ever was.
+    pub fn article(&self, entry: &Entry) -> Option<String> {
+        entry.keys.iter().find_map(|key| {
+            self.connection
+                .query_row(
+                    "SELECT html FROM articles WHERE key = ?1",
+                    params![key],
+                    |row| row.get(0),
+                )
+                .optional()
+                .ok()
+                .flatten()
+        })
+    }
+
+    /// Stores a fetched article against every one of the entry's identifiers.
+    ///
+    /// All of them, for the same reason read state uses all of them: a feed
+    /// that regenerates its guids would otherwise lose the article.
+    pub fn put_article(&self, entry: &Entry, html: &str) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        let transaction = self.connection.unchecked_transaction()?;
+        for key in &entry.keys {
+            transaction.execute(
+                "INSERT INTO articles (key, html, fetched_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(key) DO UPDATE SET html = excluded.html,
+                                                fetched_at = excluded.fetched_at",
+                params![key, html, now],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
     // ─── Search ──────────────────────────────────────────────────────────
 
     /// Full-text search across every cached entry.
@@ -542,6 +578,20 @@ fn migrate(connection: &Connection, from: i64) -> Result<()> {
         connection
             .execute_batch("ALTER TABLE entries ADD COLUMN content TEXT NOT NULL DEFAULT '';")
             .context("adding the content column")?;
+    }
+    if from < 3 {
+        // Keyed by the entry's identifier rather than its row, so a fetched
+        // article survives the feed being refreshed out from under it —
+        // otherwise "fetched once" would mean "fetched once per refresh".
+        connection
+            .execute_batch(
+                "CREATE TABLE articles (
+                   key        TEXT PRIMARY KEY,
+                   html       TEXT NOT NULL,
+                   fetched_at TEXT NOT NULL
+                 );",
+            )
+            .context("adding the articles table")?;
     }
     connection
         .pragma_update(None, "user_version", SCHEMA)
@@ -964,6 +1014,48 @@ mod tests {
         assert!(db.flag("unread_only"));
         db.set_flag("unread_only", false);
         assert!(!db.flag("unread_only"));
+    }
+
+    #[test]
+    fn a_fetched_article_is_found_by_any_of_the_entry_keys() {
+        let db = db();
+        let original = entry("One", &["id:1", "link:1"]);
+        assert!(db.article(&original).is_none());
+
+        db.put_article(&original, "<p>Full text</p>").expect("put");
+        assert_eq!(
+            db.article(&entry("One", &["id:1"])).as_deref(),
+            Some("<p>Full text</p>")
+        );
+        // A feed that regenerated its guid still finds it by the link.
+        assert_eq!(
+            db.article(&entry("One", &["id:regenerated", "link:1"]))
+                .as_deref(),
+            Some("<p>Full text</p>")
+        );
+    }
+
+    #[test]
+    fn a_fetched_article_survives_the_feed_being_refreshed() {
+        // Otherwise "fetched once" would mean "once per refresh".
+        let mut db = db();
+        let one = entry("One", &["id:1"]);
+        db.put_feed(&feed("https://a.example", vec![one.clone()]))
+            .expect("put");
+        db.put_article(&one, "<p>Full</p>").expect("put");
+
+        db.put_feed(&feed("https://a.example", vec![entry("Two", &["id:2"])]))
+            .expect("refresh");
+        assert_eq!(db.article(&one).as_deref(), Some("<p>Full</p>"));
+    }
+
+    #[test]
+    fn fetching_again_replaces_what_was_stored() {
+        let db = db();
+        let one = entry("One", &["id:1"]);
+        db.put_article(&one, "<p>Old</p>").expect("put");
+        db.put_article(&one, "<p>New</p>").expect("put");
+        assert_eq!(db.article(&one).as_deref(), Some("<p>New</p>"));
     }
 
     #[test]
