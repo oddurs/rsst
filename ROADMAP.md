@@ -65,11 +65,7 @@ with the alternate screen still active.
 
 ## v0.4
 
-`########··` 80% · 4 of 5 done
-
-### backlog
-
-- [ ] [`0030`](https://github.com/oddurs/rsst/blob/main/cairn/items/0030-reload-the-config-without-restarting.md) Reload the config without restarting <sup>feature · v0.4 · p3</sup>
+`##########` 100% · 5 of 5 done
 
 ### done
 
@@ -77,6 +73,7 @@ with the alternate screen still active.
 - [x] [`0027`](https://github.com/oddurs/rsst/blob/main/cairn/items/0027-configurable-keybindings.md) Configurable keybindings <sup>feature · v0.4 · p2</sup>
 - [x] [`0028`](https://github.com/oddurs/rsst/blob/main/cairn/items/0028-theme-and-colour-configuration.md) Theme and colour configuration <sup>feature · v0.4 · p2</sup>
 - [x] [`0029`](https://github.com/oddurs/rsst/blob/main/cairn/items/0029-sort-and-group-entries.md) Sort and group entries <sup>feature · v0.4 · p3</sup>
+- [x] [`0030`](https://github.com/oddurs/rsst/blob/main/cairn/items/0030-reload-the-config-without-restarting.md) Reload the config without restarting <sup>feature · v0.4 · p3</sup>
 
 ## v1.0
 

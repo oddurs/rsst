@@ -82,6 +82,14 @@ impl Config {
     }
 }
 
+/// The config path actually in use: an explicit one, or the platform default.
+pub fn config_path_or(override_path: Option<PathBuf>) -> Result<PathBuf> {
+    match override_path {
+        Some(path) => Ok(path),
+        None => config_path(),
+    }
+}
+
 pub fn config_path() -> Result<PathBuf> {
     let dirs = directories::ProjectDirs::from("", "", "rsst")
         .context("could not determine a config directory for this platform")?;

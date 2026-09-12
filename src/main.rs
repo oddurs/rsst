@@ -43,6 +43,7 @@ type Fetched = (usize, Result<feed::Outcome>);
 /// Everything the event loop needs besides the app state itself.
 struct Session {
     keymap: keys::Keymap,
+    config_path: PathBuf,
     client: reqwest::Client,
     limiter: std::sync::Arc<tokio::sync::Semaphore>,
     config: Config,
@@ -71,6 +72,7 @@ async fn main() -> Result<()> {
         Action::Run { config } => config,
     };
 
+    let config_override = config_path.clone();
     let config = Config::load_or_init(config_path)?;
     let keymap = keys::Keymap::from_config(&config.keys)?;
     // https://no-color.org — set to anything, it means no colour.
@@ -106,6 +108,7 @@ async fn main() -> Result<()> {
 
     let mut session = Session {
         keymap,
+        config_path: config::config_path_or(config_override)?,
         client,
         limiter,
         config,
@@ -304,6 +307,18 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
             }
             Action::ToggleStarredView => app.toggle_starred_view(),
             Action::ToggleAllFeeds => app.toggle_all_feeds_view(),
+            Action::ReloadConfig => match reload(app, session) {
+                // A broken config must leave the running reader exactly as it
+                // was: the feeds on screen are still perfectly readable.
+                Err(err) => app.status = Some(format!(" Config not reloaded: {err} ")),
+                Ok(added) => {
+                    app.status = Some(if added == 0 {
+                        " Config reloaded. ".into()
+                    } else {
+                        format!(" Config reloaded; fetching {added} new feed(s)… ")
+                    });
+                }
+            },
             Action::ToggleSort => {
                 app.toggle_sort();
                 let _ = app.read.save(&session.state_path);
@@ -391,6 +406,40 @@ fn spawn_some(
             let _ = tx.send((index, result));
         });
     }
+}
+
+/// Re-reads the config and reconciles the running reader with it.
+///
+/// Everything is validated before anything is changed, so a config that fails
+/// to parse — or names an unknown action or colour — leaves the session alone.
+fn reload(app: &mut App, session: &mut Session) -> Result<usize> {
+    let config = Config::load_from(&session.config_path)?;
+    let keymap = keys::Keymap::from_config(&config.keys)?;
+    let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
+    let theme = theme::Theme::resolve(&config.theme, no_color)?;
+
+    app.reconcile(&config.feeds);
+    app.theme = theme;
+    session.keymap = keymap;
+    session.config = config;
+
+    // Only the feeds that arrived with this reload need fetching.
+    let starting = app.indices_without_entries();
+    for index in &starting {
+        if let Some(feed) = app.feeds.get_mut(*index) {
+            feed.status = feed::Status::Fetching;
+        }
+    }
+    let count = starting.len();
+    spawn_some(
+        &session.client,
+        &session.config,
+        &session.cache,
+        &session.limiter,
+        &session.tx,
+        starting,
+    );
+    Ok(count)
 }
 
 /// Opens the selected entry's link in the browser, reporting the outcome.

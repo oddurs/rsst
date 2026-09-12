@@ -82,7 +82,7 @@ Setting `NO_COLOR` disables colour whatever the config says.
 | `u`            | Show only unread entries  |
 | `o`            | Open the entry in your browser |
 | `y`            | Copy its link to the clipboard |
-| `r`            | Refresh all feeds         |
+| `r` / `R`      | Refresh all feeds / re-read the config |
 | `Enter`        | Fold a feed group away (feed pane) |
 | `?`            | Show every key            |
 | `q` / `Esc`    | Quit                      |

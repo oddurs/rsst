@@ -88,6 +88,46 @@ impl App {
         }
     }
 
+    /// Reconciles the feed list with a freshly read config.
+    ///
+    /// Feeds already on screen are kept as they are — their entries, their
+    /// fetch status, everything — so reloading to add one feed does not blank
+    /// the others. Read state is untouched: it lives in `read`, keyed by entry
+    /// rather than by position, so it cannot be disturbed by this at all.
+    pub fn reconcile(&mut self, sources: &[crate::config::FeedSource]) {
+        let existing = std::mem::take(&mut self.feeds);
+        self.feeds = sources
+            .iter()
+            .map(|source| {
+                existing
+                    .iter()
+                    .find(|feed| feed.url == source.url)
+                    .cloned()
+                    .unwrap_or_else(|| Feed::pending(source))
+            })
+            .collect();
+
+        self.tags = sources
+            .iter()
+            .map(|source| source.tags.first().cloned())
+            .collect();
+
+        // The cursor may have been pointing at a feed that is now gone.
+        self.selected_feed = self.selected_feed.min(self.feeds.len().saturating_sub(1));
+        self.selected_entry = 0;
+        self.detail_scroll = 0;
+    }
+
+    /// Which feeds are new since the last config, by index.
+    pub fn indices_without_entries(&self) -> Vec<usize> {
+        self.feeds
+            .iter()
+            .enumerate()
+            .filter(|(_, feed)| feed.entries.is_empty())
+            .map(|(index, _)| index)
+            .collect()
+    }
+
     /// Sets the colours the renderer should use.
     pub fn with_theme(mut self, theme: crate::theme::Theme) -> Self {
         self.theme = theme;
@@ -1486,6 +1526,63 @@ mod tests {
         assert_eq!((app.selected_feed, app.selected_entry), (1, 0), "b-2022");
         app.toggle_all_feeds_view();
         assert!(!app.all_feeds_view);
+    }
+
+    fn source(url: &str) -> crate::config::FeedSource {
+        crate::config::FeedSource {
+            url: url.into(),
+            title: None,
+            tags: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn reloading_picks_up_a_new_feed_without_disturbing_the_others() {
+        let mut app = app();
+        app.focus = Pane::Entries;
+        app.mark_current_read();
+        let before = app.unread(0);
+
+        app.reconcile(&[
+            source("https://a.example"),
+            source("https://b.example"),
+            source("https://new.example"),
+        ]);
+
+        assert_eq!(app.feeds.len(), 3);
+        assert_eq!(app.feeds[0].entries.len(), 2, "existing entries kept");
+        assert!(app.feeds[2].entries.is_empty(), "the new feed is empty");
+        assert_eq!(app.unread(0), before, "read state survived the reload");
+    }
+
+    #[test]
+    fn reloading_drops_a_feed_that_was_removed() {
+        let mut app = app();
+        app.selected_feed = 1;
+        app.reconcile(&[source("https://a.example")]);
+        assert_eq!(app.feeds.len(), 1);
+        assert_eq!(app.selected_feed, 0, "cursor moved off the removed feed");
+    }
+
+    #[test]
+    fn reloading_applies_new_tags() {
+        let mut app = app();
+        let mut tagged = source("https://a.example");
+        tagged.tags = vec!["News".into()];
+        app.reconcile(&[tagged, source("https://b.example")]);
+        assert_eq!(app.tag_of(0), Some("News"));
+        assert_eq!(app.tag_of(1), None);
+    }
+
+    #[test]
+    fn only_the_new_feeds_need_fetching() {
+        let mut app = app();
+        app.reconcile(&[
+            source("https://a.example"),
+            source("https://b.example"),
+            source("https://new.example"),
+        ]);
+        assert_eq!(app.indices_without_entries(), vec![2]);
     }
 
     #[test]
