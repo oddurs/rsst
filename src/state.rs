@@ -244,9 +244,7 @@ impl ReadState {
 
 /// `$XDG_DATA_HOME/rsst/read.toml`, or the platform equivalent.
 pub fn state_path() -> Result<PathBuf> {
-    let dirs = directories::ProjectDirs::from("", "", "rsst")
-        .context("could not determine a data directory for this platform")?;
-    Ok(dirs.data_dir().join("read.toml"))
+    Ok(crate::home::dir(crate::home::Kind::Data)?.join("read.toml"))
 }
 
 #[cfg(test)]

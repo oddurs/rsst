@@ -51,6 +51,11 @@ OPTIONS:
   -h, --help           show this help
   -V, --version        show the version
 {}
+ENVIRONMENT:
+  RSST_HOME            keep the config, database and read state in this
+                       directory instead of the platform's own
+  NO_COLOR             set to anything to disable colour
+
 The config is written on first run; its path is reported if no feeds are set.",
         env!("CARGO_PKG_VERSION"),
         crate::keys::as_text(keymap)

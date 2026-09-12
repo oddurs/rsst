@@ -684,11 +684,10 @@ pub fn migrate_from_toml(db: &mut Db, cache: &Path, state: &Path) -> Result<bool
     Ok(brought_anything)
 }
 
-/// `$XDG_DATA_HOME/rsst/rsst.sqlite3`, or the platform equivalent.
+/// `$XDG_DATA_HOME/rsst/rsst.sqlite3`, or the platform equivalent — or, if
+/// `RSST_HOME` is set, that directory.
 pub fn db_path() -> Result<PathBuf> {
-    let dirs = directories::ProjectDirs::from("", "", "rsst")
-        .context("could not determine a data directory for this platform")?;
-    Ok(dirs.data_dir().join("rsst.sqlite3"))
+    Ok(crate::home::dir(crate::home::Kind::Data)?.join("rsst.sqlite3"))
 }
 
 #[cfg(test)]
