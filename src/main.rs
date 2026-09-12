@@ -433,7 +433,9 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
 
         // Esc leaves a search before anything else can claim it.
         if key.code == KeyCode::Esc {
-            if app.search.is_some() {
+            if app.following.is_some() {
+                app.cancel_following();
+            } else if app.search.is_some() {
                 app.cancel_search();
             } else if app.reading {
                 app.toggle_reading();
@@ -442,6 +444,29 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
             }
             continue;
         }
+        // A digit names one of the article's numbered links. Checked before
+        // the keymap so a binding cannot quietly swallow it mid-number.
+        match key.code {
+            KeyCode::Char(digit) if digit.is_ascii_digit() => {
+                if let Some(link) = app.type_link_digit(digit) {
+                    open_link(app, &link);
+                }
+                continue;
+            }
+            KeyCode::Enter if app.following.is_some() => {
+                match app.take_typed_link() {
+                    Some(link) => open_link(app, &link),
+                    None => app.status = Some(" No such link. ".into()),
+                }
+                continue;
+            }
+            KeyCode::Backspace if app.following.is_some() => {
+                app.cancel_following();
+                continue;
+            }
+            _ => {}
+        }
+
         // While a search has results, n and N walk them instead of the backlog.
         if app.search.is_some() {
             match key.code {
@@ -855,16 +880,27 @@ fn reload(app: &mut App, session: &mut Session) -> Result<usize> {
     Ok(count)
 }
 
+/// Opens a URL in the browser, reporting the outcome.
+fn open_link(app: &mut App, link: &str) {
+    app.status = Some(match launch::browser(link) {
+        Ok(()) => format!(" Opened {link} "),
+        Err(err) => format!(" Could not open: {err:#} "),
+    });
+}
+
 /// Opens the selected entry's link in the browser, reporting the outcome.
 fn open_selected(app: &mut App) {
+    // A link the reader has picked out of the article wins over the entry's
+    // own, which is what "open" means when they have not picked one.
+    if let Some(link) = app.take_typed_link() {
+        open_link(app, &link);
+        return;
+    }
     let Some(link) = app.current_entry().and_then(|entry| entry.link.clone()) else {
         app.status = Some(" This entry has no link. ".into());
         return;
     };
-    app.status = Some(match launch::browser(&link) {
-        Ok(()) => format!(" Opened {link} "),
-        Err(err) => format!(" Could not open: {err:#} "),
-    });
+    open_link(app, &link);
 }
 
 /// Copies the selected entry's link to the clipboard.

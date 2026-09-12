@@ -505,7 +505,15 @@ fn draw_help(
         ])
     };
 
-    let sections = keymap.sections();
+    let mut sections = keymap.sections();
+    // Any digit names a link, so this is not a binding the keymap can report
+    // and the key reference has to say it itself.
+    if let Some((_, rows)) = sections.iter_mut().find(|(name, _)| *name == "Reading") {
+        rows.push((
+            "1-9".into(),
+            "follow a numbered link (Enter opens, Esc cancels)",
+        ));
+    }
 
     let mut roomy = Vec::new();
     for (name, rows) in &sections {
@@ -642,10 +650,17 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
     let max = app.max_detail_scroll();
     app.detail_scroll = app.detail_scroll.min(max);
 
+    let mut article_links: Vec<(usize, u16, u16, usize)> = Vec::new();
     let lines: Vec<Line> = app
         .detail_rows()
         .into_iter()
-        .map(|row| article_line(app, row))
+        .enumerate()
+        .map(|(line, row)| {
+            let mut found = Vec::new();
+            let rendered = article_line(app, row, &mut found);
+            article_links.extend(found.into_iter().map(|(from, to, i)| (line, from, to, i)));
+            rendered
+        })
         .collect();
 
     // The article says where it came from and when. "Detail" said neither.
@@ -686,6 +701,17 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
         area,
     );
 
+    // The article's own links, moved from line numbers into screen rows. A
+    // link scrolled out of view is not on screen, so it is not clickable.
+    app.hits.article_links = article_links
+        .into_iter()
+        .filter_map(|(line, from, to, index)| {
+            let row = (line as u16).checked_sub(app.detail_scroll)? + inner.y;
+            (row < inner.y + inner.height).then_some((row, inner.x + from, inner.x + to, index))
+        })
+        .filter(|(_, from, ..)| *from < inner.x + inner.width)
+        .collect();
+
     // Where the link ended up on screen, so it can be clicked. Scrolled off the
     // top or past the bottom, it simply is not clickable.
     app.hits.link_rows = match (app.detail_link_lines(), app.current_entry()) {
@@ -711,16 +737,23 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
 ///
 /// The parser decided what each piece *is*; this decides what that looks like,
 /// so the theme stays the only place colours are chosen.
-fn article_line<'a>(app: &App, row: crate::article::Row) -> Line<'a> {
+fn article_line<'a>(
+    app: &App,
+    row: crate::article::Row,
+    found: &mut Vec<(u16, u16, usize)>,
+) -> Line<'a> {
     use crate::article::{Inline, Kind};
 
     let mut spans: Vec<Span> = Vec::new();
+    let mut column = 0usize;
 
     // A quote is marked down its left edge rather than indented silently.
     if row.kind == Kind::Quote {
         let rule = if app.theme.ascii { "| " } else { "│ " };
+        column += rule.chars().count();
         spans.push(Span::styled(rule, app.theme.accent));
     } else if row.indent > 0 {
+        column += row.indent;
         spans.push(Span::raw(" ".repeat(row.indent)));
     }
 
@@ -751,7 +784,15 @@ fn article_line<'a>(app: &App, row: crate::article::Row) -> Line<'a> {
             Inline::Link(..) => app.theme.link,
             _ => base,
         };
-        spans.push(Span::styled(span.text().to_string(), style));
+        let text = span.text().to_string();
+        let width = text.chars().count();
+        if let Inline::Link(_, index) = &span
+            && width > 0
+        {
+            found.push((column as u16, (column + width - 1) as u16, *index));
+        }
+        column += width;
+        spans.push(Span::styled(text, style));
     }
     Line::from(spans)
 }
@@ -1910,6 +1951,58 @@ mod tests {
                 .iter()
                 .any(|(.., action)| *action == crate::keys::Action::ToggleReading),
             "the way back cannot be clicked"
+        );
+    }
+
+    #[test]
+    fn a_links_recorded_columns_are_where_its_text_was_drawn() {
+        let mut app = themed(crate::theme::Theme::dark());
+        app.article =
+            Some("<p>Go to <a href=\"https://example.com/one\">the first</a> now.</p>".into());
+
+        let mut terminal =
+            Terminal::new(TestBackend::new(100, 24)).expect("test terminal should build");
+        terminal
+            .draw(|frame| draw(frame, &mut app, &crate::keys::Keymap::default()))
+            .expect("draw should succeed");
+        let buffer = terminal.backend().buffer().clone();
+
+        // The inline marker and the reference list both point at link zero.
+        assert!(
+            app.hits.article_links.len() >= 2,
+            "expected the marker and the reference list: {:?}",
+            app.hits.article_links
+        );
+
+        for (row, from, to, index) in &app.hits.article_links {
+            assert_eq!(*index, 0, "a second link appeared from nowhere");
+            let drawn: String = (*from..=*to)
+                .map(|column| buffer[(column, *row)].symbol())
+                .collect();
+            assert!(
+                drawn.contains("the first[1]") || drawn.contains("example.com/one"),
+                "recorded columns hold {drawn:?}, which is not the link"
+            );
+        }
+    }
+
+    #[test]
+    fn a_link_scrolled_out_of_sight_cannot_be_clicked() {
+        let mut app = themed(crate::theme::Theme::dark());
+        app.article = Some(format!(
+            "<p>{}</p><p>End <a href=\"https://example.com/one\">here</a>.</p>",
+            "word ".repeat(2000)
+        ));
+
+        render_at(&mut app, 100, 24);
+        let visible = app.hits.article_links.len();
+        assert_eq!(visible, 0, "a link far below the fold was clickable");
+
+        app.detail_scroll = app.max_detail_scroll();
+        render_at(&mut app, 100, 24);
+        assert!(
+            !app.hits.article_links.is_empty(),
+            "scrolling to the link did not make it clickable"
         );
     }
 }

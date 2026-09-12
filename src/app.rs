@@ -98,6 +98,8 @@ pub struct App {
     marks: std::collections::HashMap<String, u16>,
     /// The article `detail_scroll` currently describes.
     marked: Option<String>,
+    /// Digits typed so far toward following a numbered link.
+    pub following: Option<String>,
 }
 
 /// A marking action that affects more than one entry, so it is worth a prompt.
@@ -979,20 +981,80 @@ impl App {
             spans: Vec::new(),
         });
 
-        // A fetched article wins over the feed's own text, which for a
-        // summary-only feed is a teaser. An entry stored before the markup was
-        // kept still has its plain text.
-        let source = match (&self.article, entry.content.is_empty()) {
-            (Some(article), _) => article,
-            (None, true) => &entry.summary,
-            (None, false) => &entry.content,
-        };
-        rows.extend(crate::article::layout(
-            &crate::article::parse(source),
-            width,
-            self.measure,
-        ));
+        if let Some(source) = self.article_source() {
+            rows.extend(crate::article::layout(
+                &crate::article::parse(source),
+                width,
+                self.measure,
+            ));
+        }
         rows
+    }
+
+    /// The markup the detail pane is showing.
+    ///
+    /// A fetched article wins over the feed's own text, which for a
+    /// summary-only feed is a teaser. An entry stored before the markup was
+    /// kept still has its plain text.
+    fn article_source(&self) -> Option<&str> {
+        let entry = self.current_entry()?;
+        Some(match (&self.article, entry.content.is_empty()) {
+            (Some(article), _) => article.as_str(),
+            (None, true) => entry.summary.as_str(),
+            (None, false) => entry.content.as_str(),
+        })
+    }
+
+    /// The article's links, in the order the reference list numbers them.
+    pub fn article_links(&self) -> Vec<String> {
+        self.article_source()
+            .map(|source| crate::article::parse(source).links)
+            .unwrap_or_default()
+    }
+
+    /// Takes a digit toward a link number, returning the link once no further
+    /// digit could change which one is meant.
+    ///
+    /// With nine links, typing `3` can only mean the third, so it opens at
+    /// once; with ninety, `3` might yet become `30`, so it waits.
+    pub fn type_link_digit(&mut self, digit: char) -> Option<String> {
+        let links = self.article_links();
+        if links.is_empty() {
+            self.status = Some(" This article has no links. ".into());
+            return None;
+        }
+        let mut typed = self.following.take().unwrap_or_default();
+        typed.push(digit);
+
+        let number: usize = typed.parse().ok()?;
+        if number == 0 || number > links.len() {
+            self.status = Some(format!(" No link [{typed}]. "));
+            return None;
+        }
+        if number * 10 > links.len() {
+            self.status = None;
+            return links.get(number - 1).cloned();
+        }
+        self.status = Some(format!(
+            " Open link [{typed}…]  Enter to open, Esc to cancel "
+        ));
+        self.following = Some(typed);
+        None
+    }
+
+    /// Opens whatever number has been typed so far.
+    pub fn take_typed_link(&mut self) -> Option<String> {
+        let typed = self.following.take()?;
+        self.status = None;
+        let number: usize = typed.parse().ok()?;
+        self.article_links().get(number.checked_sub(1)?).cloned()
+    }
+
+    /// Abandons a half-typed link number.
+    pub fn cancel_following(&mut self) {
+        if self.following.take().is_some() {
+            self.status = None;
+        }
     }
 
     /// The detail pane as plain text, for measuring and for tests.
@@ -2284,5 +2346,106 @@ mod tests {
         app.select_next();
         app.keep_place();
         assert_eq!(app.detail_scroll, 9, "and the second kept its own");
+    }
+
+    /// An entry whose text carries `count` distinct links.
+    fn with_links(count: usize) -> App {
+        let mut app = app();
+        app.focus = Pane::Entries;
+        app.detail_viewport = (80, 20);
+        app.article = Some(
+            (1..=count)
+                .map(|n| format!("<p>See <a href=\"https://example.com/{n}\">link {n}</a>.</p>"))
+                .collect::<String>(),
+        );
+        app
+    }
+
+    #[test]
+    fn the_articles_links_are_numbered_in_the_order_they_appear() {
+        let app = with_links(3);
+        assert_eq!(
+            app.article_links(),
+            vec![
+                "https://example.com/1",
+                "https://example.com/2",
+                "https://example.com/3"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_digit_that_can_only_mean_one_link_opens_it_at_once() {
+        let mut app = with_links(3);
+        assert_eq!(
+            app.type_link_digit('2').as_deref(),
+            Some("https://example.com/2")
+        );
+        assert!(app.following.is_none(), "nothing is left half-typed");
+    }
+
+    #[test]
+    fn a_digit_that_might_yet_grow_waits_for_the_next_one() {
+        let mut app = with_links(30);
+        // With thirty links, `2` might still become `21`.
+        assert_eq!(app.type_link_digit('2'), None);
+        assert_eq!(app.following.as_deref(), Some("2"));
+        assert!(app.status.is_some(), "the reader is not told it is waiting");
+
+        assert_eq!(
+            app.type_link_digit('1').as_deref(),
+            Some("https://example.com/21")
+        );
+    }
+
+    #[test]
+    fn a_half_typed_number_can_be_opened_or_abandoned() {
+        let mut app = with_links(30);
+        app.type_link_digit('2');
+        assert_eq!(
+            app.take_typed_link().as_deref(),
+            Some("https://example.com/2"),
+            "enter opens what has been typed"
+        );
+
+        app.type_link_digit('2');
+        app.cancel_following();
+        assert!(app.following.is_none());
+        assert!(app.status.is_none(), "the prompt was left on screen");
+        assert_eq!(app.take_typed_link(), None);
+    }
+
+    #[test]
+    fn a_number_with_no_link_behind_it_says_so_rather_than_opening_something_else() {
+        let mut app = with_links(3);
+        assert_eq!(app.type_link_digit('9'), None);
+        assert!(
+            app.status
+                .as_deref()
+                .unwrap_or_default()
+                .contains("No link"),
+            "{:?}",
+            app.status
+        );
+        assert!(app.following.is_none(), "a dead number does not linger");
+
+        // Nor does zero, which numbers nothing.
+        assert_eq!(app.type_link_digit('0'), None);
+    }
+
+    #[test]
+    fn an_article_with_no_links_says_so() {
+        let mut app = app();
+        app.detail_viewport = (80, 20);
+        app.article = Some("<p>Nothing to follow.</p>".into());
+        assert_eq!(app.type_link_digit('1'), None);
+        assert!(
+            app.status
+                .as_deref()
+                .unwrap_or_default()
+                .contains("no links"),
+            "{:?}",
+            app.status
+        );
     }
 }

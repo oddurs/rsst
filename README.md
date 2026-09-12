@@ -125,6 +125,7 @@ time, set `mouse = false`.
 | `/`            | Search every feed (`n`/`N` step matches, `Esc` cancels) |
 | `f`            | Fetch the full article for a summary-only feed |
 | `z`            | Give the article the whole screen (`Space` pages, `Esc` leaves) |
+| `1`-`9`        | Follow a numbered link in the article (`Enter` opens, `Esc` cancels) |
 | `s` / `S`      | Star the entry / show only starred |
 | `m`            | Toggle read on the selected entry |
 | `a` / `A`      | Mark this feed / every feed read (asks first) |

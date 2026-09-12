@@ -2,7 +2,8 @@
 id: 56
 title: Open a link from within an article
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p2
