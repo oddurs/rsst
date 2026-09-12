@@ -152,8 +152,11 @@ impl ReadState {
         keys.iter().any(|key| self.starred.contains(key))
     }
 
+    /// How many keys are held. A test helper, deliberately not named `len`:
+    /// this is not a collection, and clippy is right that a `len` without
+    /// an `is_empty` reads as one.
     #[cfg(test)]
-    pub fn len(&self) -> usize {
+    pub fn count(&self) -> usize {
         self.keys.len()
     }
 }
@@ -231,7 +234,7 @@ mod tests {
 
         state.mark_unread(&entry(&["a", "b"]));
         assert!(!state.is_read(&entry(&["a", "b"])));
-        assert_eq!(state.len(), 0, "every candidate key was removed");
+        assert_eq!(state.count(), 0, "every candidate key was removed");
     }
 
     #[test]
@@ -260,7 +263,7 @@ mod tests {
 
         let loaded = ReadState::load(&path);
         assert!(loaded.is_read(&entry(&["a"])));
-        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded.count(), 2);
     }
 
     #[test]
@@ -329,7 +332,7 @@ mod tests {
     #[test]
     fn a_missing_file_loads_as_empty() {
         let state = ReadState::load(Path::new("/nonexistent/rsst/read.toml"));
-        assert_eq!(state.len(), 0);
+        assert_eq!(state.count(), 0);
     }
 
     #[test]
@@ -348,7 +351,7 @@ mod tests {
             format!("version = {}\nread = [\"id:a\"]\n", FORMAT + 1),
         )
         .expect("write");
-        assert_eq!(ReadState::load(&path).len(), 0);
+        assert_eq!(ReadState::load(&path).count(), 0);
     }
 
     #[test]
@@ -362,6 +365,6 @@ mod tests {
     fn a_corrupt_file_loads_as_empty_rather_than_failing() {
         let path = tmpdir().join("corrupt.toml");
         fs::write(&path, "this is not : valid toml [[[").expect("write");
-        assert_eq!(ReadState::load(&path).len(), 0);
+        assert_eq!(ReadState::load(&path).count(), 0);
     }
 }

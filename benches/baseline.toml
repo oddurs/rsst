@@ -1,0 +1,17 @@
+# Microseconds per operation, measured on an Apple M-series laptop in release
+# mode. These are a floor for "has something stopped being linear", not a
+# promise about any particular machine — CI runners are slower and noisier,
+# which is why the tolerance is generous.
+#
+# Regenerate with `cargo run --release --bin rsst-bench` and paste the measured
+# column here, but only when the change is understood and intended.
+
+# A GitHub runner is several times slower than a development laptop and noisy
+# with it, so the tolerance is wide on purpose. It is sized to catch an
+# operation that has stopped being linear, not one that is 20% slower.
+tolerance = 6.0
+
+parse_500_entries = 1920.0
+wrap_10k_chars = 48.0
+sort_5000_entries = 18.0
+cache_roundtrip_50_feeds = 13600.0

@@ -26,6 +26,21 @@ serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 toml = "0.9"
 
+# A second binary rather than a criterion suite: the numbers that matter here
+# are whether an operation is still linear, not nanosecond precision, and this
+# keeps the dependency tree where it is.
+[lib]
+name = "rsst"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rsst-bench"
+path = "src/bin/bench.rs"
+
+[[bin]]
+name = "rsst"
+path = "src/main.rs"
+
 [profile.release]
 lto = "thin"
 strip = true

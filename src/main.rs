@@ -1,17 +1,4 @@
-mod app;
-mod cache;
-mod cli;
-mod config;
-mod feed;
-mod generate;
-mod keys;
-mod launch;
-mod limit;
-mod opml;
-mod state;
-mod text;
-mod theme;
-mod ui;
+use rsst::{app, cache, cli, config, feed, generate, keys, launch, limit, opml, state, theme, ui};
 
 use std::io;
 use std::path::PathBuf;
@@ -27,12 +14,12 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
-use crate::app::App;
-use crate::cache::Cache;
-use crate::cli::Action;
-use crate::config::Config;
-use crate::feed::Feed;
-use crate::state::ReadState;
+use rsst::app::App;
+use rsst::cache::Cache;
+use rsst::cli::Action;
+use rsst::config::Config;
+use rsst::feed::Feed;
+use rsst::state::ReadState;
 
 // Short enough that a feed landing on the channel is drawn promptly, long
 // enough that an idle reader is not busy-waiting.

@@ -2,9 +2,10 @@
 id: 37
 title: Benchmark a large feed list
 type: chore
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p3
 effort: m
 area: net
@@ -21,6 +22,6 @@ A benchmark harness over a synthetic corpus, covering startup, refresh and scrol
 
 ## Acceptance criteria
 
-- [ ] Reproducible benchmarks for startup, refresh and scrolling.
-- [ ] Baseline numbers committed.
-- [ ] CI flags a significant regression.
+- [x] Reproducible benchmarks for startup, refresh and scrolling.
+- [x] Baseline numbers committed.
+- [x] CI flags a significant regression.
