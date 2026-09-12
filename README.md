@@ -18,7 +18,14 @@ rsst                        # read your feeds
 rsst --config path.toml     # use a different config
 rsst --help
 rsst --version
+
+rsst import subs.opml       # merge an OPML list into your config
+rsst export > subs.opml     # write your feeds out as OPML
 ```
+
+Importing merges rather than replaces, so running it twice adds nothing the
+second time. Folders in the OPML are flattened — there is nowhere to put them
+yet.
 
 ## Configure
 

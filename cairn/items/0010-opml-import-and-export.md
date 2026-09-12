@@ -2,7 +2,7 @@
 id: 10
 title: OPML import and export
 type: feature
-status: planned
+status: done
 depends_on:
 - 7
 created: 2026-09-11
@@ -23,6 +23,6 @@ Feeds must be added by hand-editing TOML. Every other reader speaks OPML, so the
 
 ## Acceptance criteria
 
-- [ ] A NetNewsWire or Feedly OPML export imports without error.
-- [ ] Importing twice does not duplicate feeds.
-- [ ] Exported OPML re-imports to an identical feed list.
+- [x] A NetNewsWire or Feedly OPML export imports without error.
+- [x] Importing twice does not duplicate feeds.
+- [x] Exported OPML re-imports to an identical feed list.

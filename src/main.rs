@@ -2,10 +2,12 @@ mod app;
 mod cli;
 mod config;
 mod feed;
+mod opml;
 mod state;
 mod ui;
 
 use std::io;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -38,6 +40,8 @@ async fn main() -> Result<()> {
             println!("rsst {}", env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
+        Action::Import { path, config } => return import(&path, config),
+        Action::Export { config } => return export(config),
         Action::Run { config } => config,
     };
 
@@ -149,6 +153,44 @@ fn placeholder(source: &FeedSource, err: &anyhow::Error) -> Feed {
             keys: Vec::new(),
         }],
     }
+}
+
+/// Merges an OPML file into the config, reporting what actually changed.
+fn import(path: &std::path::Path, config_override: Option<PathBuf>) -> Result<()> {
+    let xml =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let incoming = opml::parse(&xml)?;
+    let found = incoming.len();
+
+    let config_path = match config_override {
+        Some(path) => path,
+        None => config::config_path()?,
+    };
+    // Start from whatever is already configured, or from nothing — never from
+    // the starter config, which would import someone else's feeds alongside.
+    let mut config = if config_path.exists() {
+        Config::load_from(&config_path)?
+    } else {
+        Config::default()
+    };
+
+    let added = opml::merge(&mut config.feeds, incoming);
+    config.save(&config_path)?;
+
+    println!(
+        "Imported {added} new feed{} from {found} in the file. {} total in {}.",
+        if added == 1 { "" } else { "s" },
+        config.feeds.len(),
+        config_path.display()
+    );
+    Ok(())
+}
+
+/// Writes the configured feeds to stdout as OPML.
+fn export(config_override: Option<PathBuf>) -> Result<()> {
+    let config = Config::load_or_init(config_override)?;
+    print!("{}", opml::write(&config.feeds));
+    Ok(())
 }
 
 fn http_client() -> Result<reqwest::Client> {
