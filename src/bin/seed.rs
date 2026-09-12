@@ -145,6 +145,7 @@ async fn main() -> Result<()> {
                 feed,
                 etag,
                 last_modified,
+                ..
             }) => {
                 db.put_feed(&feed)?;
                 db.set_validators(&source.url, etag, last_modified)?;

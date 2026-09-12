@@ -47,6 +47,9 @@ still needs.
 
 ### Fixed
 
+- Adding the address of a *site* now finds its feed: rsst reads the page's
+  `<link rel="alternate">`, prefers Atom over RSS, skips comment feeds, and
+  remembers where it looked so the page is only ever visited once
 - A transient failure is retried with growing, spread-out delays instead of
   marking the feed dead until the next `r` — and a bare 503, which used to park
   a feed for five minutes, is now just a server restarting. A 404 or a document

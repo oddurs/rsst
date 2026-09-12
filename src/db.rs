@@ -25,7 +25,7 @@ use crate::feed::{Entry, Feed, Status};
 /// Stored in SQLite's own `user_version`, so the database carries its version
 /// the way `docs/stability.md` requires — and, as with the TOML before it, a
 /// database from a newer rsst is refused rather than misread.
-pub const SCHEMA: i64 = 4;
+pub const SCHEMA: i64 = 5;
 
 /// What we remember about a feed's HTTP behaviour between fetches.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -340,6 +340,33 @@ impl Db {
     ///
     /// A `304` counts: the server was asked and replied, which is exactly what
     /// the timer wants to know.
+    /// Records where a feed was actually found, so the next fetch skips the
+    /// page that named it.
+    pub fn set_resolved(&self, url: &str, resolved: Option<&str>) -> Result<()> {
+        self.connection
+            .execute(
+                "UPDATE feeds SET resolved_url = ?2 WHERE url = ?1",
+                params![url, resolved],
+            )
+            .context("recording where the feed was found")?;
+        Ok(())
+    }
+
+    /// Where to actually look for this feed: what was discovered, or the
+    /// configured address when nothing was.
+    pub fn resolved(&self, url: &str) -> Option<String> {
+        self.connection
+            .query_row(
+                "SELECT resolved_url FROM feeds WHERE url = ?1",
+                params![url],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .flatten()
+    }
+
     pub fn mark_fetched(&self, url: &str, now: DateTime<Utc>) -> Result<()> {
         self.connection.execute(
             "INSERT INTO feeds (url, title, fetched_at) VALUES (?1, ?1, ?2)
@@ -641,6 +668,14 @@ fn migrate(connection: &Connection, from: i64) -> Result<()> {
         connection
             .execute_batch("ALTER TABLE feeds ADD COLUMN fetched_at TEXT;")
             .context("adding the fetched_at column")?;
+    }
+    if from < 5 {
+        // Where a feed was actually found, when the configured address turned
+        // out to be a web page that named one. Absent means "look where the
+        // config says", which is the ordinary case.
+        connection
+            .execute_batch("ALTER TABLE feeds ADD COLUMN resolved_url TEXT;")
+            .context("adding the resolved_url column")?;
     }
     connection
         .pragma_update(None, "user_version", SCHEMA)
@@ -1197,6 +1232,58 @@ mod tests {
         assert_eq!(feed.entries.len(), 1, "the old row survived");
         assert_eq!(feed.entries[0].title, "Old entry");
         assert_eq!(feed.entries[0].content, "", "no markup was invented");
+    }
+
+    #[test]
+    fn a_version_four_database_gains_the_resolved_url_column() {
+        // Same promise as the version one test, one schema later: read state
+        // is the reader's own history and must survive the upgrade.
+        let dir = std::env::temp_dir().join(format!("rsst-v4-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("v4.sqlite3");
+        let _ = std::fs::remove_file(&path);
+
+        {
+            let connection = Connection::open(&path).expect("open");
+            // Built by the real migrations, then stopped one short — so this
+            // is the schema version 4 actually shipped, not a guess at it.
+            migrate(&connection, 0).expect("build up to current");
+            connection
+                .execute_batch(
+                    "ALTER TABLE feeds DROP COLUMN resolved_url;
+                     INSERT INTO feeds (url, title) VALUES ('https://a.example', 'A');
+                     INSERT INTO entries (feed_url, position, title, summary)
+                       VALUES ('https://a.example', 0, 'Old entry', 'Body');
+                     INSERT INTO read_keys (key) VALUES ('id:kept');",
+                )
+                .expect("v4 shape");
+            connection
+                .pragma_update(None, "user_version", 4)
+                .expect("version");
+        }
+
+        let db = Db::open(&path).expect("migrates");
+        let feed = db
+            .feed(&source("https://a.example"))
+            .expect("query")
+            .expect("kept");
+        assert_eq!(feed.entries.len(), 1, "the old row survived");
+        assert!(
+            db.load_state().expect("state").0.contains("id:kept"),
+            "read state did not survive the migration"
+        );
+        assert_eq!(
+            db.resolved("https://a.example"),
+            None,
+            "a migrated feed has not discovered anything yet"
+        );
+
+        db.set_resolved("https://a.example", Some("https://a.example/atom.xml"))
+            .expect("record");
+        assert_eq!(
+            db.resolved("https://a.example").as_deref(),
+            Some("https://a.example/atom.xml")
+        );
     }
 
     #[test]

@@ -182,6 +182,9 @@ pub enum Outcome {
         feed: Box<Feed>,
         etag: Option<String>,
         last_modified: Option<String>,
+        /// Where the feed turned out to live, when that was not where we
+        /// looked — a page named it in a `<link rel="alternate">`.
+        found_at: Option<String>,
     },
     /// The server confirmed nothing has changed. Nothing was downloaded or
     /// reparsed; what is already on screen stands.
@@ -342,6 +345,19 @@ pub async fn fetch(
     last_modified: Option<&str>,
     limits: Limits,
 ) -> std::result::Result<Outcome, Failure> {
+    fetch_inner(client, source, etag, last_modified, limits, true).await
+}
+
+/// The fetch itself. `may_discover` is false on the second request, so a page
+/// pointing at a page is a failure rather than the start of a chain.
+async fn fetch_inner(
+    client: &reqwest::Client,
+    source: &FeedSource,
+    etag: Option<&str>,
+    last_modified: Option<&str>,
+    limits: Limits,
+    may_discover: bool,
+) -> std::result::Result<Outcome, Failure> {
     let mut request = client.get(&source.url);
     // Either validator alone is enough; sending both is what the spec prefers.
     if let Some(etag) = etag {
@@ -405,14 +421,69 @@ pub async fn fetch(
     let last_modified = header(reqwest::header::LAST_MODIFIED);
 
     let body = body_within(response, limits.max_body, &source.url).await?;
-    let feed =
-        parse(&body, source).map_err(|err| Failure::new(Trouble::NotAFeed, format!("{err:#}")))?;
 
-    Ok(Outcome::Updated {
-        feed: Box::new(feed),
-        etag,
-        last_modified,
-    })
+    let not_a_feed = match parse(&body, source) {
+        Ok(feed) => {
+            return Ok(Outcome::Updated {
+                feed: Box::new(feed),
+                etag,
+                last_modified,
+                found_at: None,
+            });
+        }
+        Err(err) => err,
+    };
+
+    // Not a feed — but a page that points at one is the commonest reason
+    // somebody typed this address, so look before giving up.
+    let Some(found) = may_discover
+        .then(|| {
+            String::from_utf8_lossy(&body)
+                .split("</head")
+                .next()
+                .and_then(|head| discover(head, &source.url))
+        })
+        .flatten()
+        .filter(|found| *found != source.url)
+    else {
+        return Err(Failure::new(Trouble::NotAFeed, format!("{not_a_feed:#}")));
+    };
+
+    // One hop, never two: a page that points at itself, or at another page,
+    // must not become a chain of requests.
+    let hop = FeedSource {
+        url: found.clone(),
+        ..source.clone()
+    };
+    match Box::pin(fetch_inner(client, &hop, None, None, limits, false)).await? {
+        Outcome::Updated {
+            mut feed,
+            etag,
+            last_modified,
+            ..
+        } => {
+            // Identity stays with the address in the config. Where the feed
+            // was found is where to fetch it, not what to call it — store it
+            // under the discovered URL and the next prune deletes it as a
+            // feed nobody subscribed to.
+            feed.url = source.url.clone();
+            Ok(Outcome::Updated {
+                feed,
+                etag,
+                last_modified,
+                found_at: Some(found),
+            })
+        }
+        // A discovered feed that is rate limited or unchanged is not something
+        // this hop can usefully report, so say what actually went wrong.
+        _ => Err(Failure::new(
+            Trouble::NotAFeed,
+            format!(
+                "{} points at {found}, which did not answer with a feed",
+                source.url
+            ),
+        )),
+    }
 }
 
 /// What kind of trouble a transport error is.
@@ -465,6 +536,116 @@ fn retry_after_from(value: &str, now: DateTime<Utc>) -> Option<Duration> {
 
 /// A server asking for a month off is not something to honour literally.
 const MAX_BACKOFF_SECS: u64 = 24 * 60 * 60;
+
+/// Finds the feed a web page points at, if it points at one.
+///
+/// Someone pasting `https://example.com/` has said what they want to read; the
+/// page says where it lives, in a `<link rel="alternate">`. Failing on "that is
+/// not a feed" when the answer is in the bytes we already have is unhelpful.
+///
+/// Atom is preferred over RSS when a page offers both — not because it is
+/// better, but because a page that offers both usually treats Atom as the
+/// fuller one. Comment feeds are skipped: they are a different thing, and
+/// picking one would be worse than finding nothing.
+pub fn discover(html: &str, base: &str) -> Option<String> {
+    let mut best: Option<(u8, String)> = None;
+
+    for tag in html.split('<').filter(|tag| {
+        let name: String = tag.chars().take(4).collect::<String>().to_ascii_lowercase();
+        name.starts_with("link")
+    }) {
+        let tag = &tag[..tag.find('>').unwrap_or(tag.len())];
+        let lower = tag.to_ascii_lowercase();
+        if !lower.contains("alternate") {
+            continue;
+        }
+        let rank = match () {
+            _ if lower.contains("application/atom+xml") => 0u8,
+            _ if lower.contains("application/rss+xml") => 1,
+            _ if lower.contains("application/feed+json") => 2,
+            _ => continue,
+        };
+        // A comments feed is a feed, and never the one that was meant.
+        if lower.contains("comment") {
+            continue;
+        }
+        let Some(href) = attribute(tag, "href") else {
+            continue;
+        };
+        if best.as_ref().is_none_or(|(seen, _)| rank < *seen) {
+            best = Some((rank, resolve(&href, base)));
+        }
+    }
+    best.map(|(_, href)| href)
+}
+
+/// Reads one attribute out of a tag, in any of the three quoting styles.
+fn attribute(tag: &str, name: &str) -> Option<String> {
+    let lower = tag.to_ascii_lowercase();
+    let mut from = 0usize;
+    while let Some(at) = lower[from..].find(name) {
+        let start = from + at;
+        // Must be a whole attribute name, not the tail of another one.
+        let before_ok = start == 0
+            || lower[..start]
+                .chars()
+                .next_back()
+                .is_some_and(|c| c.is_whitespace());
+        let rest = lower[start + name.len()..].trim_start();
+        if before_ok && rest.starts_with('=') {
+            let value = tag[start + name.len()..].trim_start();
+            let value = value.strip_prefix('=')?.trim_start();
+            let (quote, value) = match value.chars().next()? {
+                q @ ('"' | '\'') => (Some(q), &value[1..]),
+                _ => (None, value),
+            };
+            let end = match quote {
+                Some(q) => value.find(q)?,
+                None => value
+                    .find(|c: char| c.is_whitespace())
+                    .unwrap_or(value.len()),
+            };
+            return Some(decode_entities(&value[..end]));
+        }
+        from = start + name.len();
+    }
+    None
+}
+
+/// Resolves a possibly-relative href against the page it came from.
+///
+/// Enough of a URL join for the shapes feeds use: absolute, protocol-relative,
+/// root-relative, and relative to the directory. Not a general implementation,
+/// and it says so rather than pretending.
+fn resolve(href: &str, base: &str) -> String {
+    let href = href.trim();
+    if href.starts_with("http://") || href.starts_with("https://") {
+        return href.to_string();
+    }
+    let scheme = if base.starts_with("http://") {
+        "http:"
+    } else {
+        "https:"
+    };
+    if let Some(rest) = href.strip_prefix("//") {
+        return format!("{scheme}//{rest}");
+    }
+
+    let after_scheme = base.split_once("://").map(|(_, rest)| rest).unwrap_or(base);
+    let (host, path) = after_scheme.split_once('/').unwrap_or((after_scheme, ""));
+    if let Some(rest) = href.strip_prefix('/') {
+        return format!("{scheme}//{host}/{rest}");
+    }
+    // Relative to the directory the page is in.
+    let directory = match path.rfind('/') {
+        Some(at) => &path[..at],
+        None => "",
+    };
+    match directory.is_empty() {
+        true => format!("{scheme}//{host}/{href}"),
+        false => format!("{scheme}//{host}/{directory}/{href}"),
+    }
+}
 
 /// Parses raw feed bytes. Split out from [`fetch`] so it is testable offline.
 pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
@@ -1465,5 +1646,274 @@ mod tests {
             parse(xml.as_bytes(), &source).expect("parses").title,
             "The Real Name"
         );
+    }
+
+    #[test]
+    fn a_page_that_names_its_feed_is_followed() {
+        let html = r#"<html><head>
+            <link rel="alternate" type="application/atom+xml" href="/atom.xml" title="Feed">
+            </head><body>Hello</body></html>"#;
+        assert_eq!(
+            discover(html, "https://example.com/").as_deref(),
+            Some("https://example.com/atom.xml")
+        );
+    }
+
+    #[test]
+    fn atom_wins_when_a_page_offers_both() {
+        let html = r#"<head>
+            <link rel="alternate" type="application/rss+xml" href="/rss.xml">
+            <link rel="alternate" type="application/atom+xml" href="/atom.xml">
+            </head>"#;
+        assert_eq!(
+            discover(html, "https://example.com/").as_deref(),
+            Some("https://example.com/atom.xml"),
+            "a page offering both usually treats Atom as the fuller one"
+        );
+    }
+
+    #[test]
+    fn a_comments_feed_is_never_the_one_that_was_meant() {
+        let html = r#"<head>
+            <link rel="alternate" type="application/rss+xml" href="/comments/feed" title="Comments">
+            <link rel="alternate" type="application/rss+xml" href="/feed">
+            </head>"#;
+        assert_eq!(
+            discover(html, "https://example.com/").as_deref(),
+            Some("https://example.com/feed")
+        );
+    }
+
+    #[test]
+    fn relative_hrefs_resolve_against_the_page_they_came_from() {
+        let cases = [
+            (
+                "https://example.com/blog/index.html",
+                "feed.xml",
+                "https://example.com/blog/feed.xml",
+            ),
+            (
+                "https://example.com/blog/",
+                "feed.xml",
+                "https://example.com/blog/feed.xml",
+            ),
+            (
+                "https://example.com/",
+                "/feed.xml",
+                "https://example.com/feed.xml",
+            ),
+            (
+                "https://example.com/deep/page",
+                "/feed.xml",
+                "https://example.com/feed.xml",
+            ),
+            (
+                "https://example.com/",
+                "//cdn.example/feed.xml",
+                "https://cdn.example/feed.xml",
+            ),
+            (
+                "http://example.com/",
+                "//cdn.example/f.xml",
+                "http://cdn.example/f.xml",
+            ),
+            (
+                "https://example.com/",
+                "https://other.example/f.xml",
+                "https://other.example/f.xml",
+            ),
+        ];
+        for (base, href, expected) in cases {
+            let html =
+                format!(r#"<link rel="alternate" type="application/atom+xml" href="{href}">"#);
+            assert_eq!(
+                discover(&html, base).as_deref(),
+                Some(expected),
+                "{href} against {base}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_quoting_style_a_page_might_use_is_read() {
+        for tag in [
+            r#"<link rel="alternate" type="application/atom+xml" href="/f.xml">"#,
+            r#"<link rel='alternate' type='application/atom+xml' href='/f.xml'>"#,
+            r#"<link rel=alternate type=application/atom+xml href=/f.xml>"#,
+            r#"<LINK REL="ALTERNATE" TYPE="APPLICATION/ATOM+XML" HREF="/f.xml">"#,
+            r#"<link href="/f.xml" type="application/atom+xml" rel="alternate">"#,
+        ] {
+            assert_eq!(
+                discover(tag, "https://example.com/").as_deref(),
+                Some("https://example.com/f.xml"),
+                "could not read {tag}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_page_with_no_feed_finds_nothing_rather_than_guessing() {
+        for html in [
+            "<html><body>Just a page.</body></html>",
+            r#"<link rel="stylesheet" href="/style.css">"#,
+            r#"<link rel="alternate" hreflang="de" href="/de/">"#,
+            r#"<link rel="alternate" type="text/html" href="/other">"#,
+        ] {
+            assert_eq!(discover(html, "https://example.com/"), None, "{html}");
+        }
+    }
+
+    #[test]
+    fn an_href_with_an_entity_in_it_is_decoded() {
+        let html =
+            r#"<link rel="alternate" type="application/atom+xml" href="/f.xml?a=1&amp;b=2">"#;
+        assert_eq!(
+            discover(html, "https://example.com/").as_deref(),
+            Some("https://example.com/f.xml?a=1&b=2")
+        );
+    }
+
+    /// Serves a page that names a feed, then the feed itself.
+    fn serve_page_then_feed(page: String, feed: Vec<u8>) -> u16 {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        let port = listener.local_addr().expect("an address").port();
+        std::thread::spawn(move || {
+            for (n, incoming) in listener.incoming().enumerate().take(2) {
+                let Ok(mut stream) = incoming else { return };
+                let mut scratch = [0u8; 2048];
+                let _ = stream.read(&mut scratch);
+                let (kind, body) = if n == 0 {
+                    ("text/html", page.clone().into_bytes())
+                } else {
+                    ("application/atom+xml", feed.clone())
+                };
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(&body);
+                let _ = stream.flush();
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn a_site_address_finds_the_feed_the_page_points_at() {
+        // What somebody actually types: the address of the site they read.
+        let port = serve_page_then_feed(
+            r#"<html><head><link rel="alternate" type="application/atom+xml" href="/atom.xml"></head></html>"#.into(),
+            tiny_feed(),
+        );
+        let source = FeedSource {
+            url: format!("http://127.0.0.1:{port}/"),
+            refresh_minutes: None,
+            title: None,
+            tags: Vec::new(),
+        };
+
+        let outcome = fetch(
+            &reqwest::Client::new(),
+            &source,
+            None,
+            None,
+            Limits::default(),
+        )
+        .await
+        .expect("the page named a feed, so there is a feed");
+
+        match outcome {
+            Outcome::Updated { feed, found_at, .. } => {
+                assert_eq!(feed.title, "Small");
+                assert_eq!(
+                    found_at.as_deref(),
+                    Some(format!("http://127.0.0.1:{port}/atom.xml").as_str()),
+                    "the caller was not told where it was found, so it cannot remember"
+                );
+            }
+            other => panic!("expected a feed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_page_pointing_at_another_page_fails_rather_than_looping() {
+        // One hop, never two. A page that points at a page is a chain, and a
+        // chain is how a reader ends up making requests forever.
+        let port = serve_page_then_feed(
+            r#"<link rel="alternate" type="application/atom+xml" href="/also-a-page">"#.into(),
+            b"<html><head><link rel=\"alternate\" type=\"application/atom+xml\" href=\"/third\"></head></html>".to_vec(),
+        );
+        let source = FeedSource {
+            url: format!("http://127.0.0.1:{port}/"),
+            refresh_minutes: None,
+            title: None,
+            tags: Vec::new(),
+        };
+
+        let failure = fetch(
+            &reqwest::Client::new(),
+            &source,
+            None,
+            None,
+            Limits::default(),
+        )
+        .await
+        .expect_err("two hops is a chain, not a discovery");
+        assert_eq!(failure.trouble, Trouble::NotAFeed);
+    }
+
+    #[tokio::test]
+    async fn a_page_with_no_feed_says_so_rather_than_only_not_a_feed() {
+        let port = serve_once(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n",
+            b"<html><head><title>A site</title></head><body>No feed here.</body></html>".to_vec(),
+        );
+        let failure = fetch(
+            &reqwest::Client::new(),
+            &at(port),
+            None,
+            None,
+            Limits::default(),
+        )
+        .await
+        .expect_err("no feed anywhere");
+        assert_eq!(failure.trouble, Trouble::NotAFeed);
+    }
+
+    #[tokio::test]
+    async fn a_discovered_feed_keeps_the_address_it_was_subscribed_under() {
+        // The configured URL is the identity; the discovered one is only where
+        // to fetch. Storing entries under the discovered address puts them
+        // beside a feed nobody subscribed to, and the next prune removes them.
+        let port = serve_page_then_feed(
+            r#"<link rel="alternate" type="application/atom+xml" href="/atom.xml">"#.into(),
+            tiny_feed(),
+        );
+        let configured = format!("http://127.0.0.1:{port}/");
+        let source = FeedSource {
+            url: configured.clone(),
+            refresh_minutes: None,
+            title: None,
+            tags: Vec::new(),
+        };
+
+        match fetch(
+            &reqwest::Client::new(),
+            &source,
+            None,
+            None,
+            Limits::default(),
+        )
+        .await
+        .expect("discovered")
+        {
+            Outcome::Updated { feed, found_at, .. } => {
+                assert_eq!(feed.url, configured, "the feed changed its own identity");
+                assert_ne!(found_at.as_deref(), Some(configured.as_str()));
+            }
+            other => panic!("expected a feed, got {other:?}"),
+        }
     }
 }
