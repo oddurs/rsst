@@ -2,9 +2,10 @@
 id: 36
 title: Define the semver and MSRV policy
 type: chore
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p2
 effort: s
 area: docs
@@ -21,6 +22,6 @@ Document what is covered by semver — config schema, key bindings, state file f
 
 ## Acceptance criteria
 
-- [ ] The policy is written down.
-- [ ] The state and cache file formats carry a version field with a migration path.
-- [ ] The MSRV bump policy is stated and reflected in CI.
+- [x] The policy is written down.
+- [x] The state and cache file formats carry a version field with a migration path.
+- [x] The MSRV bump policy is stated and reflected in CI.

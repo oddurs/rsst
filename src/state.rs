@@ -27,8 +27,18 @@ pub struct ReadState {
     pub oldest_first: bool,
 }
 
+/// The format version written to the state file.
+///
+/// A file from a *newer* rsst is discarded rather than misread: losing read
+/// state costs a re-read, while misinterpreting it could silently mark a
+/// backlog read. An older version is migrated forward in `migrate`.
+pub const FORMAT: u32 = 1;
+
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct OnDisk {
+    /// Absent in files written before versioning; treated as version 1.
+    #[serde(default = "one")]
+    version: u32,
     #[serde(default)]
     read: Vec<String>,
     #[serde(default)]
@@ -37,6 +47,10 @@ struct OnDisk {
     unread_only: bool,
     #[serde(default)]
     oldest_first: bool,
+}
+
+fn one() -> u32 {
+    1
 }
 
 impl ReadState {
@@ -49,6 +63,12 @@ impl ReadState {
             return Self::default();
         };
         let parsed: OnDisk = toml::from_str(&raw).unwrap_or_default();
+        // Written by a newer rsst than this one: we cannot know what the fields
+        // mean, so start clean rather than guess.
+        if parsed.version > FORMAT {
+            return Self::default();
+        }
+        let parsed = migrate(parsed);
         Self {
             keys: parsed.read.into_iter().collect(),
             starred: parsed.starred.into_iter().collect(),
@@ -75,6 +95,7 @@ impl ReadState {
         starred.sort();
 
         let body = toml::to_string_pretty(&OnDisk {
+            version: FORMAT,
             read: read.into_iter().cloned().collect(),
             starred: starred.into_iter().cloned().collect(),
             unread_only: self.unread_only,
@@ -134,6 +155,18 @@ impl ReadState {
     #[cfg(test)]
     pub fn len(&self) -> usize {
         self.keys.len()
+    }
+}
+
+/// Brings an older state file up to the current format.
+///
+/// There is only one format so far, so this is where the next migration goes
+/// rather than something that does work today. It exists now so that the
+/// version field has somewhere to lead.
+fn migrate(state: OnDisk) -> OnDisk {
+    match state.version {
+        0 | 1 => state,
+        _ => state,
     }
 }
 
@@ -297,6 +330,32 @@ mod tests {
     fn a_missing_file_loads_as_empty() {
         let state = ReadState::load(Path::new("/nonexistent/rsst/read.toml"));
         assert_eq!(state.len(), 0);
+    }
+
+    #[test]
+    fn the_state_file_records_its_format_version() {
+        let path = tmpdir().join("versioned.toml");
+        ReadState::default().save(&path).expect("save");
+        let raw = fs::read_to_string(&path).expect("read");
+        assert!(raw.contains(&format!("version = {FORMAT}")));
+    }
+
+    #[test]
+    fn a_file_from_a_newer_rsst_is_discarded_rather_than_misread() {
+        let path = tmpdir().join("from-the-future.toml");
+        fs::write(
+            &path,
+            format!("version = {}\nread = [\"id:a\"]\n", FORMAT + 1),
+        )
+        .expect("write");
+        assert_eq!(ReadState::load(&path).len(), 0);
+    }
+
+    #[test]
+    fn a_file_without_a_version_is_read_as_the_first_format() {
+        let path = tmpdir().join("unversioned.toml");
+        fs::write(&path, "read = [\"id:a\"]\n").expect("write");
+        assert!(ReadState::load(&path).is_read(&entry(&["id:a"])));
     }
 
     #[test]
