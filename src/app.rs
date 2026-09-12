@@ -74,8 +74,8 @@ impl App {
     pub fn begin_refresh(&mut self) -> Vec<usize> {
         let mut starting = Vec::new();
         for (index, feed) in self.feeds.iter_mut().enumerate() {
-            if !feed.loading {
-                feed.loading = true;
+            if feed.status != crate::feed::Status::Fetching {
+                feed.status = crate::feed::Status::Fetching;
                 starting.push(index);
             }
         }
@@ -196,13 +196,13 @@ mod tests {
                 Feed {
                     title: "A".into(),
                     url: "https://a.example".into(),
-                    loading: false,
+                    status: crate::feed::Status::Idle,
                     entries: vec![entry("a1"), entry("a2")],
                 },
                 Feed {
                     title: "B".into(),
                     url: "https://b.example".into(),
-                    loading: false,
+                    status: crate::feed::Status::Idle,
                     entries: vec![entry("b1")],
                 },
             ],
@@ -292,7 +292,11 @@ mod tests {
     fn refreshing_starts_every_idle_feed() {
         let mut app = app();
         assert_eq!(app.begin_refresh(), vec![0, 1]);
-        assert!(app.feeds.iter().all(|f| f.loading));
+        assert!(
+            app.feeds
+                .iter()
+                .all(|f| f.status == crate::feed::Status::Fetching)
+        );
     }
 
     #[test]
@@ -309,7 +313,7 @@ mod tests {
     fn a_feed_that_has_landed_can_be_refreshed_again() {
         let mut app = app();
         app.begin_refresh();
-        app.feeds[1].loading = false; // this one came back
+        app.feeds[1].status = crate::feed::Status::Idle; // this one came back
         assert_eq!(app.begin_refresh(), vec![1]);
     }
 
@@ -339,7 +343,7 @@ mod tests {
             vec![Feed {
                 title: "A".into(),
                 url: "https://a.example".into(),
-                loading: false,
+                status: crate::feed::Status::Idle,
                 entries: vec![Entry {
                     title: "Title".into(),
                     link: None,

@@ -13,10 +13,41 @@ pub struct Feed {
     pub title: String,
     pub url: String,
     pub entries: Vec<Entry>,
-    /// True until this feed's first fetch resolves. Never cached — a restored
-    /// feed is not in flight.
+    /// Where this feed's last fetch got to. Never cached: a feed restored from
+    /// disk is not in flight, and yesterday's error is not today's.
     #[serde(skip)]
-    pub loading: bool,
+    pub status: Status,
+}
+
+/// What happened, or is happening, to a feed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Status {
+    /// Fetched, or restored from cache and not currently being fetched.
+    #[default]
+    Idle,
+    /// A request is in flight.
+    Fetching,
+    /// The last attempt failed. Carries the message, which is the only place
+    /// the reason survives.
+    Failed(String),
+}
+
+impl Status {
+    /// The marker shown beside the feed's name.
+    pub fn marker(&self) -> Option<&'static str> {
+        match self {
+            Self::Idle => None,
+            Self::Fetching => Some("…"),
+            Self::Failed(_) => Some("!"),
+        }
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        match self {
+            Self::Failed(message) => Some(message),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,7 +80,7 @@ impl Feed {
             title: source.title.clone().unwrap_or_else(|| source.url.clone()),
             url: source.url.clone(),
             entries: Vec::new(),
-            loading: true,
+            status: Status::Fetching,
         }
     }
 }
@@ -208,7 +239,7 @@ pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
         title,
         url: source.url.clone(),
         entries,
-        loading: false,
+        status: Status::Idle,
     })
 }
 
@@ -456,7 +487,7 @@ mod tests {
         source.title = Some("My Feed".into());
         let feed = Feed::pending(&source);
         assert_eq!(feed.title, "My Feed");
-        assert!(feed.loading);
+        assert_eq!(feed.status, Status::Fetching);
         assert!(feed.entries.is_empty());
     }
 
@@ -469,8 +500,25 @@ mod tests {
     }
 
     #[test]
-    fn a_parsed_feed_is_not_loading() {
-        assert!(!parse(RSS, &source()).expect("should parse").loading);
+    fn a_parsed_feed_is_idle() {
+        assert_eq!(
+            parse(RSS, &source()).expect("should parse").status,
+            Status::Idle
+        );
+    }
+
+    #[test]
+    fn markers_distinguish_fetching_from_failed() {
+        assert_eq!(Status::Idle.marker(), None);
+        assert_eq!(Status::Fetching.marker(), Some("…"));
+        assert_eq!(Status::Failed("boom".into()).marker(), Some("!"));
+    }
+
+    #[test]
+    fn only_a_failed_status_carries_an_error() {
+        assert_eq!(Status::Failed("boom".into()).error(), Some("boom"));
+        assert!(Status::Idle.error().is_none());
+        assert!(Status::Fetching.error().is_none());
     }
 
     #[test]

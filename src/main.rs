@@ -27,7 +27,7 @@ use ratatui::backend::CrosstermBackend;
 use crate::app::App;
 use crate::cache::Cache;
 use crate::cli::Action;
-use crate::config::{Config, FeedSource};
+use crate::config::Config;
 use crate::feed::Feed;
 use crate::state::ReadState;
 
@@ -143,27 +143,23 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                     *slot = *feed;
                 }
                 // Nothing was downloaded or reparsed; what is on screen stands.
-                Ok(feed::Outcome::NotModified) => slot.loading = false,
+                Ok(feed::Outcome::NotModified) => slot.status = feed::Status::Idle,
                 Ok(feed::Outcome::RateLimited { retry_after }) => {
                     let until = chrono::Utc::now()
                         + chrono::Duration::from_std(retry_after)
                             .unwrap_or_else(|_| chrono::Duration::seconds(300));
                     session.cache.defer_until(&url, until);
-                    slot.loading = false;
+                    slot.status = feed::Status::Idle;
                     app.status = Some(format!(
                         " {}: rate limited, waiting {}s ",
                         slot.title,
                         retry_after.as_secs()
                     ));
                 }
-                // Keep whatever is already on screen. When that came from the
-                // cache it is exactly what makes the reader usable offline;
-                // replacing it with an error notice would throw it away.
-                Err(err) if !slot.entries.is_empty() => {
-                    slot.loading = false;
-                    app.status = Some(format!(" {}: {err} ", slot.title));
-                }
-                Err(err) => *slot = placeholder(&session.config.feeds[index], &err),
+                // Keep whatever is already on screen — when that came from the
+                // cache it is what makes the reader usable offline. The failure
+                // is recorded on the feed rather than invented as an entry.
+                Err(err) => slot.status = feed::Status::Failed(format!("{err:#}")),
             }
         }
 
@@ -263,23 +259,6 @@ fn spawn_some(
             // A closed channel means the reader has already quit.
             let _ = tx.send((index, result));
         });
-    }
-}
-
-/// Stands in for a feed that failed to load, so one dead URL can't hide the rest.
-fn placeholder(source: &FeedSource, err: &anyhow::Error) -> Feed {
-    Feed {
-        title: format!("{} (error)", source.title.as_deref().unwrap_or(&source.url)),
-        url: source.url.clone(),
-        loading: false,
-        entries: vec![feed::Entry {
-            title: format!("Failed to load: {err}"),
-            link: Some(source.url.clone()),
-            published: None,
-            summary: format!("{err:#}"),
-            // No keys: a failure notice must never be remembered as read.
-            keys: Vec::new(),
-        }],
     }
 }
 

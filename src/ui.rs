@@ -38,8 +38,16 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
         .map(|(index, feed)| {
             let unread = app.unread(index);
             let mut spans = vec![Span::raw(feed.title.clone())];
-            if feed.loading {
-                spans.push(Span::styled("  …", Style::default().fg(Color::DarkGray)));
+            if let Some(marker) = feed.status.marker() {
+                let colour = if feed.status.error().is_some() {
+                    Color::Red
+                } else {
+                    Color::DarkGray
+                };
+                spans.push(Span::styled(
+                    format!("  {marker}"),
+                    Style::default().fg(colour),
+                ));
             }
             // Only worth the space when there is something to report.
             if unread > 0 {
@@ -141,9 +149,21 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
 }
 
 fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
-    let text = app.status.clone().unwrap_or_else(|| HELP.to_string());
+    // A transient message wins; otherwise a failed feed explains itself for as
+    // long as it is selected, rather than flashing once and being lost.
+    let error = app
+        .current_feed()
+        .and_then(|feed| feed.status.error())
+        .map(|message| (format!(" {message} "), Color::Red));
+
+    let (text, background) = match (&app.status, error) {
+        (Some(status), _) => (status.clone(), Color::Cyan),
+        (None, Some((message, colour))) => (message, colour),
+        (None, None) => (HELP.to_string(), Color::Cyan),
+    };
+
     frame.render_widget(
-        Paragraph::new(text).style(Style::default().fg(Color::Black).bg(Color::Cyan)),
+        Paragraph::new(text).style(Style::default().fg(Color::Black).bg(background)),
         area,
     );
 }
@@ -196,7 +216,7 @@ mod tests {
             vec![Feed {
                 title: "Rust Blog".into(),
                 url: "https://blog.rust-lang.org/feed.xml".into(),
-                loading: false,
+                status: crate::feed::Status::Idle,
                 entries: vec![
                     Entry {
                         title: "Announcing Rust".into(),
@@ -237,7 +257,7 @@ mod tests {
             vec![Feed {
                 title: "Rust Blog".into(),
                 url: "https://blog.rust-lang.org/feed.xml".into(),
-                loading: false,
+                status: crate::feed::Status::Idle,
                 entries: vec![
                     Entry {
                         title: "One".into(),
@@ -270,7 +290,7 @@ mod tests {
             vec![Feed {
                 title: "Rust Blog".into(),
                 url: "https://blog.rust-lang.org/feed.xml".into(),
-                loading: false,
+                status: crate::feed::Status::Idle,
                 entries: vec![Entry {
                     title: "One".into(),
                     link: None,
@@ -312,7 +332,7 @@ mod tests {
             vec![Feed {
                 title: "Feed".into(),
                 url: "https://a.example".into(),
-                loading: false,
+                status: crate::feed::Status::Idle,
                 entries: vec![Entry {
                     title: "Title".into(),
                     link: None,
@@ -370,12 +390,12 @@ mod tests {
     }
 
     #[test]
-    fn a_feed_still_loading_is_marked_and_stops_being_marked_once_it_lands() {
+    fn a_feed_still_fetching_is_marked_and_stops_being_marked_once_it_lands() {
         let mut app = App::new(
             vec![Feed {
                 title: "Slow Feed".into(),
                 url: "https://slow.example/feed.xml".into(),
-                loading: true,
+                status: crate::feed::Status::Fetching,
                 entries: Vec::new(),
             }],
             ReadState::default(),
@@ -386,7 +406,7 @@ mod tests {
             "shows a loading mark"
         );
 
-        app.feeds[0].loading = false;
+        app.feeds[0].status = crate::feed::Status::Idle;
         app.feeds[0].entries = vec![Entry {
             title: "Arrived".into(),
             link: None,
@@ -398,6 +418,64 @@ mod tests {
         let screen = render(&mut app);
         assert!(!screen.contains("Slow Feed  …"), "mark cleared once loaded");
         assert!(screen.contains("Arrived"));
+    }
+
+    #[test]
+    fn a_failed_feed_is_marked_and_explains_itself_without_inventing_entries() {
+        let mut app = App::new(
+            vec![Feed {
+                title: "Broken".into(),
+                url: "https://broken.example/feed.xml".into(),
+                status: crate::feed::Status::Failed("dns error: no such host".into()),
+                entries: Vec::new(),
+            }],
+            ReadState::default(),
+        );
+
+        let screen = render(&mut app);
+        assert!(screen.contains("Broken  !"), "marked in the feed list");
+        assert!(screen.contains("dns error: no such host"), "error is shown");
+        assert!(
+            !screen.contains("Failed to load"),
+            "no fake entry was invented"
+        );
+    }
+
+    #[test]
+    fn a_fetching_feed_looks_different_from_a_failed_one() {
+        let fetching = Feed {
+            title: "Feed".into(),
+            url: "https://a.example/feed.xml".into(),
+            status: crate::feed::Status::Fetching,
+            entries: Vec::new(),
+        };
+        let mut failed = fetching.clone();
+        failed.status = crate::feed::Status::Failed("boom".into());
+
+        let mut a = App::new(vec![fetching], ReadState::default());
+        let mut b = App::new(vec![failed], ReadState::default());
+        assert!(render(&mut a).contains("Feed  …"));
+        assert!(render(&mut b).contains("Feed  !"));
+    }
+
+    #[test]
+    fn a_failed_feed_keeps_showing_its_cached_entries() {
+        let mut app = App::new(
+            vec![Feed {
+                title: "Broken".into(),
+                url: "https://broken.example/feed.xml".into(),
+                status: crate::feed::Status::Failed("offline".into()),
+                entries: vec![Entry {
+                    title: "From The Cache".into(),
+                    link: None,
+                    published: None,
+                    summary: String::new(),
+                    keys: vec!["id:c".into()],
+                }],
+            }],
+            ReadState::default(),
+        );
+        assert!(render(&mut app).contains("From The Cache"));
     }
 
     #[test]
