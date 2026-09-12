@@ -3,7 +3,6 @@ id: 22
 title: Mark all read, and mark an entry unread again
 type: feature
 status: backlog
-milestone: v0.3
 depends_on:
 - 20
 created: 2026-09-11
@@ -11,6 +10,7 @@ updated: 2026-09-11
 priority: p1
 effort: s
 area: storage
+release: v0.3
 ---
 
 ## Problem

@@ -3,12 +3,12 @@ id: 27
 title: Configurable keybindings
 type: feature
 status: backlog
-milestone: v0.4
 created: 2026-09-11
 updated: 2026-09-11
 priority: p2
 effort: m
 area: config
+release: v0.4
 ---
 
 ## Problem

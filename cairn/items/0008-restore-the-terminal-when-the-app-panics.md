@@ -3,12 +3,12 @@ id: 8
 title: Restore the terminal when the app panics
 type: bug
 status: planned
-milestone: v0.1
 created: 2026-09-11
 updated: 2026-09-11
 priority: p0
 effort: s
 area: ui
+release: v0.1
 ---
 
 ## What happens

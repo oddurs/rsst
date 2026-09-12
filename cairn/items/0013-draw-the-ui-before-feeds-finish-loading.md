@@ -3,12 +3,12 @@ id: 13
 title: Draw the UI before feeds finish loading
 type: feature
 status: planned
-milestone: v0.1
 created: 2026-09-11
 updated: 2026-09-11
 priority: p1
 effort: m
 area: ui
+release: v0.1
 ---
 
 ## Problem

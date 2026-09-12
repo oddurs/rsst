@@ -3,12 +3,12 @@ id: 11
 title: Open the selected entry in a browser
 type: feature
 status: planned
-milestone: v0.1
 created: 2026-09-11
 updated: 2026-09-11
 priority: p1
 effort: s
 area: ui
+release: v0.1
 ---
 
 ## Problem

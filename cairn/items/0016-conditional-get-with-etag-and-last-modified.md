@@ -3,7 +3,6 @@ id: 16
 title: Conditional GET with ETag and Last-Modified
 type: feature
 status: backlog
-milestone: v0.2
 depends_on:
 - 15
 created: 2026-09-11
@@ -11,6 +10,7 @@ updated: 2026-09-11
 priority: p0
 effort: m
 area: net
+release: v0.2
 ---
 
 ## Problem

@@ -129,13 +129,17 @@ cairn render                      # regenerate ROADMAP.md
 
 <!-- cairn:end -->
 
-### Releases are labels, not items
+### Releases are a `release` field, not milestone items
 
-`cairn.toml` models releases as a plain `milestone` label (`v0.1` … `v1.0`)
-rather than as `[[type]] milestone` items. That is a workaround, and the reason
-is written down next to the schema: in cairn 0.2.0 `groups = "one"` does not
-create the field it documents, so milestone items fail validation. File work
-under a release with `cairn set <ID> milestone=v0.2`.
+`cairn.toml` files work under a declared `release` enum (`v0.1` … `v1.0`) rather
+than under `[[type]] milestone` items. That is a workaround for cairn 0.2.0, and
+the reason is written down next to the schema: `groups = "one"` does not create
+the field it documents, and the built-in `milestone` label that does work is
+undeclared, so nothing can group by it — `ROADMAP.md` falls back to status and
+harrow says "nothing to group by called milestone".
+
+File work under a release with `cairn set <ID> release=v0.2`. Do not use
+`milestone=`; it still parses and will quietly leave the item ungrouped.
 
 The narrative intro at the top of `ROADMAP.md` is hand-written in
 `docs/roadmap-intro.md`; everything below the generated-by marker comes from the

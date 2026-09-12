@@ -3,12 +3,12 @@ id: 7
 title: 'Add a real command line: --version and --help'
 type: bug
 status: planned
-milestone: v0.1
 created: 2026-09-11
 updated: 2026-09-11
 priority: p0
 effort: s
 area: cli
+release: v0.1
 ---
 
 ## What happens

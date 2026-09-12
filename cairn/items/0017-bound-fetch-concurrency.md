@@ -3,12 +3,12 @@ id: 17
 title: Bound fetch concurrency
 type: feature
 status: backlog
-milestone: v0.2
 created: 2026-09-11
 updated: 2026-09-11
 priority: p2
 effort: s
 area: net
+release: v0.2
 ---
 
 ## Problem

@@ -3,12 +3,12 @@ id: 32
 title: Man page and shell completions
 type: docs
 status: backlog
-milestone: v1.0
 created: 2026-09-11
 updated: 2026-09-11
 priority: p1
 effort: s
 area: docs
+release: v1.0
 ---
 
 ## Problem

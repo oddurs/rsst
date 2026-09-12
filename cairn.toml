@@ -116,9 +116,21 @@ board = false             # hide this column on `cairn board`
 # `groups = "one"`, which is documented to create the matching `milestone` field.
 # In cairn 0.2.0 it does not: the field is never registered, so every
 # `milestone: <id>` fails validation with "nothing to name yet". Reproduced on a
-# pristine `cairn init`. Until that is fixed, releases are a plain enum — which
-# also renders `## v0.1` as the roadmap heading rather than a raw item id. Swap
-# back to milestone items once the field is created as documented.
+# pristine `cairn init`.
+#
+# The built-in `milestone` label works, but only as an undeclared value: nothing
+# can group by it, so `ROADMAP.md` falls back to status and harrow reports
+# "nothing to group by called milestone". So releases are a declared enum named
+# `release` instead — a real field, which groups everywhere and renders `## v0.1`
+# as the roadmap heading rather than a raw item id. Swap back to milestone items
+# once `groups` creates its field as documented.
+
+[[field]]
+name = "release"
+kind = "enum"
+values = ["v0.1", "v0.2", "v0.3", "v0.4", "v1.0"]
+column = true
+description = "the release this ships in"
 
 [[field]]
 name = "due"
@@ -215,7 +227,7 @@ after-remove = "cairn render -q"
 [render]
 target = "ROADMAP.md"
 title = "Roadmap"
-group_by = "milestone"    # any field works: milestone, area, assignee, type
+group_by = "release"      # any field works: release, area, assignee, type
 include = "category!=dropped"
 checkbox = true           # render items as a task list
 show_ids = true

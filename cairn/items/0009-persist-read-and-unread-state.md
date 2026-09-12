@@ -3,12 +3,12 @@ id: 9
 title: Persist read and unread state
 type: feature
 status: planned
-milestone: v0.1
 created: 2026-09-11
 updated: 2026-09-11
 priority: p0
 effort: m
 area: storage
+release: v0.1
 ---
 
 ## Problem

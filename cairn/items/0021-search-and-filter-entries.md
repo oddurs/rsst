@@ -3,12 +3,12 @@ id: 21
 title: Search and filter entries
 type: feature
 status: backlog
-milestone: v0.3
 created: 2026-09-11
 updated: 2026-09-11
 priority: p1
 effort: m
 area: ui
+release: v0.3
 ---
 
 ## Problem

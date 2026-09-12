@@ -3,7 +3,6 @@ id: 10
 title: OPML import and export
 type: feature
 status: planned
-milestone: v0.1
 depends_on:
 - 7
 created: 2026-09-11
@@ -11,6 +10,7 @@ updated: 2026-09-11
 priority: p1
 effort: m
 area: config
+release: v0.1
 ---
 
 ## Problem

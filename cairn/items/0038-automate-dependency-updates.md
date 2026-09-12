@@ -3,12 +3,12 @@ id: 38
 title: Automate dependency updates
 type: chore
 status: backlog
-milestone: v1.0
 created: 2026-09-11
 updated: 2026-09-11
 priority: p2
 effort: s
 area: ci
+release: v1.0
 ---
 
 ## Problem

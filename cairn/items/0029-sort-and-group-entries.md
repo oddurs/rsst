@@ -3,12 +3,12 @@ id: 29
 title: Sort and group entries
 type: feature
 status: backlog
-milestone: v0.4
 created: 2026-09-11
 updated: 2026-09-11
 priority: p3
 effort: s
 area: ui
+release: v0.4
 ---
 
 ## Problem
