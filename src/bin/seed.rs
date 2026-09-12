@@ -31,6 +31,42 @@ use rsst::feed;
 const READ_EVERY: usize = 3;
 const STARRED_EVERY: usize = 7;
 
+/// Fixtures that fail by design: the 404, the 500, the truncated document and
+/// the page that is not a feed. Anything beyond this is the network.
+const EXPECTED_FAILURES: usize = 4;
+
+/// Real, public feeds, for the mess no fixture is honest enough to contain.
+///
+/// Chosen to differ from each other rather than to be interesting: Atom and
+/// RSS, one that publishes full articles and one that publishes teasers, one
+/// with hundreds of entries, one with none of the usual validators, one whose
+/// markup is a content management system's idea of HTML.
+///
+/// Any of them may be unreachable. That is not a failure — a test machine is
+/// offline more often than not, and the fixtures carry the load in that case.
+fn real_sources() -> Vec<FeedSource> {
+    let feed = |url: &str, title: &str| FeedSource {
+        url: url.to_string(),
+        // No title override: a real feed's own title is part of what is being
+        // looked at, including when it is empty.
+        title: None,
+        tags: vec!["Real".to_string(), title.to_string()],
+        refresh_minutes: None,
+    };
+    vec![
+        feed("https://blog.rust-lang.org/feed.xml", "Long form"),
+        feed("https://this-week-in-rust.org/atom.xml", "Long form"),
+        feed("https://danluu.com/atom.xml", "Long form"),
+        feed("https://simonwillison.net/atom/everything/", "Long form"),
+        feed("https://news.ycombinator.com/rss", "Headlines"),
+        feed("https://lwn.net/headlines/newrss", "Headlines"),
+        feed("https://xkcd.com/rss.xml", "Headlines"),
+        feed("https://blog.cloudflare.com/rss/", "Corporate"),
+        feed("https://github.blog/feed/", "Corporate"),
+        feed("https://www.theverge.com/rss/index.xml", "Corporate"),
+    ]
+}
+
 /// The fixture feeds, and where they sit in the sidebar.
 fn sources(port: u16) -> Vec<FeedSource> {
     let feed = |path: &str, title: &str, tags: &[&str]| FeedSource {
@@ -74,8 +110,15 @@ async fn main() -> Result<()> {
         .context("pass --home <DIR>, or set RSST_HOME")?;
     let port: u16 = arg("--port").unwrap_or_else(|| "8787".into()).parse()?;
 
+    // Offline is the deterministic mode: fixtures only, so the frame it
+    // produces is the one to compare against the last one.
+    let offline = std::env::args().any(|arg| arg == "--offline");
+
     rsst::home::ensure(&home)?;
-    let sources = sources(port);
+    let mut sources = sources(port);
+    if !offline {
+        sources.extend(real_sources());
+    }
     write_config(&home, &sources)?;
 
     // A fresh database every time, so seeding is not additive and the result
@@ -123,7 +166,7 @@ async fn main() -> Result<()> {
                     feed.entries.len()
                 );
             }
-            Ok(other) => println!("  {:<26} {other:?}", short(&source.url)),
+            Ok(other) => println!("  {:<34} {other:?}", short(&source.url)),
             // A feed that cannot be fetched is part of the fixture set, not a
             // reason to stop: the reader has to survive one, so must seeding.
             Err(err) => {
@@ -146,12 +189,36 @@ async fn main() -> Result<()> {
         read.len(),
         starred.len()
     );
+    if offline {
+        println!("  offline: fixtures only, so this is the deterministic one");
+    } else if failures > EXPECTED_FAILURES {
+        // Four fixtures fail on purpose. More than that means the real feeds
+        // could not be reached, which is worth saying plainly rather than
+        // leaving someone to wonder why the sidebar is short.
+        println!(
+            "  {} real feed(s) could not be reached — offline? the fixtures still work",
+            failures - EXPECTED_FAILURES
+        );
+    }
     Ok(())
 }
 
-/// The last part of a URL, which is the part that differs.
-fn short(url: &str) -> &str {
-    url.rsplit('/').next().unwrap_or(url)
+/// A URL shortened to the part that distinguishes it from the others.
+///
+/// The last path segment alone is no good: half the world serves `atom.xml`,
+/// and a URL ending in a slash has no last segment at all.
+fn short(url: &str) -> String {
+    let rest = url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(url)
+        .trim_end_matches('/');
+    let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let host = host.trim_start_matches("www.");
+    match path.rsplit('/').next().filter(|last| !last.is_empty()) {
+        Some(last) => format!("{host}/{last}"),
+        None => host.to_string(),
+    }
 }
 
 fn first_line(err: &anyhow::Error) -> String {

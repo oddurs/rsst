@@ -14,10 +14,11 @@ ln -sf ../../scripts/pre-commit .git/hooks/pre-commit   # optional but recommend
 `scripts/dev` brings up a reader with known content and no network:
 
 ```sh
-scripts/dev              # seed if needed, then run
-scripts/dev seed         # rebuild the database from the fixtures
-scripts/dev shot 120x40  # render one frame as SVG
-scripts/dev reset        # delete it
+scripts/dev                   # seed if needed, then run
+scripts/dev seed              # rebuild from fixtures and real feeds
+scripts/dev seed --offline    # fixtures only: no network, same frame each time
+scripts/dev shot 120x40       # render one frame as SVG
+scripts/dev reset             # delete it
 ```
 
 It runs with `RSST_HOME` pointed at `.dev/home`, so nothing it writes can reach
@@ -31,9 +32,16 @@ The point of the fixtures is the cases real feeds cannot be made to produce on
 demand. Adding one is adding an entry to a file in `fixtures/feeds`; adding a
 new *kind* of failure means a branch in `generated()` in the server.
 
-Everything is a pure function of the fixtures, so two runs give the same
-database and the same frame — which is what makes `scripts/dev shot` worth
-comparing against the last one.
+Alongside them sit ten real, public feeds, under a `Real` folder. Fixtures are
+good at the awkward cases and useless at the ordinary one: real markup is
+messier than anything worth inventing, real dates come in formats nobody would
+choose, and real servers have opinions about caching. Any of them may be
+unreachable — being offline is normal and is reported, not fatal.
+
+`--offline` drops them. That is the deterministic mode: fixtures alone are a
+pure function of the repository, so two runs give the same database and the
+same frame, which is what makes `scripts/dev shot` worth comparing against the
+last one. `shot` seeds offline for exactly that reason.
 
 ## Branches
 
