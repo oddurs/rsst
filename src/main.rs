@@ -39,7 +39,20 @@ const SEARCH_LIMIT: usize = 500;
 const DUE_CHECK: Duration = Duration::from_secs(20);
 
 /// A finished fetch on its way back to the event loop.
-type Fetched = (usize, std::result::Result<feed::Outcome, feed::Failure>);
+/// What a fetch task reports back: a note that it is trying again, or the end.
+///
+/// Retries are reported rather than waited out silently — a feed that looks
+/// stalled for twenty seconds and one that is quietly on its third attempt
+/// should not be the same picture.
+enum Progress {
+    Retrying {
+        attempt: u32,
+        wait: std::time::Duration,
+    },
+    Done(std::result::Result<feed::Outcome, feed::Failure>),
+}
+
+type Fetched = (usize, Progress);
 
 /// A fetched article, keyed by the entry it belongs to.
 type Article = (Vec<String>, Result<String>);
@@ -182,6 +195,22 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                 continue;
             };
             let url = slot.url.clone();
+
+            // A retry is not an answer: say so and wait for the real one.
+            let result = match result {
+                Progress::Retrying { attempt, wait } => {
+                    slot.status = feed::Status::Fetching;
+                    app.status = Some(format!(
+                        " {}: trying again in {:.1}s (attempt {}) ",
+                        slot.title,
+                        wait.as_secs_f32(),
+                        attempt + 1
+                    ));
+                    continue;
+                }
+                Progress::Done(result) => result,
+            };
+
             // Reached, whatever the answer — a 304 means the server was asked
             // and replied, which is what the timer needs to know.
             if result.is_ok() {
@@ -528,13 +557,14 @@ fn spawn_some(
 ) {
     let now = chrono::Utc::now();
     let limits = config.limits();
+    let retry = config.retry();
     for index in indices {
         let Some(source) = config.feeds.get(index).cloned() else {
             continue;
         };
         // Honour a server that asked us to wait rather than hammering it.
         if !db.may_fetch(&source.url, now) {
-            let _ = tx.send((index, Ok(feed::Outcome::NotModified)));
+            let _ = tx.send((index, Progress::Done(Ok(feed::Outcome::NotModified))));
             continue;
         }
         let meta = db.meta(&source.url);
@@ -542,21 +572,42 @@ fn spawn_some(
         let tx = tx.clone();
         let limiter = limiter.clone();
         tokio::spawn(async move {
-            // Every task is spawned at once, but only a few hold a permit and
-            // are actually talking to the network at any moment.
-            let result = limit::limited(
-                limiter,
-                feed::fetch(
-                    &client,
-                    &source,
-                    meta.etag.as_deref(),
-                    meta.last_modified.as_deref(),
-                    limits,
-                ),
-            )
-            .await;
-            // A closed channel means the reader has already quit.
-            let _ = tx.send((index, result));
+            let started = std::time::Instant::now();
+            let mut attempt = 0u32;
+            loop {
+                // Every task is spawned at once, but only a few hold a permit
+                // and are actually talking to the network at any moment.
+                let result = limit::limited(
+                    limiter.clone(),
+                    feed::fetch(
+                        &client,
+                        &source,
+                        meta.etag.as_deref(),
+                        meta.last_modified.as_deref(),
+                        limits,
+                    ),
+                )
+                .await;
+
+                // Only what could plausibly succeed next time. A 404 is a
+                // decision someone made, not a network that will be back.
+                let worth_retrying = result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|failure| failure.trouble.transient());
+                if worth_retrying
+                    && let Some(wait) = retry.delay(attempt + 1, &source.url, started.elapsed())
+                {
+                    attempt += 1;
+                    let _ = tx.send((index, Progress::Retrying { attempt, wait }));
+                    tokio::time::sleep(wait).await;
+                    continue;
+                }
+
+                // A closed channel means the reader has already quit.
+                let _ = tx.send((index, Progress::Done(result)));
+                break;
+            }
         });
     }
 }
@@ -598,9 +649,13 @@ async fn screenshot(size: &str, config_override: Option<PathBuf>) -> Result<()> 
     // Wait for what arrives promptly; a slow feed should not hold up a
     // screenshot, it should just show as still loading.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    while let Ok(Some((index, result))) = tokio::time::timeout_at(deadline, rx.recv()).await
+    while let Ok(Some((index, progress))) = tokio::time::timeout_at(deadline, rx.recv()).await
         && let Some(slot) = app.feeds.get_mut(index)
     {
+        // A retry still counts as fetching, which is what the placeholder says.
+        let Progress::Done(result) = progress else {
+            continue;
+        };
         match result {
             Ok(feed::Outcome::Updated { feed, .. }) => *slot = *feed,
             Ok(_) => slot.status = feed::Status::Idle,

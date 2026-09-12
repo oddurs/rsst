@@ -47,6 +47,10 @@ still needs.
 
 ### Fixed
 
+- A transient failure is retried with growing, spread-out delays instead of
+  marking the feed dead until the next `r` — and a bare 503, which used to park
+  a feed for five minutes, is now just a server restarting. A 404 or a document
+  that is not a feed is still never retried, because it cannot start working
 - A failed fetch says what kind of failure it was — unreachable, timed out,
   server error, refused, gone, too big, not a feed — so `!` in the sidebar now
   comes with a sentence, and a 404 is no longer mistaken for a flaky network.

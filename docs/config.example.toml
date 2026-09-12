@@ -14,6 +14,12 @@ max_concurrent_fetches = 8
 # believed — without a limit, how much memory rsst uses is the server's choice.
 max_feed_megabytes = 8
 
+# How many times to try again after a failure that might not repeat — a
+# timeout, an unreachable host, a 5xx. Default: 2, capped at 5. Zero never
+# retries. A 404 or a document that is not a feed is never retried whatever
+# this says, because asking again cannot change the answer.
+retry_attempts = 2
+
 # The widest line of prose, in columns. Default: 72. Zero uses the whole pane.
 #
 # Long lines are hard to read for a mechanical reason: at the end of one the eye

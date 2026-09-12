@@ -2,7 +2,8 @@
 id: 64
 title: Retry a transient failure instead of giving up
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-12
 updated: 2026-09-12
 priority: p1
@@ -27,8 +28,12 @@ Needs `0063` first, to know which is which.
 
 ## Acceptance criteria
 
-- [ ] A transient failure is retried with growing delays
-- [ ] A permanent failure is not retried at all
-- [ ] Retries are bounded in both count and total time
-- [ ] Backoff is jittered, so a hundred feeds on one host do not retry in lockstep
-- [ ] The reader shows that a retry is happening rather than looking stalled
+- [x] A transient failure is retried with growing delays
+- [x] A permanent failure is not retried at all
+- [x] Retries are bounded in both count and total time
+- [x] Backoff is jittered, so a hundred feeds on one host do not retry in lockstep
+- [x] The reader shows that a retry is happening rather than looking stalled
+
+## 2026-09-12
+
+Jitter comes from an FNV hash of the feed URL rather than a random source: no new dependency, deterministic so it is testable, and it spreads feeds apart, which is the only property that matters. Also found that a bare 503 was being treated as rate limiting and costing the default five-minute backoff; it is now a retryable server error, while a 503 or 429 that names a time is still honoured.
