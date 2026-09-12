@@ -9,6 +9,11 @@
 # How many feeds may be fetched at once. Default: 8.
 max_concurrent_fetches = 8
 
+# The most a single feed may send, in megabytes. Default: 8. Zero means the
+# default. A server that sends more than this is hung up on rather than
+# believed — without a limit, how much memory rsst uses is the server's choice.
+max_feed_megabytes = 8
+
 # The widest line of prose, in columns. Default: 72. Zero uses the whole pane.
 #
 # Long lines are hard to read for a mechanical reason: at the end of one the eye

@@ -108,12 +108,78 @@ pub enum Outcome {
     RateLimited { retry_after: Duration },
 }
 
+/// The most a feed may send before we stop listening.
+///
+/// Generous: the largest feeds in ordinary use are a few megabytes, and a
+/// reader that refuses a real feed is worse than one that accepts a silly one.
+/// The point is only that the number exists, because without it the ceiling is
+/// whatever the server feels like sending.
+pub const DEFAULT_MAX_BODY: usize = 8 * 1024 * 1024;
+
+/// What a fetch is allowed to do.
+///
+/// A struct rather than another argument, because this is where the rest of
+/// the engine's policy is going to live.
+#[derive(Debug, Clone, Copy)]
+pub struct Limits {
+    /// Bytes of response body, after any transfer encoding is undone.
+    pub max_body: usize,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            max_body: DEFAULT_MAX_BODY,
+        }
+    }
+}
+
+/// Reads a response body, stopping if it goes past `limit`.
+///
+/// Streamed rather than buffered whole: `bytes()` allocates whatever arrives,
+/// so memory was previously the server's decision. A body of 600 MB took 1.6 GB
+/// of resident memory to receive, and nothing stopped it going further.
+async fn body_within(mut response: reqwest::Response, limit: usize, url: &str) -> Result<Vec<u8>> {
+    let too_big =
+        |seen: u64| anyhow::anyhow!("{url} sent {} bytes, over the {} byte limit", seen, limit);
+
+    // A declared length over the limit is refused before anything is read.
+    // Downloading a gigabyte to discover it is a gigabyte is the mistake.
+    if let Some(declared) = response.content_length()
+        && declared > limit as u64
+    {
+        return Err(too_big(declared));
+    }
+
+    // Sized to what the server declared, clamped — not to the limit, which
+    // would reserve megabytes per feed for feeds that are mostly tiny.
+    let expected = response
+        .content_length()
+        .unwrap_or(0)
+        .min(limit as u64)
+        .min(1 << 20) as usize;
+    let mut body: Vec<u8> = Vec::with_capacity(expected);
+
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .with_context(|| format!("reading body of {url}"))?
+    {
+        if body.len() + chunk.len() > limit {
+            return Err(too_big((body.len() + chunk.len()) as u64));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
 /// Downloads and parses a feed, asking the server to skip it if unchanged.
 pub async fn fetch(
     client: &reqwest::Client,
     source: &FeedSource,
     etag: Option<&str>,
     last_modified: Option<&str>,
+    limits: Limits,
 ) -> Result<Outcome> {
     let mut request = client.get(&source.url);
     // Either validator alone is enough; sending both is what the spec prefers.
@@ -161,10 +227,7 @@ pub async fn fetch(
     let etag = header(reqwest::header::ETAG);
     let last_modified = header(reqwest::header::LAST_MODIFIED);
 
-    let body = response
-        .bytes()
-        .await
-        .with_context(|| format!("reading body of {}", source.url))?;
+    let body = body_within(response, limits.max_body, &source.url).await?;
 
     Ok(Outcome::Updated {
         feed: Box::new(parse(&body, source)?),
@@ -651,5 +714,124 @@ mod tests {
         source.title = Some("R&amp;D".into());
         let feed = parse(xml.as_bytes(), &source).expect("parses");
         assert_eq!(feed.title, "R&amp;D");
+    }
+
+    /// Serves one hand-written HTTP response on loopback and returns its port.
+    ///
+    /// Not "hitting the network": nothing leaves the machine, the bytes are
+    /// written by the test, and the server is gone when it ends. It is the only
+    /// way to test what `fetch` does with a response, as against what `parse`
+    /// does with a document.
+    fn serve_once(headers: &str, body: Vec<u8>) -> u16 {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        let port = listener.local_addr().expect("an address").port();
+        let headers = headers.to_string();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut scratch = [0u8; 2048];
+            let _ = stream.read(&mut scratch);
+            let _ = stream.write_all(headers.as_bytes());
+            // Ignored: the client hanging up mid-body is the point of some of
+            // these tests, and a broken pipe here is that happening.
+            let _ = stream.write_all(&body);
+            let _ = stream.flush();
+        });
+        port
+    }
+
+    fn at(port: u16) -> FeedSource {
+        FeedSource {
+            url: format!("http://127.0.0.1:{port}/feed.xml"),
+            refresh_minutes: None,
+            title: None,
+            tags: Vec::new(),
+        }
+    }
+
+    fn tiny_feed() -> Vec<u8> {
+        concat!(
+            r#"<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">"#,
+            "<title>Small</title><id>u</id>",
+            "<entry><id>e</id><title>One</title></entry></feed>"
+        )
+        .as_bytes()
+        .to_vec()
+    }
+
+    #[tokio::test]
+    async fn a_body_over_the_limit_is_refused_rather_than_swallowed() {
+        let body = vec![b'x'; 64 * 1024];
+        let port = serve_once(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/atom+xml\r\nConnection: close\r\n\r\n",
+            body,
+        );
+        let client = reqwest::Client::new();
+        let limits = Limits { max_body: 8 * 1024 };
+
+        let err = fetch(&client, &at(port), None, None, limits)
+            .await
+            .expect_err("a body four times the limit must not be accepted");
+        let said = format!("{err:#}");
+        assert!(said.contains("8192"), "the error hides the limit: {said}");
+    }
+
+    #[tokio::test]
+    async fn a_declared_length_over_the_limit_is_refused_before_the_body() {
+        // The body is never written: the refusal has to come from the header,
+        // or a reader would download a gigabyte to learn it was a gigabyte.
+        let port = serve_once(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/atom+xml\r\nContent-Length: 999999999\r\nConnection: close\r\n\r\n",
+            Vec::new(),
+        );
+        let client = reqwest::Client::new();
+        let limits = Limits { max_body: 1024 };
+
+        let err = fetch(&client, &at(port), None, None, limits)
+            .await
+            .expect_err("a declared length far over the limit must be refused");
+        let said = format!("{err:#}");
+        assert!(
+            said.contains("999999999"),
+            "the error does not say what was declared: {said}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_feed_inside_the_limit_is_read_as_usual() {
+        // The limit must not be a new way for ordinary feeds to fail.
+        let body = tiny_feed();
+        let port = serve_once(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/atom+xml\r\nConnection: close\r\n\r\n",
+            body,
+        );
+        let client = reqwest::Client::new();
+
+        let outcome = fetch(&client, &at(port), None, None, Limits::default())
+            .await
+            .expect("a small feed is fine");
+        match outcome {
+            Outcome::Updated { feed, .. } => {
+                assert_eq!(feed.title, "Small");
+                assert_eq!(feed.entries.len(), 1);
+            }
+            other => panic!("expected an update, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_configured_limit_is_honoured_and_zero_means_the_default() {
+        use crate::config::Config;
+        let mut config = Config::default();
+        assert_eq!(config.limits().max_body, DEFAULT_MAX_BODY);
+
+        config.max_feed_megabytes = Some(3);
+        assert_eq!(config.limits().max_body, 3 * 1024 * 1024);
+
+        // Zero would be a limit no feed could meet, so it reads as "unset".
+        config.max_feed_megabytes = Some(0);
+        assert_eq!(config.limits().max_body, DEFAULT_MAX_BODY);
     }
 }

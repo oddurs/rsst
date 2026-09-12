@@ -140,7 +140,7 @@ async fn main() -> Result<()> {
     let mut failures = 0usize;
 
     for source in &sources {
-        match feed::fetch(&client, source, None, None).await {
+        match feed::fetch(&client, source, None, None, feed::Limits::default()).await {
             Ok(feed::Outcome::Updated {
                 feed,
                 etag,

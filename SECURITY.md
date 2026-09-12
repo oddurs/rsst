@@ -26,7 +26,11 @@ its attack surface:
   through the parser, the article renderer and the readability extractor on
   every push, with a time budget per input. It has already found one hang.
 - **Network handling.** Requests are made with `rustls` and a fifteen-second
-  timeout. Certificate validation is not bypassed anywhere.
+  timeout. Certificate validation is not bypassed anywhere. A response body is
+  streamed against a limit (`max_feed_megabytes`, 8 by default) rather than
+  buffered whole, so how much memory a fetch costs is rsst's decision and not
+  the server's; an oversized `Content-Length` is refused before the body is
+  read at all.
 - **What gets executed.** Opening an entry hands a URL to the system opener
   (`open`, `xdg-open`, `cmd /C start`). A feed controlling that URL is expected;
   a feed being able to control the *command* would be a vulnerability.

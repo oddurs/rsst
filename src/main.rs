@@ -359,8 +359,9 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                         app.status = Some(" Checking that feed… ".into());
                         let client = session.client.clone();
                         let tx = session.added_tx.clone();
+                        let limits = session.config.limits();
                         tokio::spawn(async move {
-                            let _ = tx.send(check_feed(&client, &url).await);
+                            let _ = tx.send(check_feed(&client, &url, limits).await);
                         });
                     }
                     None => app.status = Some(" That needs to be an http:// URL. ".into()),
@@ -514,6 +515,7 @@ fn spawn_some(
     indices: impl IntoIterator<Item = usize>,
 ) {
     let now = chrono::Utc::now();
+    let limits = config.limits();
     for index in indices {
         let Some(source) = config.feeds.get(index).cloned() else {
             continue;
@@ -537,6 +539,7 @@ fn spawn_some(
                     &source,
                     meta.etag.as_deref(),
                     meta.last_modified.as_deref(),
+                    limits,
                 ),
             )
             .await;
@@ -818,7 +821,7 @@ async fn download(client: &reqwest::Client, url: &str) -> Result<String> {
 /// Fetched before being written to the config rather than after: a typo added
 /// and then found to be broken leaves the reader with a dead feed and the
 /// person with a file to edit by hand.
-async fn check_feed(client: &reqwest::Client, url: &str) -> Added {
+async fn check_feed(client: &reqwest::Client, url: &str, limits: feed::Limits) -> Added {
     let source = config::FeedSource {
         url: url.to_string(),
         refresh_minutes: None,
@@ -826,7 +829,7 @@ async fn check_feed(client: &reqwest::Client, url: &str) -> Added {
         tags: Vec::new(),
     };
 
-    match feed::fetch(client, &source, None, None).await? {
+    match feed::fetch(client, &source, None, None, limits).await? {
         feed::Outcome::Updated { feed, .. } => Ok((url.to_string(), feed.title.clone())),
         feed::Outcome::NotModified => Ok((url.to_string(), url.to_string())),
         feed::Outcome::RateLimited { .. } => {

@@ -28,6 +28,9 @@ pub struct Config {
     /// How many feeds may be fetched at once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_concurrent_fetches: Option<usize>,
+    /// The most a single feed may send, in megabytes. Zero means the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_feed_megabytes: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -78,6 +81,16 @@ impl Config {
     /// How prose should be set: the configured measure, or the default.
     ///
     /// Zero means "use the whole pane", which is how someone turns it off.
+    /// What a fetch is allowed to do, from the config or the defaults.
+    pub fn limits(&self) -> crate::feed::Limits {
+        let max_body = self
+            .max_feed_megabytes
+            .filter(|mb| *mb > 0)
+            .map(|mb| mb.saturating_mul(1024 * 1024))
+            .unwrap_or(crate::feed::DEFAULT_MAX_BODY);
+        crate::feed::Limits { max_body }
+    }
+
     pub fn measure(&self, ascii: bool) -> crate::article::Measure {
         let columns = self.measure.unwrap_or(crate::article::DEFAULT_MEASURE);
         crate::article::Measure {
@@ -112,6 +125,7 @@ impl Config {
             theme: Default::default(),
             keys: Default::default(),
             max_concurrent_fetches: None,
+            max_feed_megabytes: None,
             feeds: vec![FeedSource {
                 url: "https://blog.rust-lang.org/feed.xml".into(),
                 refresh_minutes: None,
@@ -363,6 +377,7 @@ mod tests {
             },
             keys: Default::default(),
             max_concurrent_fetches: Some(8),
+            max_feed_megabytes: Some(8),
             measure: Some(72),
             refresh_minutes: Some(30),
             mouse: false,
