@@ -2,7 +2,8 @@
 id: 11
 title: Open the selected entry in a browser
 type: feature
-status: planned
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
 updated: 2026-09-11
 priority: p1
@@ -21,6 +22,6 @@ Bind `o` to open the selected entry's link in the system browser (`open`/`xdg-op
 
 ## Acceptance criteria
 
-- [ ] `o` opens the entry in the default browser on macOS, Linux and Windows.
-- [ ] An entry with no link shows a message in the status bar rather than failing silently.
-- [ ] Launching the browser does not disturb the TUI or leave a zombie process.
+- [x] `o` opens the entry in the default browser on macOS, Linux and Windows.
+- [x] An entry with no link shows a message in the status bar rather than failing silently.
+- [x] Launching the browser does not disturb the TUI or leave a zombie process.

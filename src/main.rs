@@ -2,6 +2,7 @@ mod app;
 mod cli;
 mod config;
 mod feed;
+mod launch;
 mod opml;
 mod state;
 mod ui;
@@ -100,6 +101,8 @@ async fn run(
             KeyCode::Tab | KeyCode::BackTab => app.toggle_focus(),
             KeyCode::Char('j') | KeyCode::Down => app.select_next(),
             KeyCode::Char('k') | KeyCode::Up => app.select_previous(),
+            KeyCode::Char('o') => open_selected(app),
+            KeyCode::Char('y') => copy_selected(app),
             KeyCode::Char('r') => {
                 app.status = Some(" Refreshing… ".into());
                 terminal.draw(|frame| ui::draw(frame, app))?;
@@ -153,6 +156,30 @@ fn placeholder(source: &FeedSource, err: &anyhow::Error) -> Feed {
             keys: Vec::new(),
         }],
     }
+}
+
+/// Opens the selected entry's link in the browser, reporting the outcome.
+fn open_selected(app: &mut App) {
+    let Some(link) = app.current_entry().and_then(|entry| entry.link.clone()) else {
+        app.status = Some(" This entry has no link. ".into());
+        return;
+    };
+    app.status = Some(match launch::browser(&link) {
+        Ok(()) => format!(" Opened {link} "),
+        Err(err) => format!(" Could not open: {err:#} "),
+    });
+}
+
+/// Copies the selected entry's link to the clipboard.
+fn copy_selected(app: &mut App) {
+    let Some(link) = app.current_entry().and_then(|entry| entry.link.clone()) else {
+        app.status = Some(" This entry has no link. ".into());
+        return;
+    };
+    app.status = Some(match launch::clipboard(&link) {
+        Ok(()) => format!(" Copied {link} "),
+        Err(err) => format!(" Could not copy: {err:#} "),
+    });
 }
 
 /// Merges an OPML file into the config, reporting what actually changed.
