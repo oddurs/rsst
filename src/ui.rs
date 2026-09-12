@@ -12,15 +12,21 @@ pub fn draw(frame: &mut Frame, app: &mut App, keymap: &crate::keys::Keymap) {
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(frame.area());
 
+    // A column of gap rather than two adjacent borders, which would put a
+    // two-wide band of chrome down the full height of the screen.
     let columns = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(25), Constraint::Percentage(75)])
+        .constraints([
+            Constraint::Length(sidebar_width(rows[0].width)),
+            Constraint::Length(1),
+            Constraint::Min(20),
+        ])
         .split(rows[0]);
 
     let panes = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-        .split(columns[1]);
+        .constraints(entry_and_article(app, columns[2].height))
+        .split(columns[2]);
 
     // Reset the hit map each frame: it describes this frame, not the last one.
     app.hits = crate::mouse::Hits {
@@ -45,54 +51,8 @@ pub fn draw(frame: &mut Frame, app: &mut App, keymap: &crate::keys::Keymap) {
 
 fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
     let rows = app.feed_rows();
-    let items: Vec<ListItem> = rows
-        .iter()
-        .map(|row| match row {
-            crate::app::FeedRow::Group { name, collapsed } => ListItem::new(Line::from(vec![
-                Span::styled(
-                    match (*collapsed, app.theme.ascii) {
-                        (true, false) => "▸ ",
-                        (false, false) => "▾ ",
-                        (true, true) => "> ",
-                        (false, true) => "v ",
-                    },
-                    app.theme.dim,
-                ),
-                Span::styled(name.clone(), app.theme.group),
-            ])),
-            crate::app::FeedRow::Feed(index) => {
-                let feed = &app.feeds[*index];
-                let unread = app.unread(*index);
-                // Indent feeds that sit under a heading.
-                let indent = if app.tag_of(*index).is_some() {
-                    "  "
-                } else {
-                    ""
-                };
-                let mut spans = vec![Span::raw(format!("{indent}{}", feed.title))];
-                if let Some(marker) = feed.status.marker() {
-                    let marker = match (marker, app.theme.ascii) {
-                        ("…", true) => "..",
-                        (other, _) => other,
-                    };
-                    let style = if feed.status.error().is_some() {
-                        app.theme.error
-                    } else {
-                        app.theme.dim
-                    };
-                    spans.push(Span::styled(format!("  {marker}"), style));
-                }
-                // Only worth the space when there is something to report.
-                if unread > 0 {
-                    spans.push(Span::styled(
-                        format!("  {unread}"),
-                        app.theme.accent.add_modifier(Modifier::BOLD),
-                    ));
-                }
-                ListItem::new(Line::from(spans))
-            }
-        })
-        .collect();
+    let width = inner(area).width.saturating_sub(CURSOR_WIDTH);
+    let items: Vec<ListItem> = rows.iter().map(|row| feed_row(app, row, width)).collect();
 
     let mut state = ListState::default();
     state
@@ -100,9 +60,16 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
             |row| matches!(row, crate::app::FeedRow::Feed(i) if *i == app.selected_feed),
         ));
 
+    let unread: usize = (0..app.feeds.len()).map(|index| app.unread(index)).sum();
+    let title = if unread > 0 {
+        format!("Feeds  {unread} unread")
+    } else {
+        "Feeds".to_string()
+    };
+
     frame.render_stateful_widget(
         List::new(items)
-            .block(block("Feeds", app.focus == Pane::Feeds, &app.theme))
+            .block(block(&title, app.focus == Pane::Feeds, &app.theme))
             .highlight_style(highlight(&app.theme))
             .highlight_symbol(cursor(&app.theme)),
         area,
@@ -120,6 +87,75 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
         .take(body.height as usize)
         .map(|(index, row)| ((index - state.offset()) as u16 + body.y, row))
         .collect();
+}
+
+/// One row of the feed list: a group heading, or a feed and its unread count.
+///
+/// Every feed sits at the same indent whether or not it is in a group, so an
+/// ungrouped feed reads as a peer of the other feeds rather than a sibling of
+/// the headings. Counts are right-aligned so they form a column instead of
+/// trailing each name at a different place.
+fn feed_row<'a>(app: &App, row: &'a crate::app::FeedRow, width: u16) -> ListItem<'a> {
+    match row {
+        crate::app::FeedRow::Group { name, collapsed } => ListItem::new(Line::from(vec![
+            Span::styled(
+                match (*collapsed, app.theme.ascii) {
+                    (true, false) => "▸ ",
+                    (false, false) => "▾ ",
+                    (true, true) => "> ",
+                    (false, true) => "v ",
+                },
+                app.theme.dim,
+            ),
+            Span::styled(name.clone(), app.theme.group),
+        ])),
+        crate::app::FeedRow::Feed(index) => {
+            let feed = &app.feeds[*index];
+            let unread = app.unread(*index);
+            let marker = feed
+                .status
+                .marker()
+                .map(|marker| match (marker, app.theme.ascii) {
+                    ("…", true) => "..",
+                    (other, _) => other,
+                });
+
+            let count = if unread > 0 {
+                unread.to_string()
+            } else {
+                String::new()
+            };
+            let right = match marker {
+                Some(marker) => format!("{marker} {count}"),
+                None => count.clone(),
+            };
+
+            // Two columns of indent for every feed, grouped or not.
+            let room = (width as usize).saturating_sub(2 + right.chars().count() + 1);
+            let name = truncate(&feed.title, room, app.theme.ascii);
+            let padding = room.saturating_sub(name.chars().count()) + 1;
+
+            let name = if unread > 0 {
+                Span::raw(name)
+            } else {
+                Span::styled(name, app.theme.dim)
+            };
+            let right_style = if marker.is_some() && feed.status.error().is_some() {
+                app.theme.error
+            } else if unread > 0 {
+                app.theme.accent.add_modifier(Modifier::BOLD)
+            } else {
+                app.theme.dim
+            };
+
+            ListItem::new(Line::from(vec![
+                Span::raw("  "),
+                name,
+                Span::raw(" ".repeat(padding)),
+                Span::styled(right, right_style),
+            ]))
+        }
+    }
 }
 
 fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -191,45 +227,36 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
         app.hits.entry_rows = rows_out;
         return;
     }
-    let title = app
-        .current_feed()
-        .map(|feed| feed.url.clone())
-        .unwrap_or_else(|| "Entries".into());
+    // The feed's name, not its URL. The URL is the least useful string
+    // available and this is the most prominent label on screen.
+    let title = match app.current_feed() {
+        Some(feed) => {
+            let unread = app.unread(app.selected_feed);
+            let total = feed.entries.len();
+            match (total, unread) {
+                (0, _) => feed.title.clone(),
+                (total, 0) => format!("{}  {total}", feed.title),
+                (total, unread) => format!("{}  {unread} of {total} unread", feed.title),
+            }
+        }
+        None => "Entries".into(),
+    };
     app.entries_viewport = (area.width.saturating_sub(2), area.height.saturating_sub(2));
     let visible = app.visible_indices(app.selected_feed);
     let entries = app.current_feed().map(|feed| &feed.entries);
+    let width = inner(area).width.saturating_sub(CURSOR_WIDTH);
     let items: Vec<ListItem> = visible
         .iter()
         .filter_map(|index| entries.and_then(|entries| entries.get(*index)))
-        .map(|entry| {
-            // Unread stands out; read recedes rather than disappearing.
-            let title = if app.is_read(entry) {
-                Span::styled(entry.title.clone(), app.theme.dim)
-            } else {
-                Span::styled(
-                    entry.title.clone(),
-                    Style::default().add_modifier(Modifier::BOLD),
-                )
-            };
-            let star = if app.is_starred(entry) {
-                Span::styled(if app.theme.ascii { "* " } else { "★ " }, app.theme.star)
-            } else {
-                Span::raw("  ")
-            };
-            ListItem::new(Line::from(vec![
-                Span::styled(date_label(entry, &app.theme), app.theme.dim),
-                Span::raw("  "),
-                star,
-                title,
-            ]))
-        })
+        .map(|entry| entry_row(app, entry, width))
         .collect();
 
     let mut state = ListState::default();
     state.select(visible.iter().position(|i| *i == app.selected_entry));
 
     let title = if app.read.unread_only {
-        format!("{title}  [unread]")
+        let separator = if app.theme.ascii { "  - " } else { "  · " };
+        format!("{title}{separator}unread only")
     } else {
         title
     };
@@ -340,7 +367,8 @@ fn draw_help(
     let content_width = sections
         .iter()
         .flat_map(|(_, rows)| rows.iter())
-        .map(|(_, description)| 2 + width + 2 + description.len() + 2)
+        // Two for the border and two for its padding.
+        .map(|(_, description)| 2 + width + 2 + description.len() + 4)
         .max()
         .unwrap_or(40) as u16;
 
@@ -359,6 +387,7 @@ fn draw_help(
                 .border_set(border_set(theme))
                 .borders(Borders::ALL)
                 .border_style(theme.accent)
+                .padding(ratatui::widgets::Padding::horizontal(1))
                 // In the title rather than a row of its own: with every action
                 // listed, an 80x24 terminal has no spare line to give it.
                 .title(match (overflow > 0, theme.ascii) {
@@ -431,7 +460,6 @@ fn draw_cross_feed(
 }
 
 fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
-    // Tell the app how much room it has, so it can wrap and clamp scrolling.
     // The same inner rect the hit map uses, so a click on the link lands on the
     // row the link was drawn on rather than one above it.
     let inner = inner(area);
@@ -441,12 +469,40 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
     let max = app.max_detail_scroll();
     app.detail_scroll = app.detail_scroll.min(max);
 
-    let lines: Vec<Line> = app.detail_lines().into_iter().map(Line::raw).collect();
+    let lines: Vec<Line> = app
+        .detail_lines()
+        .into_iter()
+        .enumerate()
+        .map(|(index, text)| detail_line(app, index, text))
+        .collect();
 
+    // The article says where it came from and when. "Detail" said neither.
+    let title = match app.current_entry() {
+        Some(entry) => {
+            let feed = app
+                .feeds
+                .get(app.selected_feed)
+                .map(|feed| feed.title.as_str())
+                .unwrap_or("");
+            let date = entry
+                .published
+                .map(|when| when.format("%-d %B %Y").to_string())
+                .unwrap_or_default();
+            let separator = if app.theme.ascii { "  -  " } else { "  ·  " };
+            match (feed.is_empty(), date.is_empty()) {
+                (false, false) => format!("{feed}{separator}{date}"),
+                (false, true) => feed.to_string(),
+                (true, false) => date,
+                (true, true) => "Article".into(),
+            }
+        }
+        None => "Article".into(),
+    };
     let title = if max > 0 {
-        format!("Detail  {}/{}", app.detail_scroll, max)
+        let separator = if app.theme.ascii { "  -  " } else { "  ·  " };
+        format!("{title}{separator}{}%", percent(app.detail_scroll, max))
     } else {
-        "Detail".to_string()
+        title
     };
 
     frame.render_widget(
@@ -477,6 +533,36 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
         }
         _ => Vec::new(),
     };
+}
+
+/// Styles one line of the article by what it is.
+///
+/// The title is the title; the link is reference data and recedes; the body is
+/// body text. Previously all three were drawn identically, so the URL read as
+/// being as important as the headline.
+fn detail_line<'a>(app: &App, index: usize, text: String) -> Line<'a> {
+    let link = app.detail_link_lines();
+    let title_lines = link.map_or(1, |(first, _)| first);
+    let is_link = link.is_some_and(|(first, count)| index >= first && index < first + count);
+
+    if index < title_lines {
+        Line::from(Span::styled(
+            text,
+            Style::default().add_modifier(Modifier::BOLD),
+        ))
+    } else if is_link {
+        Line::from(Span::styled(text, app.theme.link))
+    } else {
+        Line::raw(text)
+    }
+}
+
+/// How far through the article we are, as a percentage.
+fn percent(scroll: u16, max: u16) -> u16 {
+    if max == 0 {
+        return 100;
+    }
+    (u32::from(scroll) * 100 / u32::from(max)) as u16
 }
 
 /// Draws the status bar and returns the clickable hints it drew.
@@ -545,15 +631,10 @@ fn block<'a>(title: &'a str, focused: bool, theme: &'a crate::theme::Theme) -> B
         .border_set(border_set(theme))
         .borders(Borders::ALL)
         .border_style(border)
+        // A column either side, so text is framed by the border rather than
+        // touching it. Must match `inner`, which is what the pointer uses.
+        .padding(ratatui::widgets::Padding::horizontal(1))
         .title(format!(" {title} "))
-}
-
-/// An entry's date, with a placeholder the terminal can draw.
-fn date_label(entry: &crate::feed::Entry, theme: &crate::theme::Theme) -> String {
-    match (entry.date_label().as_str(), theme.ascii) {
-        ("—", true) => "-".repeat(10),
-        (label, _) => label.to_string(),
-    }
 }
 
 /// The marker drawn against the selected row.
@@ -561,12 +642,119 @@ fn cursor(theme: &crate::theme::Theme) -> &'static str {
     if theme.ascii { "> " } else { "› " }
 }
 
-/// The area inside a bordered block.
+/// Columns the selection marker occupies, which a list item does not get.
+///
+/// `highlight_symbol` is drawn inside the block but outside the item, so
+/// right-aligning against the full inner width pushes the last two columns off
+/// the edge — which silently ate the dates and the unread counts.
+const CURSOR_WIDTH: u16 = 2;
+
+/// One row of the entry list: a star gutter, the title, then the date.
+///
+/// The title leads because it is the content. The date is pushed right and
+/// dimmed: it is useful for orienting yourself and useless as the thing your
+/// eye lands on first, which is what leading with it made it.
+fn entry_row<'a>(app: &App, entry: &'a crate::feed::Entry, width: u16) -> ListItem<'a> {
+    let read = app.is_read(entry);
+    let date = short_date(entry, &app.theme);
+    let date_width = date.chars().count();
+
+    // Fixed-width gutter, so a star never shifts the title beside it.
+    let star = if app.is_starred(entry) {
+        Span::styled(if app.theme.ascii { "* " } else { "★ " }, app.theme.star)
+    } else {
+        Span::raw("  ")
+    };
+
+    // Two spaces of breathing room before the date column.
+    let room = (width as usize).saturating_sub(2 + date_width + 2);
+    let title = truncate(&entry.title, room, app.theme.ascii);
+    let padding = room.saturating_sub(title.chars().count()) + 2;
+
+    let title = if read {
+        Span::styled(title, app.theme.dim)
+    } else {
+        Span::styled(title, Style::default().add_modifier(Modifier::BOLD))
+    };
+
+    ListItem::new(Line::from(vec![
+        star,
+        title,
+        Span::raw(" ".repeat(padding)),
+        Span::styled(date, app.theme.dim),
+    ]))
+}
+
+/// A date short enough to sit in a gutter.
+///
+/// The year is dropped for the current one — it is the same for almost every
+/// entry, so printing it costs five columns to say nothing.
+fn short_date(entry: &crate::feed::Entry, theme: &crate::theme::Theme) -> String {
+    use chrono::Datelike;
+    match entry.published {
+        Some(when) if when.year() == chrono::Utc::now().year() => {
+            format!("{:>2} {}", when.day(), month(when.month()))
+        }
+        Some(when) => format!("{} {}", month(when.month()), when.year()),
+        // A placeholder the width of a date, so the column stays a column.
+        None => if theme.ascii { "     -" } else { "     —" }.to_string(),
+    }
+}
+
+fn month(month: u32) -> &'static str {
+    const NAMES: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    NAMES[(month as usize).clamp(1, 12) - 1]
+}
+
+/// Shortens text to fit, marking that it had to.
+///
+/// The marker is a character, not a string, so it always costs exactly one
+/// column — and it is ASCII when the theme says the terminal cannot draw more.
+fn truncate(text: &str, width: usize, ascii: bool) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    if width <= 1 {
+        return text.chars().take(width).collect();
+    }
+    let mut out: String = text.chars().take(width - 1).collect();
+    out.push(if ascii { '~' } else { '…' });
+    out
+}
+
+/// How wide the feed list should be.
+///
+/// Enough for a feed name and its count, but never so much of a narrow
+/// terminal that the article has nowhere to go.
+fn sidebar_width(total: u16) -> u16 {
+    (total / 4).clamp(18, 32).min(total.saturating_sub(24))
+}
+
+/// How to divide the right-hand column between the entry list and the article.
+///
+/// The list takes what it needs rather than a fixed share: a feed with three
+/// entries should not hold back two thirds of the screen while the article it
+/// is showing is squeezed into a dozen rows. Bounded at both ends so a huge
+/// feed cannot crowd the article out either.
+fn entry_and_article(app: &App, height: u16) -> [Constraint; 2] {
+    let rows = app.listed_entry_count() as u16;
+    // Two for the border, and never less than three rows of list.
+    let wanted = rows.saturating_add(2).max(5);
+    let cap = (height * 3 / 5).max(5);
+    [Constraint::Length(wanted.min(cap)), Constraint::Min(6)]
+}
+
+/// The area inside a bordered block, with a column of padding either side.
+///
+/// Text touching a border reads as cramped, and the border stops being a frame
+/// and starts being part of the sentence.
 fn inner(area: Rect) -> Rect {
     Rect {
-        x: area.x + 1,
+        x: area.x + 2,
         y: area.y + 1,
-        width: area.width.saturating_sub(2),
+        width: area.width.saturating_sub(4),
         height: area.height.saturating_sub(2),
     }
 }
@@ -685,10 +873,10 @@ mod tests {
             ReadState::default(),
         );
 
-        assert!(render(&mut app).contains("Rust Blog  2"), "two unread");
+        assert!(row_with(&mut app, "Rust Blog").contains('2'), "two unread");
 
         app.mark_current_read();
-        assert!(render(&mut app).contains("Rust Blog  1"), "one unread");
+        assert!(row_with(&mut app, "Rust Blog").contains('1'), "one unread");
     }
 
     #[test]
@@ -710,23 +898,51 @@ mod tests {
         );
         app.mark_current_read();
 
-        let screen = render(&mut app);
-        assert!(screen.contains("Rust Blog"));
-        assert!(!screen.contains("Rust Blog  1"), "no count when all read");
+        let row = row_with(&mut app, "Rust Blog");
+        assert!(
+            !row.chars().any(|c| c.is_ascii_digit()),
+            "no count when all read: {row:?}"
+        );
     }
 
-    /// Renders, then reports the lines of the detail pane only.
-    fn detail_region(app: &mut App) -> String {
+    /// Renders and returns the single screen row containing `needle`.
+    ///
+    /// Right-aligned columns mean a name and its count are no longer adjacent,
+    /// so asserting on the row is the honest question: is the count on the
+    /// same line as the feed?
+    fn row_with(app: &mut App, needle: &str) -> String {
         let mut terminal =
             Terminal::new(TestBackend::new(80, 24)).expect("test terminal should build");
         terminal
             .draw(|frame| draw(frame, app, &crate::keys::Keymap::default()))
             .expect("draw should succeed");
         let buffer = terminal.backend().buffer().clone();
-        // The detail pane occupies the lower 40% of the right-hand 75%.
+        for y in 0..24 {
+            let row: String = (0..80).map(|x| buffer[(x, y)].symbol()).collect();
+            // Skip the borders, whose titles also mention feed names.
+            if row.contains(needle) && !row.contains('┌') && !row.contains('└') {
+                return row;
+            }
+        }
+        panic!("no body row contains {needle:?}");
+    }
+
+    /// Renders, then reports the lines of the detail pane only.
+    fn detail_region(app: &mut App) -> String {
+        render_at(app, 80, 24);
+        let mut terminal =
+            Terminal::new(TestBackend::new(80, 24)).expect("test terminal should build");
+        terminal
+            .draw(|frame| draw(frame, app, &crate::keys::Keymap::default()))
+            .expect("draw should succeed");
+        let buffer = terminal.backend().buffer().clone();
+        // Read the pane's position from the hit map rather than assuming it:
+        // the layout sizes the entry list to its content, so the article does
+        // not start at a fixed row.
+        let pane = app.hits.detail_pane;
         let mut out = String::new();
-        for y in 15..23 {
-            for x in 21..79 {
+        for y in pane.y..pane.y + pane.height {
+            for x in pane.x..pane.x + pane.width {
                 out.push_str(buffer[(x, y)].symbol());
             }
             out.push('\n');
@@ -808,10 +1024,8 @@ mod tests {
             ReadState::default(),
         );
 
-        assert!(
-            render(&mut app).contains("Slow Feed  …"),
-            "shows a loading mark"
-        );
+        let row = row_with(&mut app, "Slow Feed");
+        assert!(row.contains('…'), "shows a loading mark: {row:?}");
 
         app.feeds[0].status = crate::feed::Status::Idle;
         app.feeds[0].entries = vec![Entry {
@@ -822,9 +1036,11 @@ mod tests {
             keys: vec!["id:a".into()],
         }];
 
-        let screen = render(&mut app);
-        assert!(!screen.contains("Slow Feed  …"), "mark cleared once loaded");
-        assert!(screen.contains("Arrived"));
+        assert!(
+            !row_with(&mut app, "Slow Feed").contains('…'),
+            "mark cleared once loaded"
+        );
+        assert!(render(&mut app).contains("Arrived"));
     }
 
     #[test]
@@ -839,11 +1055,16 @@ mod tests {
             ReadState::default(),
         );
 
-        let screen = render(&mut app);
-        assert!(screen.contains("Broken  !"), "marked in the feed list");
-        assert!(screen.contains("dns error: no such host"), "error is shown");
         assert!(
-            !screen.contains("Failed to load"),
+            row_with(&mut app, "Broken").contains('!'),
+            "marked in the feed list"
+        );
+        assert!(
+            render(&mut app).contains("dns error: no such host"),
+            "error is shown"
+        );
+        assert!(
+            !render(&mut app).contains("Failed to load"),
             "no fake entry was invented"
         );
     }
@@ -861,8 +1082,8 @@ mod tests {
 
         let mut a = App::new(vec![fetching], ReadState::default());
         let mut b = App::new(vec![failed], ReadState::default());
-        assert!(render(&mut a).contains("Feed  …"));
-        assert!(render(&mut b).contains("Feed  !"));
+        assert!(row_with(&mut a, "Feed").contains('…'));
+        assert!(row_with(&mut b, "Feed").contains('!'));
     }
 
     #[test]
@@ -1029,6 +1250,17 @@ mod tests {
         let mut app = themed(theme);
         app.feeds[0].status = crate::feed::Status::Fetching;
         app.read.toggle_star(&app.feeds[0].entries[0].clone());
+        // Long enough to be truncated, and dated, so the ellipsis and the
+        // title separator are both exercised — without these the test passed
+        // while the real interface leaked `…` and `·`.
+        app.feeds[0].title = "A Feed With A Very Long Name Indeed".into();
+        app.feeds[0].entries[0].title =
+            "An entry whose title is far too long to fit in the pane it is drawn in".into();
+        app.feeds[0].entries[0].published = Some(
+            chrono::DateTime::parse_from_rfc3339("2026-09-07T00:00:00Z")
+                .expect("fixture parses")
+                .with_timezone(&chrono::Utc),
+        );
 
         let screen = render_at(&mut app, 80, 24);
         let offenders: Vec<char> = screen.chars().filter(|c| !c.is_ascii()).collect();
@@ -1148,38 +1380,71 @@ mod tests {
         .with_tags(&sources)
     }
 
+    /// Where the renderer put a given feed row, from the hit map it recorded.
+    fn row_of_feed(app: &mut App, index: usize) -> u16 {
+        render_at(app, 80, 24);
+        app.hits
+            .feed_rows
+            .iter()
+            .find(|(_, row)| matches!(row, crate::app::FeedRow::Feed(i) if *i == index))
+            .map(|(y, _)| *y)
+            .unwrap_or_else(|| panic!("feed {index} was not drawn"))
+    }
+
+    /// Where the renderer put a given group heading.
+    fn row_of_group(app: &mut App, name: &str) -> u16 {
+        render_at(app, 80, 24);
+        app.hits
+            .feed_rows
+            .iter()
+            .find(|(_, row)| matches!(row, crate::app::FeedRow::Group { name: n, .. } if n == name))
+            .map(|(y, _)| *y)
+            .unwrap_or_else(|| panic!("group {name} was not drawn"))
+    }
+
     #[test]
     fn clicking_a_feed_selects_the_one_that_was_drawn_there() {
         let mut app = clickable();
-        // Row 1 is the "News" heading, 2 and 3 its feeds, 4 the ungrouped one.
-        click_at(&mut app, 4, 3);
+        let row = row_of_feed(&mut app, 1);
+        click_at(&mut app, 4, row);
         assert_eq!(app.selected_feed, 1);
         assert_eq!(app.focus, Pane::Feeds);
 
-        click_at(&mut app, 4, 4);
+        let row = row_of_feed(&mut app, 2);
+        click_at(&mut app, 4, row);
         assert_eq!(app.selected_feed, 2, "the ungrouped feed");
     }
 
     #[test]
     fn clicking_a_group_heading_folds_and_unfolds_it() {
         let mut app = clickable();
-        assert_eq!(app.selectable_feeds(), vec![0, 1, 2]);
+        assert_eq!(app.selectable_feeds().len(), 3);
 
-        click_at(&mut app, 4, 1);
+        let row = row_of_group(&mut app, "News");
+        click_at(&mut app, 4, row);
         assert_eq!(app.selectable_feeds(), vec![2], "its feeds are hidden");
 
-        click_at(&mut app, 4, 1);
-        assert_eq!(app.selectable_feeds(), vec![0, 1, 2], "and come back");
+        let row = row_of_group(&mut app, "News");
+        click_at(&mut app, 4, row);
+        assert_eq!(app.selectable_feeds().len(), 3, "and come back");
     }
 
     #[test]
     fn folding_a_group_shifts_the_rows_below_it_and_clicks_follow() {
         let mut app = clickable();
-        click_at(&mut app, 4, 1); // fold "News"
-        // With the group folded, row 2 is now the ungrouped feed rather than
-        // the first feed of the group. A click must follow what is drawn.
-        click_at(&mut app, 4, 2);
-        assert_eq!(app.selected_feed, 2);
+        let heading = row_of_group(&mut app, "News");
+        click_at(&mut app, 4, heading);
+
+        // Folding removes rows, so whatever is at the heading's row + 1 now is
+        // not what was there before. A click must follow what is drawn.
+        render_at(&mut app, 80, 24);
+        let after: Vec<_> = app.hits.feed_rows.clone();
+        assert!(
+            !after
+                .iter()
+                .any(|(_, row)| matches!(row, crate::app::FeedRow::Feed(0))),
+            "the folded feed is still drawn"
+        );
     }
 
     #[test]
@@ -1187,7 +1452,9 @@ mod tests {
         let mut app = clickable();
         assert_eq!(app.unread(0), 3);
 
-        click_at(&mut app, 40, 2); // the second entry of the first feed
+        render_at(&mut app, 80, 24);
+        let (row, _) = app.hits.entry_rows[1];
+        click_at(&mut app, 40, row);
         assert_eq!(app.focus, Pane::Entries);
         assert_eq!(app.selected_entry, 1);
         assert_eq!(app.unread(0), 2, "clicking an entry reads it");
@@ -1196,25 +1463,32 @@ mod tests {
     #[test]
     fn clicking_the_link_asks_to_open_it() {
         let mut app = clickable();
-        // The detail pane starts at row 15; the link is the second line.
-        let action = click_at(&mut app, 25, 16);
-        assert_eq!(action, Some(crate::keys::Action::Open));
+        render_at(&mut app, 80, 24);
+        let (row, from, _) = app.hits.link_rows[0];
+        assert_eq!(
+            click_at(&mut app, from, row),
+            Some(crate::keys::Action::Open)
+        );
     }
 
     #[test]
     fn clicking_beside_the_link_only_moves_focus() {
         let mut app = clickable();
-        let action = click_at(&mut app, 70, 16);
-        assert_eq!(action, None);
+        render_at(&mut app, 80, 24);
+        let (row, _, to) = app.hits.link_rows[0];
+        let beside = to + 5;
+        assert_eq!(click_at(&mut app, beside, row), None);
         assert_eq!(app.focus, Pane::Detail);
     }
 
     #[test]
     fn the_wheel_over_the_entries_pane_moves_through_entries() {
         let mut app = clickable();
-        wheel_at(&mut app, 40, 3, true);
+        render_at(&mut app, 80, 24);
+        let (row, _) = app.hits.entry_rows[0];
+        wheel_at(&mut app, 40, row, true);
         assert_eq!(app.selected_entry, 1);
-        wheel_at(&mut app, 40, 3, false);
+        wheel_at(&mut app, 40, row, false);
         assert_eq!(app.selected_entry, 0);
     }
 
@@ -1222,7 +1496,9 @@ mod tests {
     fn the_wheel_does_not_steal_keyboard_focus() {
         let mut app = clickable();
         assert_eq!(app.focus, Pane::Feeds);
-        wheel_at(&mut app, 40, 3, true);
+        render_at(&mut app, 80, 24);
+        let (row, _) = app.hits.entry_rows[0];
+        wheel_at(&mut app, 40, row, true);
         assert_eq!(app.focus, Pane::Feeds, "scrolling only looked at the pane");
     }
 
