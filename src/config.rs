@@ -31,6 +31,9 @@ pub struct Config {
     /// The most a single feed may send, in megabytes. Zero means the default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_feed_megabytes: Option<usize>,
+    /// How many times to try again after a failure that might not repeat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_attempts: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -91,6 +94,17 @@ impl Config {
         crate::feed::Limits { max_body }
     }
 
+    /// When to try a failed fetch again, from the config or the defaults.
+    pub fn retry(&self) -> crate::feed::Retry {
+        let mut retry = crate::feed::Retry::default();
+        if let Some(attempts) = self.retry_attempts {
+            // Zero is meaningful here — it means "do not retry" — so unlike the
+            // size limit it is taken at its word.
+            retry.attempts = attempts.min(MAX_RETRY_ATTEMPTS);
+        }
+        retry
+    }
+
     pub fn measure(&self, ascii: bool) -> crate::article::Measure {
         let columns = self.measure.unwrap_or(crate::article::DEFAULT_MEASURE);
         crate::article::Measure {
@@ -126,6 +140,7 @@ impl Config {
             keys: Default::default(),
             max_concurrent_fetches: None,
             max_feed_megabytes: None,
+            retry_attempts: None,
             feeds: vec![FeedSource {
                 url: "https://blog.rust-lang.org/feed.xml".into(),
                 refresh_minutes: None,
@@ -235,6 +250,9 @@ pub fn add_feed(path: &Path, url: &str, title: Option<&str>) -> Result<()> {
         .with_context(|| format!("writing {}", temporary.display()))?;
     fs::rename(&temporary, path).with_context(|| format!("replacing {}", path.display()))
 }
+
+/// More attempts than this is a way to wait minutes for a feed that is down.
+const MAX_RETRY_ATTEMPTS: u32 = 5;
 
 pub fn config_path() -> Result<PathBuf> {
     Ok(crate::home::dir(crate::home::Kind::Config)?.join("config.toml"))
@@ -378,6 +396,7 @@ mod tests {
             keys: Default::default(),
             max_concurrent_fetches: Some(8),
             max_feed_megabytes: Some(8),
+            retry_attempts: Some(2),
             measure: Some(72),
             refresh_minutes: Some(30),
             mouse: false,

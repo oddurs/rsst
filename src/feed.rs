@@ -263,6 +263,77 @@ async fn body_within(
     Ok(body)
 }
 
+/// When to come back after a failure that might not repeat.
+///
+/// Bounded in both attempts and total time: a feed that is down should cost a
+/// few seconds and then be left alone, not occupy a lane for a minute while
+/// the rest of the list waits behind it.
+#[derive(Debug, Clone, Copy)]
+pub struct Retry {
+    /// Attempts *after* the first. Zero never retries.
+    pub attempts: u32,
+    /// The wait before the first retry; each one after doubles.
+    pub first_delay: Duration,
+    /// No single wait longer than this.
+    pub max_delay: Duration,
+    /// Give up once this much has been spent, however many attempts remain.
+    pub max_total: Duration,
+}
+
+impl Default for Retry {
+    fn default() -> Self {
+        Self {
+            attempts: 2,
+            first_delay: Duration::from_millis(500),
+            max_delay: Duration::from_secs(5),
+            max_total: Duration::from_secs(20),
+        }
+    }
+}
+
+impl Retry {
+    /// How long to wait before attempt number `attempt`, or `None` to stop.
+    ///
+    /// `attempt` counts retries, so the first retry is 1. `spent` is how long
+    /// this feed has already taken, which is what bounds a slow failure.
+    pub fn delay(&self, attempt: u32, url: &str, spent: Duration) -> Option<Duration> {
+        if attempt > self.attempts || spent >= self.max_total {
+            return None;
+        }
+        let doubled = self
+            .first_delay
+            .saturating_mul(1u32.checked_shl(attempt - 1).unwrap_or(u32::MAX))
+            .min(self.max_delay);
+        let wait = doubled + spread(url, attempt, doubled);
+
+        // Never wait past the budget — better to give up now than to sleep
+        // through the time and then give up anyway.
+        let left = self.max_total.checked_sub(spent)?;
+        Some(wait.min(left))
+    }
+}
+
+/// A per-feed offset, so feeds on one host do not all come back at once.
+///
+/// Derived from the URL rather than from a random source: it needs no
+/// dependency, it is the same on every run — which makes it testable — and it
+/// spreads feeds apart, which is the only property that actually matters.
+fn spread(url: &str, attempt: u32, base: Duration) -> Duration {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in url.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    hash = hash.wrapping_add(u64::from(attempt).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+
+    // Up to half the wait again, so the spread grows with the wait itself.
+    let half = (base.as_millis() as u64) / 2;
+    if half == 0 {
+        return Duration::ZERO;
+    }
+    Duration::from_millis(hash % half)
+}
+
 /// Downloads and parses a feed, asking the server to skip it if unchanged.
 pub async fn fetch(
     client: &reqwest::Client,
@@ -294,15 +365,26 @@ pub async fn fetch(
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS
         || status == reqwest::StatusCode::SERVICE_UNAVAILABLE
     {
-        let retry_after = response
+        let asked_for = response
             .headers()
             .get(reqwest::header::RETRY_AFTER)
             .and_then(|value| value.to_str().ok())
-            .and_then(parse_retry_after)
-            // A server that says "slow down" without saying how long still
-            // means it, so do not come straight back.
-            .unwrap_or(DEFAULT_BACKOFF);
-        return Ok(Outcome::RateLimited { retry_after });
+            .and_then(parse_retry_after);
+
+        match (status, asked_for) {
+            // A server that named a time meant it, whatever the code.
+            (_, Some(retry_after)) => return Ok(Outcome::RateLimited { retry_after }),
+            // "Too many requests" means it even without a number: coming
+            // straight back is the thing it just asked us not to do.
+            (reqwest::StatusCode::TOO_MANY_REQUESTS, None) => {
+                return Ok(Outcome::RateLimited {
+                    retry_after: DEFAULT_BACKOFF,
+                });
+            }
+            // A bare 503 is usually a server restarting, not a rebuke. It
+            // used to cost five minutes; it is worth one more attempt.
+            _ => {}
+        }
     }
 
     if let Err(err) = response.error_for_status_ref() {
@@ -1095,5 +1177,248 @@ mod tests {
         assert_eq!(status.trouble(), Some(Trouble::Gone));
         assert_eq!(status.error(), Some("Old Blog is no longer there"));
         assert_eq!(Status::Idle.trouble(), None);
+    }
+
+    #[test]
+    fn retries_stop_after_the_allowed_number() {
+        let retry = Retry::default();
+        let url = "https://example.com/feed.xml";
+        assert!(retry.delay(1, url, Duration::ZERO).is_some());
+        assert!(retry.delay(2, url, Duration::ZERO).is_some());
+        assert!(
+            retry.delay(3, url, Duration::ZERO).is_none(),
+            "a third retry is one more than the two allowed"
+        );
+    }
+
+    #[test]
+    fn zero_attempts_never_retries() {
+        let retry = Retry {
+            attempts: 0,
+            ..Retry::default()
+        };
+        assert!(
+            retry
+                .delay(1, "https://example.com/x", Duration::ZERO)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn each_wait_is_longer_than_the_one_before() {
+        let retry = Retry {
+            attempts: 5,
+            first_delay: Duration::from_millis(400),
+            max_delay: Duration::from_secs(30),
+            max_total: Duration::from_secs(300),
+        };
+        let url = "https://example.com/feed.xml";
+        let first = retry.delay(1, url, Duration::ZERO).expect("a first wait");
+        let second = retry.delay(2, url, Duration::ZERO).expect("a second wait");
+        let third = retry.delay(3, url, Duration::ZERO).expect("a third wait");
+        assert!(second > first, "{second:?} is not longer than {first:?}");
+        assert!(third > second, "{third:?} is not longer than {second:?}");
+    }
+
+    #[test]
+    fn no_single_wait_exceeds_the_ceiling() {
+        let retry = Retry {
+            attempts: 20,
+            first_delay: Duration::from_secs(1),
+            max_delay: Duration::from_secs(4),
+            max_total: Duration::from_secs(600),
+        };
+        for attempt in 1..=20 {
+            let wait = retry
+                .delay(attempt, "https://example.com/feed.xml", Duration::ZERO)
+                .expect("a wait");
+            // The ceiling plus the spread it allows, which is half again.
+            assert!(
+                wait <= Duration::from_secs(6),
+                "attempt {attempt} would wait {wait:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_total_budget_ends_it_however_many_attempts_are_left() {
+        let retry = Retry {
+            attempts: 10,
+            max_total: Duration::from_secs(10),
+            ..Retry::default()
+        };
+        let url = "https://example.com/feed.xml";
+        assert!(retry.delay(1, url, Duration::from_secs(3)).is_some());
+        assert!(
+            retry.delay(1, url, Duration::from_secs(10)).is_none(),
+            "the budget is spent, so there is nothing left to wait with"
+        );
+    }
+
+    #[test]
+    fn a_wait_never_runs_past_what_is_left_of_the_budget() {
+        let retry = Retry {
+            attempts: 10,
+            first_delay: Duration::from_secs(9),
+            max_delay: Duration::from_secs(60),
+            max_total: Duration::from_secs(10),
+        };
+        let wait = retry
+            .delay(1, "https://example.com/feed.xml", Duration::from_secs(9))
+            .expect("a wait");
+        assert!(
+            wait <= Duration::from_secs(1),
+            "{wait:?} would sleep through the budget and then give up anyway"
+        );
+    }
+
+    #[test]
+    fn feeds_on_one_host_do_not_come_back_in_lockstep() {
+        // The case this exists for: fifteen feeds on one site, all failing at
+        // once because the site is down, all retrying at the same instant.
+        let retry = Retry::default();
+        let waits: Vec<Duration> = (0..15)
+            .map(|n| {
+                retry
+                    .delay(
+                        1,
+                        &format!("https://one-host.example/feed{n}.xml"),
+                        Duration::ZERO,
+                    )
+                    .expect("a wait")
+            })
+            .collect();
+
+        let distinct: std::collections::HashSet<u128> =
+            waits.iter().map(|wait| wait.as_millis()).collect();
+        assert!(
+            distinct.len() >= 10,
+            "fifteen feeds produced only {} different waits: {waits:?}",
+            distinct.len()
+        );
+    }
+
+    #[test]
+    fn the_same_feed_always_waits_the_same() {
+        // Deterministic, so a failure reproduces and a test can assert on it.
+        let retry = Retry::default();
+        let url = "https://example.com/feed.xml";
+        assert_eq!(
+            retry.delay(1, url, Duration::ZERO),
+            retry.delay(1, url, Duration::ZERO)
+        );
+    }
+
+    #[test]
+    fn only_what_could_succeed_next_time_is_retried() {
+        // The pairing that makes retrying safe: the taxonomy decides.
+        for trouble in [
+            Trouble::Unreachable,
+            Trouble::TimedOut,
+            Trouble::ServerError(503),
+        ] {
+            assert!(trouble.transient(), "{trouble:?} should be retried");
+        }
+        for trouble in [
+            Trouble::Gone,
+            Trouble::Refused(403),
+            Trouble::TooBig,
+            Trouble::NotAFeed,
+        ] {
+            assert!(!trouble.transient(), "{trouble:?} must not be retried");
+        }
+    }
+
+    #[test]
+    fn the_configured_attempts_are_honoured_and_capped() {
+        use crate::config::Config;
+        let mut config = Config::default();
+        assert_eq!(config.retry().attempts, Retry::default().attempts);
+
+        config.retry_attempts = Some(0);
+        assert_eq!(
+            config.retry().attempts,
+            0,
+            "zero must mean zero, not default"
+        );
+
+        config.retry_attempts = Some(4);
+        assert_eq!(config.retry().attempts, 4);
+
+        config.retry_attempts = Some(500);
+        assert!(
+            config.retry().attempts <= 5,
+            "a silly number would wait minutes on a dead feed"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_bare_503_is_retried_rather_than_costing_five_minutes() {
+        // Service Unavailable with no Retry-After is usually a server coming
+        // back up, not a rebuke. Treating it as rate limiting used to park the
+        // feed for the default backoff.
+        let port = serve_once(
+            "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            Vec::new(),
+        );
+        let failure = fetch(
+            &reqwest::Client::new(),
+            &at(port),
+            None,
+            None,
+            Limits::default(),
+        )
+        .await
+        .expect_err("a 503 with no instructions is a failure, not a deferral");
+
+        assert_eq!(failure.trouble, Trouble::ServerError(503));
+        assert!(failure.trouble.transient(), "so it will be tried again");
+    }
+
+    #[tokio::test]
+    async fn a_503_that_names_a_time_is_still_honoured() {
+        let port = serve_once(
+            "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 120\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            Vec::new(),
+        );
+        let outcome = fetch(
+            &reqwest::Client::new(),
+            &at(port),
+            None,
+            None,
+            Limits::default(),
+        )
+        .await
+        .expect("a named wait is an outcome, not an error");
+
+        match outcome {
+            Outcome::RateLimited { retry_after } => {
+                assert_eq!(retry_after, Duration::from_secs(120));
+            }
+            other => panic!("expected a deferral, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn too_many_requests_backs_off_even_without_a_number() {
+        // 429 means it whether or not it says for how long.
+        let port = serve_once(
+            "HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            Vec::new(),
+        );
+        let outcome = fetch(
+            &reqwest::Client::new(),
+            &at(port),
+            None,
+            None,
+            Limits::default(),
+        )
+        .await
+        .expect("rate limiting is an outcome");
+
+        match outcome {
+            Outcome::RateLimited { retry_after } => assert_eq!(retry_after, DEFAULT_BACKOFF),
+            other => panic!("expected a deferral, got {other:?}"),
+        }
     }
 }
