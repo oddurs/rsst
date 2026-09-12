@@ -1,6 +1,6 @@
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 
@@ -32,7 +32,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, keymap: &crate::keys::Keymap) {
 
     // Last, so it covers everything else.
     if app.help_open {
-        draw_help(frame, keymap, frame.area());
+        draw_help(frame, keymap, &app.theme, frame.area());
     }
 }
 
@@ -44,12 +44,12 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
             crate::app::FeedRow::Group { name, collapsed } => ListItem::new(Line::from(vec![
                 Span::styled(
                     if *collapsed { "▸ " } else { "▾ " },
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(app.theme.dim),
                 ),
                 Span::styled(
                     name.clone(),
                     Style::default()
-                        .fg(Color::Magenta)
+                        .fg(app.theme.group)
                         .add_modifier(Modifier::BOLD),
                 ),
             ])),
@@ -65,9 +65,9 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
                 let mut spans = vec![Span::raw(format!("{indent}{}", feed.title))];
                 if let Some(marker) = feed.status.marker() {
                     let colour = if feed.status.error().is_some() {
-                        Color::Red
+                        app.theme.error
                     } else {
-                        Color::DarkGray
+                        app.theme.dim
                     };
                     spans.push(Span::styled(
                         format!("  {marker}"),
@@ -79,7 +79,7 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
                     spans.push(Span::styled(
                         format!("  {unread}"),
                         Style::default()
-                            .fg(Color::Cyan)
+                            .fg(app.theme.accent)
                             .add_modifier(Modifier::BOLD),
                     ));
                 }
@@ -96,8 +96,8 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
 
     frame.render_stateful_widget(
         List::new(items)
-            .block(block("Feeds", app.focus == Pane::Feeds))
-            .highlight_style(highlight())
+            .block(block("Feeds", app.focus == Pane::Feeds, &app.theme))
+            .highlight_style(highlight(&app.theme))
             .highlight_symbol("› "),
         area,
         &mut state,
@@ -156,7 +156,7 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
         .map(|entry| {
             // Unread stands out; read recedes rather than disappearing.
             let title = if app.is_read(entry) {
-                Span::styled(entry.title.clone(), Style::default().fg(Color::DarkGray))
+                Span::styled(entry.title.clone(), Style::default().fg(app.theme.dim))
             } else {
                 Span::styled(
                     entry.title.clone(),
@@ -164,12 +164,12 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
                 )
             };
             let star = if app.is_starred(entry) {
-                Span::styled("★ ", Style::default().fg(Color::Yellow))
+                Span::styled("★ ", Style::default().fg(app.theme.star))
             } else {
                 Span::raw("  ")
             };
             ListItem::new(Line::from(vec![
-                Span::styled(entry.date_label(), Style::default().fg(Color::DarkGray)),
+                Span::styled(entry.date_label(), Style::default().fg(app.theme.dim)),
                 Span::raw("  "),
                 star,
                 title,
@@ -189,7 +189,7 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
     let items = if empty {
         vec![ListItem::new(Line::from(Span::styled(
             "Nothing unread here.",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(app.theme.dim),
         )))]
     } else {
         items
@@ -197,8 +197,8 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
 
     frame.render_stateful_widget(
         List::new(items)
-            .block(block(&title, app.focus == Pane::Entries))
-            .highlight_style(highlight())
+            .block(block(&title, app.focus == Pane::Entries, &app.theme))
+            .highlight_style(highlight(&app.theme))
             .highlight_symbol("› "),
         area,
         &mut state,
@@ -211,13 +211,18 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
 /// more than an 80x24 terminal can spare once every binding is listed. So they
 /// are shown when there is room and dropped when there is not: on a small
 /// terminal the bindings themselves matter more than the grouping.
-fn draw_help(frame: &mut Frame, keymap: &crate::keys::Keymap, area: Rect) {
+fn draw_help(
+    frame: &mut Frame,
+    keymap: &crate::keys::Keymap,
+    theme: &crate::theme::Theme,
+    area: Rect,
+) {
     let width = crate::keys::key_column_width(keymap);
     let row = |keys: &str, description: &str| {
         Line::from(vec![
             Span::styled(
                 format!("  {keys:width$}  "),
-                Style::default().fg(Color::Yellow),
+                Style::default().fg(theme.star),
             ),
             Span::raw(description.to_string()),
         ])
@@ -233,7 +238,7 @@ fn draw_help(frame: &mut Frame, keymap: &crate::keys::Keymap, area: Rect) {
         roomy.push(Line::from(Span::styled(
             *name,
             Style::default()
-                .fg(Color::Cyan)
+                .fg(theme.accent)
                 .add_modifier(Modifier::BOLD),
         )));
         roomy.extend(rows.iter().map(|(k, d)| row(k, d)));
@@ -272,7 +277,7 @@ fn draw_help(frame: &mut Frame, keymap: &crate::keys::Keymap, area: Rect) {
         Paragraph::new(lines).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan))
+                .border_style(Style::default().fg(theme.accent))
                 // In the title rather than a row of its own: with every action
                 // listed, an 80x24 terminal has no spare line to give it.
                 .title(" Keys — any key to dismiss "),
@@ -300,7 +305,7 @@ fn draw_cross_feed(
                 // Results span feeds, so each row has to say which one.
                 Span::styled(
                     format!("{}  ", feed.title),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(app.theme.dim),
                 ),
                 Span::raw(entry.title.clone()),
             ])))
@@ -311,7 +316,7 @@ fn draw_cross_feed(
     let items = if empty {
         vec![ListItem::new(Line::from(Span::styled(
             empty_message,
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(app.theme.dim),
         )))]
     } else {
         items
@@ -322,8 +327,8 @@ fn draw_cross_feed(
 
     frame.render_stateful_widget(
         List::new(items)
-            .block(block(title, true))
-            .highlight_style(highlight())
+            .block(block(title, true, &app.theme))
+            .highlight_style(highlight(&app.theme))
             .highlight_symbol("› "),
         area,
         &mut state,
@@ -356,7 +361,7 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
         // Already wrapped by `App::detail_lines`, so no Wrap here — the scroll
         // offset has to mean the same thing to the app and to the renderer.
         Paragraph::new(lines)
-            .block(block(&title, app.focus == Pane::Detail))
+            .block(block(&title, app.focus == Pane::Detail, &app.theme))
             .scroll((app.detail_scroll, 0)),
         area,
     );
@@ -368,7 +373,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
     let error = app
         .current_feed()
         .and_then(|feed| feed.status.error())
-        .map(|message| (format!(" {message} "), Color::Red));
+        .map(|message| (format!(" {message} "), app.theme.error));
 
     if let Some(pending) = app.pending {
         let what = match pending {
@@ -380,39 +385,43 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) {
                 " Mark {} unread entries in {what} as read?  y / n ",
                 app.pending_count()
             ))
-            .style(Style::default().fg(Color::Black).bg(Color::Yellow)),
+            .style(
+                Style::default()
+                    .fg(app.theme.status_foreground)
+                    .bg(app.theme.warning),
+            ),
             area,
         );
         return;
     }
 
     let (text, background) = match (&app.status, error) {
-        (Some(status), _) => (status.clone(), Color::Cyan),
+        (Some(status), _) => (status.clone(), app.theme.accent),
         (None, Some((message, colour))) => (message, colour),
-        (None, None) => (HELP.to_string(), Color::Cyan),
+        (None, None) => (HELP.to_string(), app.theme.accent),
     };
 
     frame.render_widget(
-        Paragraph::new(text).style(Style::default().fg(Color::Black).bg(background)),
+        Paragraph::new(text).style(
+            Style::default()
+                .fg(app.theme.status_foreground)
+                .bg(background),
+        ),
         area,
     );
 }
 
-fn block(title: &str, focused: bool) -> Block<'_> {
-    let border = if focused {
-        Color::Cyan
-    } else {
-        Color::DarkGray
-    };
+fn block<'a>(title: &'a str, focused: bool, theme: &crate::theme::Theme) -> Block<'a> {
+    let border = if focused { theme.accent } else { theme.dim };
     Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border))
         .title(format!(" {title} "))
 }
 
-fn highlight() -> Style {
+fn highlight(theme: &crate::theme::Theme) -> Style {
     Style::default()
-        .fg(Color::Cyan)
+        .fg(theme.accent)
         .add_modifier(Modifier::BOLD)
 }
 
@@ -768,6 +777,58 @@ mod tests {
     fn the_help_overlay_is_absent_until_asked_for() {
         let mut app = App::new(Vec::new(), ReadState::default());
         assert!(!render(&mut app).contains("any key to dismiss"));
+    }
+
+    /// The style bytes of the whole screen, for comparing themes.
+    fn styles_at(app: &mut App, width: u16, height: u16) -> Vec<String> {
+        let mut terminal =
+            Terminal::new(TestBackend::new(width, height)).expect("test terminal should build");
+        terminal
+            .draw(|frame| draw(frame, app, &crate::keys::Keymap::default()))
+            .expect("draw should succeed");
+        terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| format!("{:?}/{:?}", cell.fg, cell.bg))
+            .collect()
+    }
+
+    fn themed(theme: crate::theme::Theme) -> App {
+        App::new(
+            vec![Feed {
+                title: "Feed".into(),
+                url: "https://a.example".into(),
+                status: crate::feed::Status::Idle,
+                entries: vec![Entry {
+                    title: "An Entry".into(),
+                    link: Some("https://a.example/x".into()),
+                    published: None,
+                    summary: "Body.".into(),
+                    keys: vec!["id:x".into()],
+                }],
+            }],
+            ReadState::default(),
+        )
+        .with_theme(theme)
+    }
+
+    #[test]
+    fn a_different_theme_actually_changes_the_rendering() {
+        let dark = styles_at(&mut themed(crate::theme::Theme::dark()), 80, 24);
+        let light = styles_at(&mut themed(crate::theme::Theme::light()), 80, 24);
+        assert_ne!(dark, light, "the light theme rendered identically to dark");
+    }
+
+    #[test]
+    fn the_mono_theme_uses_no_colour_anywhere() {
+        let mut app = themed(crate::theme::Theme::mono());
+        app.help_open = false;
+        let styles = styles_at(&mut app, 80, 24);
+        for style in &styles {
+            assert_eq!(style, "Reset/Reset", "mono rendered a colour: {style}");
+        }
     }
 
     #[test]

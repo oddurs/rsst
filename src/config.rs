@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     #[serde(default)]
     pub feeds: Vec<FeedSource>,
+    /// Colours.
+    #[serde(default)]
+    pub theme: crate::theme::ThemeConfig,
     /// Key overrides: action name to key, merged over the defaults.
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub keys: std::collections::HashMap<String, String>,
@@ -67,6 +70,7 @@ impl Config {
 
     fn starter() -> Self {
         Self {
+            theme: Default::default(),
             keys: Default::default(),
             max_concurrent_fetches: None,
             feeds: vec![FeedSource {

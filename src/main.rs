@@ -9,6 +9,7 @@ mod limit;
 mod opml;
 mod state;
 mod text;
+mod theme;
 mod ui;
 
 use std::io;
@@ -72,6 +73,9 @@ async fn main() -> Result<()> {
 
     let config = Config::load_or_init(config_path)?;
     let keymap = keys::Keymap::from_config(&config.keys)?;
+    // https://no-color.org — set to anything, it means no colour.
+    let no_color = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
+    let theme = theme::Theme::resolve(&config.theme, no_color)?;
     if config.feeds.is_empty() {
         let path = config::config_path()?;
         eprintln!("No feeds configured. Add some to {}.", path.display());
@@ -96,7 +100,9 @@ async fn main() -> Result<()> {
         .iter()
         .map(|source| cache.get(source).unwrap_or_else(|| Feed::pending(source)))
         .collect();
-    let mut app = App::new(feeds, ReadState::load(&state_path)).with_tags(&config.feeds);
+    let mut app = App::new(feeds, ReadState::load(&state_path))
+        .with_tags(&config.feeds)
+        .with_theme(theme);
 
     let mut session = Session {
         keymap,
