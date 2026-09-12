@@ -105,6 +105,19 @@ jobs:
             exit 1
           }
 
+  fuzz:
+    name: fuzz the parser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Release mode: the corpus and its mutations are the point, and a debug
+      # build spends the budget on being slow rather than on inputs.
+      - run: cargo test --release --test fuzz
+        env:
+          RSST_FUZZ_ITERATIONS: 20000
+
   bench:
     name: benchmarks
     runs-on: ubuntu-latest

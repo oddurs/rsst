@@ -102,6 +102,19 @@ that rewrite is exactly what the TOML files did and why they did not scale.
 `src/cache.rs` and `ReadState::load` survive only to migrate the old TOML files
 in. Nothing else should use them.
 
+## Fuzzing
+
+`tests/fuzz.rs` runs a committed corpus and deterministic mutations of it
+through everything that touches untrusted bytes. Deterministic rather than
+coverage-guided on purpose: `cargo-fuzz` needs nightly, and a check that cannot
+run in CI is a check that rots. The seed is fixed, so a failure reproduces
+exactly; `RSST_FUZZ_ITERATIONS` turns it up for a longer run by hand.
+
+Anything it finds gets fixed **and** keeps a regression test. It found the
+readability extractor matching each candidate's closing tag by scanning forward
+from it — quadratic in nesting depth, and 15 seconds on a page nested 50,000
+levels deep, which a hostile page can choose to be.
+
 ## Git workflow
 
 Branch `<type>/<description>`, Conventional Commit messages, squash-merge into
