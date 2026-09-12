@@ -27,9 +27,13 @@ url = "https://blog.rust-lang.org/feed.xml"
 # Overrides the title the feed advertises. Default: the feed's own title,
 # falling back to the URL.
 title = "Rust Blog"
-# Groups this feed appears under in the sidebar. Default: none (ungrouped).
-# Only the first tag decides placement; OPML folders import as tags.
-tags = ["Rust"]
+# The feed's folder path in the sidebar, outermost first. Default: the top
+# level. It is a path, not a set of labels: ["Rust", "Core"] puts the feed in
+# Core, inside Rust. OPML folders import as paths, and export back to folders.
+#
+# You can also move a feed from inside the reader with `M`, which rewrites this
+# line and leaves the rest of the file — comments included — alone.
+tags = ["Rust", "Core"]
 
 [[feeds]]
 url = "https://this-week-in-rust.org/atom.xml"

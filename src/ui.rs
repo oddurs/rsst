@@ -17,7 +17,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, keymap: &crate::keys::Keymap) {
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(sidebar_width(rows[0].width)),
+            Constraint::Length(sidebar_width(app, rows[0].width)),
             Constraint::Length(1),
             Constraint::Min(20),
         ])
@@ -43,7 +43,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, keymap: &crate::keys::Keymap) {
     draw_detail(frame, app, panes[1]);
     app.hits.buttons = draw_status(frame, app, rows[1]);
 
-    // Last, so it covers everything else.
+    // Last, so they cover everything else.
+    if let Some(moving) = app.moving.clone() {
+        draw_move(frame, app, &moving, frame.area());
+    }
     if app.help_open {
         draw_help(frame, keymap, &app.theme, app.help_scroll, frame.area());
     }
@@ -51,14 +54,14 @@ pub fn draw(frame: &mut Frame, app: &mut App, keymap: &crate::keys::Keymap) {
 
 fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
     let rows = app.feed_rows();
-    let width = inner(area).width.saturating_sub(CURSOR_WIDTH);
+    // No cursor gutter in this pane, so the full inner width is the row's.
+    let width = inner(area).width;
     let items: Vec<ListItem> = rows.iter().map(|row| feed_row(app, row, width)).collect();
 
     let mut state = ListState::default();
-    state
-        .select(rows.iter().position(
-            |row| matches!(row, crate::app::FeedRow::Feed(i) if *i == app.selected_feed),
-        ));
+    state.select(rows.iter().position(
+        |row| matches!(row, crate::tree::Row::Feed { index, .. } if *index == app.selected_feed),
+    ));
 
     let unread: usize = (0..app.feeds.len()).map(|index| app.unread(index)).sum();
     let title = if unread > 0 {
@@ -70,8 +73,14 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_stateful_widget(
         List::new(items)
             .block(block(&title, app.focus == Pane::Feeds, &app.theme))
-            .highlight_style(highlight(&app.theme))
-            .highlight_symbol(cursor(&app.theme)),
+            // No cursor glyph here: it would sit between the border and the
+            // guides, breaking the one column the tree depends on. The
+            // selection is shown by reversing the row instead.
+            .highlight_style(
+                app.theme
+                    .accent
+                    .add_modifier(Modifier::REVERSED | Modifier::BOLD),
+            ),
         area,
         &mut state,
     );
@@ -89,16 +98,41 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
         .collect();
 }
 
-/// One row of the feed list: a group heading, or a feed and its unread count.
+/// The indent for a row, drawn as guides down the levels above it.
 ///
-/// Every feed sits at the same indent whether or not it is in a group, so an
-/// ungrouped feed reads as a peer of the other feeds rather than a sibling of
-/// the headings. Counts are right-aligned so they form a column instead of
-/// trailing each name at a different place.
-fn feed_row<'a>(app: &App, row: &'a crate::app::FeedRow, width: u16) -> ListItem<'a> {
+/// A guide is drawn where an ancestor still has siblings below, and blank
+/// where it does not — so the lines stop at the last item of each branch
+/// rather than running to the bottom of the pane.
+fn guides(theme: &crate::theme::Theme, levels: &[bool]) -> Vec<Span<'static>> {
+    let bar = if theme.ascii { "| " } else { "│ " };
+    levels
+        .iter()
+        .map(|continues| {
+            if *continues {
+                Span::styled(bar, theme.dim)
+            } else {
+                Span::raw("  ")
+            }
+        })
+        .collect()
+}
+
+/// One row of the sidebar: a folder and its total, or a feed and its count.
+fn feed_row<'a>(app: &App, row: &'a crate::tree::Row, width: u16) -> ListItem<'a> {
+    let mut spans;
+    let indent;
+    let (label, right, right_style);
+
     match row {
-        crate::app::FeedRow::Group { name, collapsed } => ListItem::new(Line::from(vec![
-            Span::styled(
+        crate::tree::Row::Folder {
+            path,
+            collapsed,
+            unread,
+            guides: levels,
+        } => {
+            spans = guides(&app.theme, levels);
+            indent = levels.len() * 2 + 2;
+            spans.push(Span::styled(
                 match (*collapsed, app.theme.ascii) {
                     (true, false) => "▸ ",
                     (false, false) => "▾ ",
@@ -106,12 +140,28 @@ fn feed_row<'a>(app: &App, row: &'a crate::app::FeedRow, width: u16) -> ListItem
                     (false, true) => "v ",
                 },
                 app.theme.dim,
-            ),
-            Span::styled(name.clone(), app.theme.group),
-        ])),
-        crate::app::FeedRow::Feed(index) => {
+            ));
+            label = path.last().cloned().unwrap_or_default();
+            // A folded folder still says how much is inside, or folding it
+            // would hide the only reason to open it again.
+            right = if *unread > 0 {
+                unread.to_string()
+            } else {
+                String::new()
+            };
+            right_style = app.theme.group;
+        }
+        crate::tree::Row::Feed {
+            index,
+            guides: levels,
+        } => {
             let feed = &app.feeds[*index];
             let unread = app.unread(*index);
+            spans = guides(&app.theme, levels);
+            indent = levels.len() * 2 + 2;
+            spans.push(Span::raw("  "));
+            label = feed.title.clone();
+
             let marker = feed
                 .status
                 .marker()
@@ -119,43 +169,42 @@ fn feed_row<'a>(app: &App, row: &'a crate::app::FeedRow, width: u16) -> ListItem
                     ("…", true) => "..",
                     (other, _) => other,
                 });
-
             let count = if unread > 0 {
                 unread.to_string()
             } else {
                 String::new()
             };
-            let right = match marker {
+            right = match marker {
                 Some(marker) => format!("{marker} {count}"),
-                None => count.clone(),
+                None => count,
             };
-
-            // Two columns of indent for every feed, grouped or not.
-            let room = (width as usize).saturating_sub(2 + right.chars().count() + 1);
-            let name = truncate(&feed.title, room, app.theme.ascii);
-            let padding = room.saturating_sub(name.chars().count()) + 1;
-
-            let name = if unread > 0 {
-                Span::raw(name)
-            } else {
-                Span::styled(name, app.theme.dim)
-            };
-            let right_style = if marker.is_some() && feed.status.error().is_some() {
+            right_style = if feed.status.error().is_some() {
                 app.theme.error
             } else if unread > 0 {
                 app.theme.accent.add_modifier(Modifier::BOLD)
             } else {
                 app.theme.dim
             };
-
-            ListItem::new(Line::from(vec![
-                Span::raw("  "),
-                name,
-                Span::raw(" ".repeat(padding)),
-                Span::styled(right, right_style),
-            ]))
         }
     }
+
+    let room = (width as usize).saturating_sub(indent + right.chars().count() + 1);
+    let text = truncate(&label, room, app.theme.ascii);
+    let padding = room.saturating_sub(text.chars().count()) + 1;
+
+    let is_folder = matches!(row, crate::tree::Row::Folder { .. });
+    let has_unread = !right.trim().is_empty();
+    spans.push(if is_folder {
+        Span::styled(text, app.theme.group)
+    } else if has_unread {
+        Span::raw(text)
+    } else {
+        Span::styled(text, app.theme.dim)
+    });
+    spans.push(Span::raw(" ".repeat(padding)));
+    spans.push(Span::styled(right, right_style));
+
+    ListItem::new(Line::from(spans))
 }
 
 fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -309,6 +358,69 @@ fn border_set(theme: &crate::theme::Theme) -> ratatui::symbols::border::Set<'sta
     } else {
         ratatui::symbols::border::PLAIN
     }
+}
+
+/// The "move to folder" picker.
+fn draw_move(frame: &mut Frame, app: &App, moving: &crate::app::Move, area: Rect) {
+    let name = app
+        .feeds
+        .get(moving.feed)
+        .map(|feed| feed.title.as_str())
+        .unwrap_or("this feed");
+
+    let items: Vec<ListItem> = moving
+        .choices
+        .iter()
+        .map(|choice| {
+            let label = choice.label(&moving.typed);
+            let style = match choice {
+                crate::app::MoveTarget::New => app.theme.accent,
+                _ => Style::default(),
+            };
+            ListItem::new(Line::from(Span::styled(label, style)))
+        })
+        .collect();
+
+    let widest = moving
+        .choices
+        .iter()
+        .map(|choice| choice.label(&moving.typed).chars().count())
+        .max()
+        .unwrap_or(20);
+    let width = (widest as u16 + 10)
+        .max(name.chars().count() as u16 + 14)
+        .min(area.width.saturating_sub(4));
+    let height = (moving.choices.len() as u16 + 2).min(area.height.saturating_sub(2));
+
+    let popup = Rect {
+        x: area.x + (area.width.saturating_sub(width)) / 2,
+        y: area.y + (area.height.saturating_sub(height)) / 2,
+        width,
+        height,
+    };
+
+    let mut state = ListState::default();
+    state.select(Some(moving.selected));
+
+    frame.render_widget(Clear, popup);
+    frame.render_stateful_widget(
+        List::new(items)
+            .block(
+                Block::default()
+                    .border_set(border_set(&app.theme))
+                    .borders(Borders::ALL)
+                    .border_style(app.theme.accent)
+                    .padding(ratatui::widgets::Padding::horizontal(1))
+                    .title(format!(" Move {name} to ")),
+            )
+            .highlight_style(
+                app.theme
+                    .accent
+                    .add_modifier(Modifier::REVERSED | Modifier::BOLD),
+            ),
+        popup,
+        &mut state,
+    );
 }
 
 /// The key reference, generated from [`crate::keys`] so it cannot drift.
@@ -726,10 +838,45 @@ fn truncate(text: &str, width: usize, ascii: bool) -> String {
 
 /// How wide the feed list should be.
 ///
-/// Enough for a feed name and its count, but never so much of a narrow
-/// terminal that the article has nowhere to go.
-fn sidebar_width(total: u16) -> u16 {
-    (total / 4).clamp(18, 32).min(total.saturating_sub(24))
+/// Measured from the tree rather than fixed: nesting pushes names right, and a
+/// width that suited a flat list truncates every feed two levels down. Still
+/// bounded, so a deep tree cannot crowd out the article.
+fn sidebar_width(app: &App, total: u16) -> u16 {
+    let widest = app
+        .feed_rows()
+        .iter()
+        .map(|row| {
+            let (indent, label, right) = match row {
+                crate::tree::Row::Folder {
+                    path,
+                    guides,
+                    unread,
+                    ..
+                } => (
+                    guides.len() * 2 + 2,
+                    path.last().map_or(0, |name| name.chars().count()),
+                    if *unread > 0 {
+                        unread.to_string().len()
+                    } else {
+                        0
+                    },
+                ),
+                crate::tree::Row::Feed { index, guides } => (
+                    guides.len() * 2 + 2,
+                    app.feeds
+                        .get(*index)
+                        .map_or(0, |feed| feed.title.chars().count()),
+                    // Room for a count and a status marker.
+                    4,
+                ),
+            };
+            // Borders, padding, and a column between name and count.
+            (indent + label + right + 6) as u16
+        })
+        .max()
+        .unwrap_or(20);
+
+    widest.clamp(18, 38).min(total.saturating_sub(30).max(18))
 }
 
 /// How to divide the right-hand column between the entry list and the article.
@@ -1386,20 +1533,23 @@ mod tests {
         app.hits
             .feed_rows
             .iter()
-            .find(|(_, row)| matches!(row, crate::app::FeedRow::Feed(i) if *i == index))
+            .find(|(_, row)| matches!(row, crate::tree::Row::Feed { index: i, .. } if *i == index))
             .map(|(y, _)| *y)
             .unwrap_or_else(|| panic!("feed {index} was not drawn"))
     }
 
-    /// Where the renderer put a given group heading.
+    /// Where the renderer put a given folder.
     fn row_of_group(app: &mut App, name: &str) -> u16 {
         render_at(app, 80, 24);
         app.hits
             .feed_rows
             .iter()
-            .find(|(_, row)| matches!(row, crate::app::FeedRow::Group { name: n, .. } if n == name))
+            .find(|(_, row)| {
+                matches!(row, crate::tree::Row::Folder { path, .. }
+                    if path.last().map(String::as_str) == Some(name))
+            })
             .map(|(y, _)| *y)
-            .unwrap_or_else(|| panic!("group {name} was not drawn"))
+            .unwrap_or_else(|| panic!("folder {name} was not drawn"))
     }
 
     #[test]
@@ -1442,7 +1592,7 @@ mod tests {
         assert!(
             !after
                 .iter()
-                .any(|(_, row)| matches!(row, crate::app::FeedRow::Feed(0))),
+                .any(|(_, row)| matches!(row, crate::tree::Row::Feed { index: 0, .. })),
             "the folded feed is still drawn"
         );
     }

@@ -20,4 +20,5 @@ pub mod screenshot;
 pub mod state;
 pub mod text;
 pub mod theme;
+pub mod tree;
 pub mod ui;
