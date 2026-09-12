@@ -49,7 +49,8 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --all
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch and PR workflow.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch and PR workflow, and
+[ROADMAP.md](ROADMAP.md) for where this is going.
 
 ## License
 
