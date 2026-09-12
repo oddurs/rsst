@@ -41,6 +41,9 @@ still needs.
   directory together, so a second rsst cannot touch the first one's data
 - `--help`, `--version`, `--config`, `--man`, `--completions` and `--screenshot`
 - A generated man page and bash/zsh/fish completions
+- `scripts/dev`, a seeded reader that needs no network and cannot reach real
+  data: fixture feeds covering unicode, malformed markup, failing servers and
+  5,000 entries, and the same frame on every run
 
 ### Fixed
 
