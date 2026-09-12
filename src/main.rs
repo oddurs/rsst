@@ -4,6 +4,7 @@ mod cli;
 mod config;
 mod feed;
 mod launch;
+mod limit;
 mod opml;
 mod state;
 mod text;
@@ -40,6 +41,7 @@ type Fetched = (usize, Result<feed::Outcome>);
 /// Everything the event loop needs besides the app state itself.
 struct Session {
     client: reqwest::Client,
+    limiter: std::sync::Arc<tokio::sync::Semaphore>,
     config: Config,
     state_path: PathBuf,
     cache_path: PathBuf,
@@ -79,7 +81,8 @@ async fn main() -> Result<()> {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Fetched>();
     let cache_path = cache::cache_path()?;
     let cache = Cache::load(&cache_path);
-    spawn_fetches(&client, &config, &cache, &tx);
+    let limiter = limit::limiter(config.fetch_limit());
+    spawn_fetches(&client, &config, &cache, &limiter, &tx);
 
     // Last known contents stand in until the fetch lands, so a second launch
     // has something to read immediately and an offline one still works.
@@ -92,6 +95,7 @@ async fn main() -> Result<()> {
 
     let mut session = Session {
         client,
+        limiter,
         config,
         state_path,
         cache_path,
@@ -195,6 +199,7 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                     &session.client,
                     &session.config,
                     &session.cache,
+                    &session.limiter,
                     &session.tx,
                     starting,
                 );
@@ -213,9 +218,10 @@ fn spawn_fetches(
     client: &reqwest::Client,
     config: &Config,
     cache: &Cache,
+    limiter: &std::sync::Arc<tokio::sync::Semaphore>,
     tx: &tokio::sync::mpsc::UnboundedSender<Fetched>,
 ) {
-    spawn_some(client, config, cache, tx, 0..config.feeds.len());
+    spawn_some(client, config, cache, limiter, tx, 0..config.feeds.len());
 }
 
 /// Starts a fetch for each of `indices`.
@@ -223,6 +229,7 @@ fn spawn_some(
     client: &reqwest::Client,
     config: &Config,
     cache: &Cache,
+    limiter: &std::sync::Arc<tokio::sync::Semaphore>,
     tx: &tokio::sync::mpsc::UnboundedSender<Fetched>,
     indices: impl IntoIterator<Item = usize>,
 ) {
@@ -239,12 +246,18 @@ fn spawn_some(
         let meta = cache.meta(&source.url);
         let client = client.clone();
         let tx = tx.clone();
+        let limiter = limiter.clone();
         tokio::spawn(async move {
-            let result = feed::fetch(
-                &client,
-                &source,
-                meta.etag.as_deref(),
-                meta.last_modified.as_deref(),
+            // Every task is spawned at once, but only a few hold a permit and
+            // are actually talking to the network at any moment.
+            let result = limit::limited(
+                limiter,
+                feed::fetch(
+                    &client,
+                    &source,
+                    meta.etag.as_deref(),
+                    meta.last_modified.as_deref(),
+                ),
             )
             .await;
             // A closed channel means the reader has already quit.

@@ -2,9 +2,10 @@
 id: 17
 title: Bound fetch concurrency
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p2
 effort: s
 area: net
@@ -21,6 +22,6 @@ Run fetches through a semaphore with a configurable limit, defaulting to somethi
 
 ## Acceptance criteria
 
-- [ ] A 200-feed config never exceeds the configured number of in-flight requests.
-- [ ] The limit is configurable.
-- [ ] Total refresh time for a large list does not regress noticeably.
+- [x] A 200-feed config never exceeds the configured number of in-flight requests.
+- [x] The limit is configurable.
+- [x] Total refresh time for a large list does not regress noticeably.

@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     #[serde(default)]
     pub feeds: Vec<FeedSource>,
+    /// How many feeds may be fetched at once.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_concurrent_fetches: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -50,8 +53,15 @@ impl Config {
         toml::from_str(&raw).with_context(|| format!("parsing config at {}", path.display()))
     }
 
+    /// Simultaneous fetches allowed, falling back to the built-in default.
+    pub fn fetch_limit(&self) -> usize {
+        self.max_concurrent_fetches
+            .unwrap_or(crate::limit::DEFAULT_LIMIT)
+    }
+
     fn starter() -> Self {
         Self {
+            max_concurrent_fetches: None,
             feeds: vec![FeedSource {
                 url: "https://blog.rust-lang.org/feed.xml".into(),
                 title: Some("Rust Blog".into()),
@@ -96,6 +106,18 @@ mod tests {
         assert_eq!(config.feeds.len(), 2);
         assert_eq!(config.feeds[0].title, None);
         assert_eq!(config.feeds[1].title.as_deref(), Some("Example Org"));
+    }
+
+    #[test]
+    fn the_fetch_limit_defaults_when_unset() {
+        let config: Config = toml::from_str("").expect("parses");
+        assert_eq!(config.fetch_limit(), crate::limit::DEFAULT_LIMIT);
+    }
+
+    #[test]
+    fn the_fetch_limit_is_configurable() {
+        let config: Config = toml::from_str("max_concurrent_fetches = 3").expect("parses");
+        assert_eq!(config.fetch_limit(), 3);
     }
 
     #[test]

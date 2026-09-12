@@ -40,11 +40,10 @@ with the alternate screen still active.
 
 ## v0.2
 
-`####······` 40% · 2 of 5 done
+`######····` 60% · 3 of 5 done
 
 ### backlog
 
-- [ ] [`0017`](https://github.com/oddurs/rsst/blob/main/cairn/items/0017-bound-fetch-concurrency.md) Bound fetch concurrency <sup>feature · v0.2 · p2</sup>
 - [ ] [`0018`](https://github.com/oddurs/rsst/blob/main/cairn/items/0018-decode-html-entities-in-summaries.md) Decode HTML entities in summaries <sup>feature · v0.2 · p2</sup>
 - [ ] [`0019`](https://github.com/oddurs/rsst/blob/main/cairn/items/0019-show-per-feed-fetch-status-and-errors.md) Show per-feed fetch status and errors <sup>feature · v0.2 · p2</sup>
 
@@ -52,6 +51,7 @@ with the alternate screen still active.
 
 - [x] [`0015`](https://github.com/oddurs/rsst/blob/main/cairn/items/0015-cache-feeds-on-disk-so-launch-is-instant-and-offline-works.md) Cache feeds on disk so launch is instant and offline works <sup>feature · v0.2 · p0</sup>
 - [x] [`0016`](https://github.com/oddurs/rsst/blob/main/cairn/items/0016-conditional-get-with-etag-and-last-modified.md) Conditional GET with ETag and Last-Modified <sup>feature · v0.2 · p0</sup>
+- [x] [`0017`](https://github.com/oddurs/rsst/blob/main/cairn/items/0017-bound-fetch-concurrency.md) Bound fetch concurrency <sup>feature · v0.2 · p2</sup>
 
 ## v0.3
 
