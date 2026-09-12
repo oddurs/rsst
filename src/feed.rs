@@ -474,13 +474,21 @@ pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
     // Decoded, like the body is. A feed that titles a post "Tom &amp; Jerry"
     // means an ampersand, and the list is the one place it was shown raw.
     // A configured title is the reader's own text, so it is left alone.
-    let title = source.title.clone().unwrap_or_else(|| {
-        parsed
-            .title
-            .as_ref()
-            .map(|t| decode_entities(&t.content))
-            .unwrap_or_else(|| source.url.clone())
-    });
+    // Blank counts as absent. danluu.com publishes `<title></title>`, and a
+    // fallback that only fires on a missing element leaves a nameless line in
+    // the sidebar with an unread count beside it.
+    let title = source
+        .title
+        .clone()
+        .filter(|title| !title.trim().is_empty())
+        .or_else(|| {
+            parsed
+                .title
+                .as_ref()
+                .map(|t| decode_entities(&t.content))
+                .filter(|title| !title.trim().is_empty())
+        })
+        .unwrap_or_else(|| source.url.clone());
 
     let mut entries: Vec<Entry> = parsed
         .entries
@@ -489,6 +497,7 @@ pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
             let title = entry
                 .title
                 .map(|t| decode_entities(&t.content))
+                .filter(|title| !title.trim().is_empty())
                 .unwrap_or_else(|| "(untitled)".into());
             let link = entry.links.into_iter().next().map(|l| l.href);
             let published = entry.published.or(entry.updated);
@@ -1420,5 +1429,41 @@ mod tests {
             Outcome::RateLimited { retry_after } => assert_eq!(retry_after, DEFAULT_BACKOFF),
             other => panic!("expected a deferral, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_blank_title_falls_back_the_way_a_missing_one_does() {
+        // The shape danluu.com actually publishes: the element is there and
+        // empty, so a fallback that tests for absence never fires.
+        let xml = r#"<?xml version="1.0"?>
+            <rss version="2.0"><channel>
+              <title></title>
+              <link>https://example.com/</link>
+              <description>Recent content on </description>
+              <item><title>   </title><link>https://example.com/a</link></item>
+            </channel></rss>"#;
+        let feed = parse(xml.as_bytes(), &source()).expect("parses");
+
+        assert_eq!(
+            feed.title,
+            source().url,
+            "an empty feed title left a nameless line in the sidebar"
+        );
+        assert_eq!(
+            feed.entries[0].title, "(untitled)",
+            "whitespace is not a title"
+        );
+    }
+
+    #[test]
+    fn a_blank_configured_title_does_not_win_over_the_feeds_own() {
+        let xml = r#"<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
+            <title>The Real Name</title><id>u</id></feed>"#;
+        let mut source = source();
+        source.title = Some("  ".into());
+        assert_eq!(
+            parse(xml.as_bytes(), &source).expect("parses").title,
+            "The Real Name"
+        );
     }
 }
