@@ -23,7 +23,7 @@ with the alternate screen still active.
 
 ## v0.1
 
-`##········` 11% · 1 of 9 done
+`##········` 20% · 2 of 10 done
 
 ### planned
 
@@ -39,6 +39,7 @@ with the alternate screen still active.
 ### done
 
 - [x] [`0039`](https://github.com/oddurs/rsst/blob/main/cairn/items/0039-set-up-the-full-auto-agentic-git-workflow.md) Set up the full-auto agentic git workflow <sup>chore · v0.1 · p0</sup>
+- [x] [`0040`](https://github.com/oddurs/rsst/blob/main/cairn/items/0040-make-ship-refuse-to-close-an-item-with-unticked-criteria.md) Make ship refuse to close an item with unticked criteria <sup>chore · v0.1 · p0</sup>
 
 ## v0.2
 
