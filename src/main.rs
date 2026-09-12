@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use crossterm::cursor::Show;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -41,6 +41,7 @@ type Fetched = (usize, Result<feed::Outcome>);
 
 /// Everything the event loop needs besides the app state itself.
 struct Session {
+    keymap: keys::Keymap,
     client: reqwest::Client,
     limiter: std::sync::Arc<tokio::sync::Semaphore>,
     config: Config,
@@ -55,7 +56,9 @@ struct Session {
 async fn main() -> Result<()> {
     let config_path = match cli::parse(std::env::args().skip(1))? {
         Action::Help => {
-            println!("{}", cli::help());
+            // Help is printed before the config is read, so it shows the
+            // built-in bindings rather than failing on a broken config.
+            println!("{}", cli::help(&keys::Keymap::default()));
             return Ok(());
         }
         Action::Version => {
@@ -68,6 +71,7 @@ async fn main() -> Result<()> {
     };
 
     let config = Config::load_or_init(config_path)?;
+    let keymap = keys::Keymap::from_config(&config.keys)?;
     if config.feeds.is_empty() {
         let path = config::config_path()?;
         eprintln!("No feeds configured. Add some to {}.", path.display());
@@ -95,6 +99,7 @@ async fn main() -> Result<()> {
     let mut app = App::new(feeds, ReadState::load(&state_path)).with_tags(&config.feeds);
 
     let mut session = Session {
+        keymap,
         client,
         limiter,
         config,
@@ -164,7 +169,7 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
             }
         }
 
-        terminal.draw(|frame| ui::draw(frame, app))?;
+        terminal.draw(|frame| ui::draw(frame, app, &session.keymap))?;
 
         if !event::poll(TICK)? {
             continue;
@@ -213,31 +218,68 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
             continue;
         }
 
-        match key.code {
-            KeyCode::Esc if app.search.is_some() => app.cancel_search(),
-            KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
-            KeyCode::Tab | KeyCode::BackTab => app.toggle_focus(),
-            KeyCode::Char('j') | KeyCode::Down => app.select_next(),
-            KeyCode::Char('k') | KeyCode::Up => app.select_previous(),
-            KeyCode::Char('g') | KeyCode::Home => app.select_first(),
-            KeyCode::Char('G') | KeyCode::End => app.select_last(),
-            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => app.half_page(1),
-            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                app.half_page(-1)
+        // Esc leaves a search before anything else can claim it.
+        if key.code == KeyCode::Esc {
+            if app.search.is_some() {
+                app.cancel_search();
+            } else {
+                app.should_quit = true;
             }
-            KeyCode::PageDown => app.half_page(1),
-            KeyCode::PageUp => app.half_page(-1),
-            KeyCode::Char('p') if app.search.is_none() => {
+            continue;
+        }
+        // While a search has results, n and N walk them instead of the backlog.
+        if app.search.is_some() {
+            match key.code {
+                KeyCode::Char('n') => {
+                    app.step_match(1);
+                    continue;
+                }
+                KeyCode::Char('N') => {
+                    app.step_match(-1);
+                    continue;
+                }
+                _ => {}
+            }
+        }
+
+        let Some(action) = session.keymap.action(key.code, key.modifiers) else {
+            continue;
+        };
+        use keys::Action;
+        match action {
+            Action::Quit => app.should_quit = true,
+            Action::Help => app.help_open = true,
+            Action::CyclePane => app.toggle_focus(),
+            Action::Next => app.select_next(),
+            Action::Previous => app.select_previous(),
+            Action::First => app.select_first(),
+            Action::Last => app.select_last(),
+            Action::HalfPageDown => app.half_page(1),
+            Action::HalfPageUp => app.half_page(-1),
+            Action::ToggleGroup if app.focus == app::Pane::Feeds => app.toggle_group(),
+            Action::ToggleGroup => {}
+            Action::NextUnread => {
+                if !app.next_unread(true) {
+                    app.status = Some(" No unread entries. ".into());
+                }
+            }
+            Action::PreviousUnread => {
                 if !app.next_unread(false) {
                     app.status = Some(" No unread entries. ".into());
                 }
             }
-            KeyCode::Char('?') => app.help_open = true,
-            KeyCode::Enter | KeyCode::Char(' ') if app.focus == app::Pane::Feeds => {
-                app.toggle_group()
+            Action::Search => app.start_search(),
+            Action::ToggleRead => {
+                app.toggle_current_read();
+                let _ = app.read.save(&session.state_path);
             }
-            KeyCode::Char('/') => app.start_search(),
-            KeyCode::Char('s') => {
+            Action::MarkFeedRead => app.request_bulk(app::Bulk::Feed),
+            Action::MarkAllRead => app.request_bulk(app::Bulk::Everything),
+            Action::ToggleUnreadOnly => {
+                app.toggle_unread_only();
+                let _ = app.read.save(&session.state_path);
+            }
+            Action::ToggleStar => {
                 let starred = app.toggle_star();
                 let _ = app.read.save(&session.state_path);
                 app.status = Some(if starred {
@@ -246,27 +288,10 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                     " Unstarred. ".into()
                 });
             }
-            KeyCode::Char('S') => app.toggle_starred_view(),
-            KeyCode::Char('m') => {
-                app.toggle_current_read();
-                let _ = app.read.save(&session.state_path);
-            }
-            KeyCode::Char('a') => app.request_bulk(app::Bulk::Feed),
-            KeyCode::Char('A') => app.request_bulk(app::Bulk::Everything),
-            KeyCode::Char('n') if app.search.is_some() => app.step_match(1),
-            KeyCode::Char('n') => {
-                if !app.next_unread(true) {
-                    app.status = Some(" No unread entries. ".into());
-                }
-            }
-            KeyCode::Char('N') if app.search.is_some() => app.step_match(-1),
-            KeyCode::Char('u') => {
-                app.toggle_unread_only();
-                let _ = app.read.save(&session.state_path);
-            }
-            KeyCode::Char('o') => open_selected(app),
-            KeyCode::Char('y') => copy_selected(app),
-            KeyCode::Char('r') => {
+            Action::ToggleStarredView => app.toggle_starred_view(),
+            Action::Open => open_selected(app),
+            Action::CopyLink => copy_selected(app),
+            Action::Refresh => {
                 let _ = app.read.save(&session.state_path);
                 let starting = app.begin_refresh();
                 app.status = Some(if starting.is_empty() {
@@ -283,7 +308,6 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
                     starting,
                 );
             }
-            _ => {}
         }
     }
     Ok(())

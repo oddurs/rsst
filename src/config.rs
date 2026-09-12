@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     #[serde(default)]
     pub feeds: Vec<FeedSource>,
+    /// Key overrides: action name to key, merged over the defaults.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub keys: std::collections::HashMap<String, String>,
     /// How many feeds may be fetched at once.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_concurrent_fetches: Option<usize>,
@@ -64,6 +67,7 @@ impl Config {
 
     fn starter() -> Self {
         Self {
+            keys: Default::default(),
             max_concurrent_fetches: None,
             feeds: vec![FeedSource {
                 url: "https://blog.rust-lang.org/feed.xml".into(),

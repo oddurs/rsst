@@ -9,7 +9,7 @@ use crate::app::{App, Pane};
 const HELP: &str =
     " q quit · Tab · j/k move · / search · u unread · m/a/A read · o open · r refresh ";
 
-pub fn draw(frame: &mut Frame, app: &mut App) {
+pub fn draw(frame: &mut Frame, app: &mut App, keymap: &crate::keys::Keymap) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])
@@ -32,7 +32,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     // Last, so it covers everything else.
     if app.help_open {
-        draw_help(frame, frame.area());
+        draw_help(frame, keymap, frame.area());
     }
 }
 
@@ -211,45 +211,39 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
 /// more than an 80x24 terminal can spare once every binding is listed. So they
 /// are shown when there is room and dropped when there is not: on a small
 /// terminal the bindings themselves matter more than the grouping.
-fn draw_help(frame: &mut Frame, area: Rect) {
-    let width = crate::keys::key_column_width();
-    let dismiss = Line::from(Span::styled(
-        "  any key to dismiss",
-        Style::default().fg(Color::DarkGray),
-    ));
-
-    let binding_line = |binding: &crate::keys::Binding| {
+fn draw_help(frame: &mut Frame, keymap: &crate::keys::Keymap, area: Rect) {
+    let width = crate::keys::key_column_width(keymap);
+    let row = |keys: &str, description: &str| {
         Line::from(vec![
             Span::styled(
-                format!("  {:width$}  ", binding.keys, width = width),
+                format!("  {keys:width$}  "),
                 Style::default().fg(Color::Yellow),
             ),
-            Span::raw(binding.action),
+            Span::raw(description.to_string()),
         ])
     };
 
+    let sections = keymap.sections();
+
     let mut roomy = Vec::new();
-    for section in crate::keys::SECTIONS {
+    for (name, rows) in &sections {
         if !roomy.is_empty() {
             roomy.push(Line::raw(""));
         }
         roomy.push(Line::from(Span::styled(
-            section.name,
+            *name,
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         )));
-        roomy.extend(section.bindings.iter().map(&binding_line));
+        roomy.extend(rows.iter().map(|(k, d)| row(k, d)));
     }
-    roomy.push(Line::raw(""));
-    roomy.push(dismiss.clone());
 
-    let mut compact: Vec<Line> = crate::keys::SECTIONS
+    let compact: Vec<Line> = sections
         .iter()
-        .flat_map(|section| section.bindings)
-        .map(&binding_line)
+        .flat_map(|(_, rows)| rows.iter())
+        .map(|(k, d)| row(k, d))
         .collect();
-    compact.push(dismiss);
 
     let available = area.height.saturating_sub(2) as usize;
     let lines = if roomy.len() <= available {
@@ -258,10 +252,10 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         compact
     };
 
-    let content_width = crate::keys::SECTIONS
+    let content_width = sections
         .iter()
-        .flat_map(|section| section.bindings)
-        .map(|b| 2 + width + 2 + b.action.len() + 2)
+        .flat_map(|(_, rows)| rows.iter())
+        .map(|(_, description)| 2 + width + 2 + description.len() + 2)
         .max()
         .unwrap_or(40) as u16;
 
@@ -279,7 +273,9 @@ fn draw_help(frame: &mut Frame, area: Rect) {
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Cyan))
-                .title(" Keys "),
+                // In the title rather than a row of its own: with every action
+                // listed, an 80x24 terminal has no spare line to give it.
+                .title(" Keys — any key to dismiss "),
         ),
         popup,
     );
@@ -433,7 +429,7 @@ mod tests {
         let mut terminal =
             Terminal::new(TestBackend::new(80, 24)).expect("test terminal should build");
         terminal
-            .draw(|frame| draw(frame, app))
+            .draw(|frame| draw(frame, app, &crate::keys::Keymap::default()))
             .expect("draw should succeed");
         terminal
             .backend()
@@ -547,7 +543,7 @@ mod tests {
         let mut terminal =
             Terminal::new(TestBackend::new(80, 24)).expect("test terminal should build");
         terminal
-            .draw(|frame| draw(frame, app))
+            .draw(|frame| draw(frame, app, &crate::keys::Keymap::default()))
             .expect("draw should succeed");
         let buffer = terminal.backend().buffer().clone();
         // The detail pane occupies the lower 40% of the right-hand 75%.
@@ -717,7 +713,7 @@ mod tests {
         let mut terminal =
             Terminal::new(TestBackend::new(width, height)).expect("test terminal should build");
         terminal
-            .draw(|frame| draw(frame, app))
+            .draw(|frame| draw(frame, app, &crate::keys::Keymap::default()))
             .expect("draw should succeed");
         terminal
             .backend()
@@ -734,12 +730,14 @@ mod tests {
         app.help_open = true;
         let screen = render_at(&mut app, 80, 24);
 
-        for binding in crate::keys::SECTIONS.iter().flat_map(|s| s.bindings) {
-            assert!(
-                screen.contains(binding.action),
-                "the smallest supported terminal cuts off {}",
-                binding.action
-            );
+        let keymap = crate::keys::Keymap::default();
+        for (_, rows) in keymap.sections() {
+            for (_, description) in rows {
+                assert!(
+                    screen.contains(description),
+                    "the smallest supported terminal cuts off {description}"
+                );
+            }
         }
     }
 
@@ -749,11 +747,12 @@ mod tests {
         app.help_open = true;
         let screen = render_at(&mut app, 100, 40);
 
-        for section in crate::keys::SECTIONS {
-            assert!(screen.contains(section.name), "missing {}", section.name);
-        }
-        for binding in crate::keys::SECTIONS.iter().flat_map(|s| s.bindings) {
-            assert!(screen.contains(binding.action));
+        let keymap = crate::keys::Keymap::default();
+        for (name, rows) in keymap.sections() {
+            assert!(screen.contains(name), "missing {name}");
+            for (_, description) in rows {
+                assert!(screen.contains(description), "missing {description}");
+            }
         }
     }
 
@@ -762,6 +761,7 @@ mod tests {
         let mut app = App::new(Vec::new(), ReadState::default());
         app.help_open = true;
         assert!(render_at(&mut app, 80, 24).contains("any key to dismiss"));
+        assert!(render_at(&mut app, 120, 44).contains("any key to dismiss"));
     }
 
     #[test]

@@ -45,7 +45,15 @@ tags = ["Rust"]              # optional; groups the feed in the sidebar
 
 # Optional. How many feeds may be fetched at once; defaults to 8.
 max_concurrent_fetches = 8
+
+# Optional. Rebind any action; anything you leave out keeps its default.
+# An override replaces the default, so `q` no longer quits here.
+[keys]
+quit = "x"
+half_page_down = "ctrl-f"
 ```
+
+Run `rsst --help` for every action name, or press `?` in the app.
 
 ## Keys
 

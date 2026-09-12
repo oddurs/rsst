@@ -2,9 +2,10 @@
 id: 27
 title: Configurable keybindings
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-11
-updated: 2026-09-11
+updated: 2026-09-12
 priority: p2
 effort: m
 area: config
@@ -21,6 +22,6 @@ A `[keys]` table in the config mapping action names to keys, merged over the def
 
 ## Acceptance criteria
 
-- [ ] Rebinding an action takes effect on next launch.
-- [ ] An unknown action name is reported clearly rather than ignored.
-- [ ] The help overlay reflects the active bindings.
+- [x] Rebinding an action takes effect on next launch.
+- [x] An unknown action name is reported clearly rather than ignored.
+- [x] The help overlay reflects the active bindings.
