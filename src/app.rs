@@ -1138,6 +1138,14 @@ impl App {
         *offset = next as usize;
     }
 
+    /// Whether something is drawn over the panes and owns the screen.
+    ///
+    /// The renderer draws these last so they cover everything; the hit map has
+    /// to agree, or a click lands on a list nobody can see.
+    pub fn overlay_open(&self) -> bool {
+        self.help_open || self.adding.is_some() || self.moving.is_some()
+    }
+
     /// Where the entry list should start, given what is being drawn now.
     ///
     /// Follows the selection only when the selection has moved: following it
