@@ -2,7 +2,8 @@
 id: 71
 title: Middle click does not open anything
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-13
 updated: 2026-09-13
 priority: p2
@@ -21,6 +22,6 @@ Middle click opens whatever is under the pointer: an entry row, or a link in the
 
 ## Acceptance criteria
 
-- [ ] Middle click on an entry opens it in the browser
-- [ ] Middle click on a link in the article opens that link
-- [ ] Middle click on anything else does nothing
+- [x] Middle click on an entry opens it in the browser
+- [x] Middle click on a link in the article opens that link
+- [x] Middle click on anything else does nothing
