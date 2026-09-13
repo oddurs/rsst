@@ -211,9 +211,13 @@ fn feed_row<'a>(app: &App, row: &'a crate::tree::Row, width: u16) -> ListItem<'a
             } else {
                 String::new()
             };
-            right = match marker {
-                Some(marker) => format!("{marker} {count}"),
-                None => count,
+            // No trailing space when there is no count: it would push the
+            // marker a column left of where every number sits, and leave the
+            // right edge of the sidebar ragged.
+            right = match (marker, count.is_empty()) {
+                (Some(marker), true) => marker.to_string(),
+                (Some(marker), false) => format!("{marker} {count}"),
+                (None, _) => count,
             };
             right_style = if feed.status.error().is_some() {
                 app.theme.error
@@ -1439,6 +1443,16 @@ mod tests {
     }
 
     /// Renders at a given terminal size and returns the whole screen.
+    /// The screen as lines, for tests that care about columns.
+    fn render_rows(app: &mut App, width: u16, height: u16) -> Vec<String> {
+        let flat = render_at(app, width, height);
+        flat.chars()
+            .collect::<Vec<char>>()
+            .chunks(width as usize)
+            .map(|row| row.iter().collect())
+            .collect()
+    }
+
     fn render_at(app: &mut App, width: u16, height: u16) -> String {
         let mut terminal =
             Terminal::new(TestBackend::new(width, height)).expect("test terminal should build");
@@ -2234,5 +2248,49 @@ mod tests {
         render_at(&mut app, 80, 24);
         click_at(&mut app, 2, 2);
         assert!(!app.help_open, "the key reference stayed open");
+    }
+
+    #[test]
+    fn a_marker_and_a_count_end_in_the_same_column() {
+        // A failed feed used to sit a column left of every number, because its
+        // marker was formatted with a trailing space where a count would go.
+        let mut app = long_list(5);
+        app.feeds[1].status = crate::feed::Status::Failed {
+            trouble: crate::feed::Trouble::Gone,
+            message: "gone".into(),
+        };
+        app.feeds[2].status = crate::feed::Status::Fetching;
+
+        let screen = render_rows(&mut app, 80, 24);
+        let pane = app.hits.feeds_pane;
+        // Where the right-hand column ends on the row naming this feed. A row
+        // with neither a marker nor a count ends at its label and is not part
+        // of the question.
+        let ends_at = |name: &str| -> usize {
+            screen
+                .iter()
+                .find(|line| line.contains(name))
+                .map(|line| {
+                    let inside: String = line
+                        .chars()
+                        .skip(pane.x as usize)
+                        .take(pane.width as usize)
+                        .collect();
+                    inside.trim_end().chars().count()
+                })
+                .unwrap_or_else(|| panic!("no row for {name}"))
+        };
+
+        let counted = ends_at("Feed 0");
+        assert_eq!(
+            ends_at("Feed 1"),
+            counted,
+            "a failed feed's `!` is not where a count would be"
+        );
+        assert_eq!(
+            ends_at("Feed 2"),
+            counted,
+            "a fetching feed's marker is not either"
+        );
     }
 }

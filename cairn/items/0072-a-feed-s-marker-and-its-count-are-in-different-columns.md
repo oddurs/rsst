@@ -2,7 +2,8 @@
 id: 72
 title: A feed's marker and its count are in different columns
 type: bug
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-13
 updated: 2026-09-13
 priority: p2
@@ -28,5 +29,5 @@ One column for whichever of the two a row has, so the edge is straight whatever 
 
 ## Acceptance criteria
 
-- [ ] A marker and a count occupy the same column
-- [ ] A test asserts it rather than a person noticing
+- [x] A marker and a count occupy the same column
+- [x] A test asserts it rather than a person noticing
