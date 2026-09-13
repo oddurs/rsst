@@ -128,6 +128,13 @@ pub fn resolve(hits: &Hits, event: MouseEvent, double: bool) -> Hit {
         MouseEventKind::ScrollDown => scroll(hits, column, row, WHEEL_LINES),
         MouseEventKind::ScrollUp => scroll(hits, column, row, -WHEEL_LINES),
         MouseEventKind::Down(MouseButton::Left) => click(hits, column, row, double),
+        // Middle click opens without selecting, which is what it does
+        // everywhere else. A row it cannot open is left alone rather than
+        // being selected as a consolation.
+        MouseEventKind::Down(MouseButton::Middle) => match click(hits, column, row, true) {
+            open @ (Hit::OpenEntry { .. } | Hit::OpenArticleLink(_) | Hit::OpenLink) => open,
+            _ => Hit::Nothing,
+        },
         _ => Hit::Nothing,
     }
 }
@@ -259,6 +266,10 @@ mod tests {
 
     fn down(column: u16, row: u16) -> MouseEvent {
         at(MouseEventKind::Down(MouseButton::Left), column, row)
+    }
+
+    fn middle(column: u16, row: u16) -> MouseEvent {
+        at(MouseEventKind::Down(MouseButton::Middle), column, row)
     }
 
     /// Feeds 0..20, entries 21..79, detail below, status on the last row.
@@ -502,5 +513,33 @@ mod tests {
             Some("5"),
             "the click chose the wrong link, or none"
         );
+    }
+
+    #[test]
+    fn middle_click_opens_an_entry_without_selecting_it_first() {
+        let hits = hits();
+        let (row, (feed, entry)) = hits.entry_rows[1];
+        assert_eq!(
+            resolve(&hits, middle(25, row), false),
+            Hit::OpenEntry { feed, entry }
+        );
+    }
+
+    #[test]
+    fn middle_click_opens_a_link_in_the_article() {
+        assert_eq!(
+            resolve(&hits(), middle(26, 15), false),
+            Hit::OpenArticleLink(0)
+        );
+    }
+
+    #[test]
+    fn middle_click_on_anything_else_does_nothing() {
+        // No selecting, no focus moving: a middle click that cannot open
+        // something should not do something else instead.
+        let hits = hits();
+        let (row, _) = hits.feed_rows[1];
+        assert_eq!(resolve(&hits, middle(5, row), false), Hit::Nothing);
+        assert_eq!(resolve(&hits, middle(23, 15), false), Hit::Nothing);
     }
 }
