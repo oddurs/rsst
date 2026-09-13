@@ -220,24 +220,13 @@ pub fn apply(app: &mut crate::app::App, hit: Hit) -> Option<Action> {
                 app.mark_current_read();
             }
         }
-        Hit::Scroll { pane, delta } => {
-            // Scrolling looks at a pane; it does not move the keyboard there.
-            let previous = app.focus;
-            app.focus = pane;
-            match pane {
-                Pane::Detail => app.scroll_detail(delta as i16),
-                _ => {
-                    for _ in 0..delta.unsigned_abs() {
-                        if delta > 0 {
-                            app.select_next();
-                        } else {
-                            app.select_previous();
-                        }
-                    }
-                }
-            }
-            app.focus = previous;
-        }
+        // Scrolling moves a view. It does not move the selection, take the
+        // focus, mark anything read, or change which article is shown — all
+        // of which dragging the cursor through the list used to do.
+        Hit::Scroll { pane, delta } => match pane {
+            Pane::Detail => app.scroll_detail(delta as i16),
+            pane => app.scroll_list(pane, delta),
+        },
         Hit::CloseHelp => {
             app.help_open = false;
             app.help_scroll = 0;

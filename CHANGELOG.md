@@ -47,6 +47,11 @@ still needs.
 
 ### Fixed
 
+- The mouse wheel scrolled by dragging the selection through the list, so a
+  trackpad flick never reached an end — selection wraps by design — marked every
+  entry it passed as read, and swapped the article on every line. It now scrolls
+  the view, stops at both ends, and leaves the cursor where it is
+
 - Fetching is limited per host as well as globally (`max_concurrent_per_host`,
   2 by default), so fifteen feeds on one site no longer arrive as one burst —
   feeds on other hosts still use the full global capacity

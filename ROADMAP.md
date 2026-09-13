@@ -155,3 +155,18 @@ with the alternate screen still active.
 - [x] [`0067`](https://github.com/oddurs/rsst/blob/main/cairn/items/0067-find-the-feed-when-given-a-page.md) Find the feed when given a page <sup>feature · v1.5 · p2</sup>
 - [x] [`0068`](https://github.com/oddurs/rsst/blob/main/cairn/items/0068-a-feed-with-an-empty-title-shows-as-nothing.md) A feed with an empty title shows as nothing <sup>bug · v1.5 · p2</sup>
 
+## v1.6
+
+`##········` 20% · 1 of 5 done
+
+### backlog
+
+- [ ] [`0070`](https://github.com/oddurs/rsst/blob/main/cairn/items/0070-a-click-passes-through-the-prompt-covering-it.md) A click passes through the prompt covering it <sup>bug · v1.6 · p1</sup>
+- [ ] [`0071`](https://github.com/oddurs/rsst/blob/main/cairn/items/0071-middle-click-does-not-open-anything.md) Middle click does not open anything <sup>feature · v1.6 · p2</sup>
+- [ ] [`0072`](https://github.com/oddurs/rsst/blob/main/cairn/items/0072-a-feed-s-marker-and-its-count-are-in-different-columns.md) A feed's marker and its count are in different columns <sup>bug · v1.6 · p2</sup>
+- [ ] [`0073`](https://github.com/oddurs/rsst/blob/main/cairn/items/0073-a-feed-with-no-title-shows-a-truncated-url.md) A feed with no title shows a truncated URL <sup>bug · v1.6 · p2</sup>
+
+### done
+
+- [x] [`0069`](https://github.com/oddurs/rsst/blob/main/cairn/items/0069-the-wheel-drags-the-selection-instead-of-scrolling-the-view.md) The wheel drags the selection instead of scrolling the view <sup>bug · v1.6 · p0</sup>
+
