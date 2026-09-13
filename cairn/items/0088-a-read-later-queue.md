@@ -8,6 +8,9 @@ updated: 2026-09-13
 priority: p2
 part_of:
 - 87
+release: v1.8
+effort: s
+area: ui
 ---
 
 ## Problem
