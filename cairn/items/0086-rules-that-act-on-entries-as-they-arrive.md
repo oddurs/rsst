@@ -5,9 +5,12 @@ type: feature
 status: backlog
 created: 2026-09-13
 updated: 2026-09-13
-priority: p2
+priority: p1
 part_of:
 - 84
+release: v1.8
+effort: l
+area: feed
 ---
 
 ## Problem

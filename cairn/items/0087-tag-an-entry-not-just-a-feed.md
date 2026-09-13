@@ -6,6 +6,9 @@ status: backlog
 created: 2026-09-13
 updated: 2026-09-13
 priority: p2
+release: v1.8
+effort: m
+area: storage
 ---
 
 ## Problem
