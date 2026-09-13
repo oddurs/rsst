@@ -48,6 +48,8 @@ still needs.
 
 ### Fixed
 
+- A failed feed's `!` sat a column left of where every unread count sits, so the
+  right edge of the sidebar was ragged
 - A click on the "add a feed" prompt or the move picker fell through to the pane
   behind it, selecting a feed or opening an entry under a prompt still waiting
   for typing. Clicking away from a prompt now cancels it, as it does elsewhere
