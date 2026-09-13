@@ -84,10 +84,22 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
     let width = inner(area).width;
     let items: Vec<ListItem> = rows.iter().map(|row| feed_row(app, row, width)).collect();
 
-    let mut state = ListState::default();
-    state.select(rows.iter().position(
+    let body = inner(area);
+    let selected = rows.iter().position(
         |row| matches!(row, crate::tree::Row::Feed { index, .. } if *index == app.selected_feed),
-    ));
+    );
+    app.feeds_view = crate::app::ListView {
+        rows: rows.len(),
+        height: body.height as usize,
+        selected,
+    };
+    let offset = app.feeds_start(selected, body.height as usize, rows.len());
+
+    let mut state = ListState::default();
+    *state.offset_mut() = offset;
+    // Selected only while it is on screen: handing the widget a selection it
+    // cannot see makes it scroll to find it, which would undo the wheel.
+    state.select(selected.filter(|row| (offset..offset + body.height as usize).contains(row)));
 
     let unread: usize = (0..app.feeds.len()).map(|index| app.unread(index)).sum();
     let title = if unread > 0 {
@@ -111,16 +123,15 @@ fn draw_feeds(frame: &mut Frame, app: &mut App, area: Rect) {
         &mut state,
     );
 
-    // Read the offset back out of the widget rather than recomputing it. The
-    // list decides how far it scrolled; a second implementation here would be
-    // right until it was not.
-    let body = inner(area);
+    // The offset is the app's now, not the widget's — the wheel moves a view
+    // that the selection does not drag around.
+    app.feeds_offset = offset;
     app.hits.feed_rows = rows
         .into_iter()
         .enumerate()
-        .skip(state.offset())
+        .skip(offset)
         .take(body.height as usize)
-        .map(|(index, row)| ((index - state.offset()) as u16 + body.y, row))
+        .map(|(index, row)| ((index - offset) as u16 + body.y, row))
         .collect();
 }
 
@@ -318,8 +329,15 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
     };
     app.entries_viewport = (area.width.saturating_sub(2), area.height.saturating_sub(2));
     let visible = app.visible_indices(app.selected_feed);
+    let body = inner(area);
+    let selected = visible.iter().position(|i| *i == app.selected_entry);
+    // Decided before the rows are built, because the built rows borrow the
+    // entries they were built from and nothing can write to `app` until they
+    // have been handed to the widget.
+    let offset = app.entries_start(selected, body.height as usize, visible.len());
+
     let entries = app.current_feed().map(|feed| &feed.entries);
-    let width = inner(area).width.saturating_sub(CURSOR_WIDTH);
+    let width = body.width.saturating_sub(CURSOR_WIDTH);
     let items: Vec<ListItem> = visible
         .iter()
         .filter_map(|index| entries.and_then(|entries| entries.get(*index)))
@@ -327,7 +345,8 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
         .collect();
 
     let mut state = ListState::default();
-    state.select(visible.iter().position(|i| *i == app.selected_entry));
+    *state.offset_mut() = offset;
+    state.select(selected.filter(|row| (offset..offset + body.height as usize).contains(row)));
 
     let title = if app.read.unread_only {
         let separator = if app.theme.ascii { "  - " } else { "  · " };
@@ -354,14 +373,21 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
         &mut state,
     );
 
-    let body = inner(area);
+    // Written back after the render, which is where the borrow of the entries
+    // the list items point at finally ends.
+    app.entries_view = crate::app::ListView {
+        rows: visible.len(),
+        height: body.height as usize,
+        selected,
+    };
     let feed = app.selected_feed;
+    app.entries_offset = offset;
     app.hits.entry_rows = visible
         .into_iter()
         .enumerate()
-        .skip(state.offset())
+        .skip(offset)
         .take(body.height as usize)
-        .map(|(row, entry)| ((row - state.offset()) as u16 + body.y, (feed, entry)))
+        .map(|(row, entry)| ((row - offset) as u16 + body.y, (feed, entry)))
         .collect();
 }
 
@@ -1513,6 +1539,32 @@ mod tests {
             .collect()
     }
 
+    /// One feed with `count` entries, and enough feeds to overflow a short
+    /// pane — a list long enough that scrolling it means something.
+    fn long_list(count: usize) -> App {
+        let entries: Vec<Entry> = (0..count)
+            .map(|n| Entry {
+                title: format!("Entry number {n}"),
+                link: Some(format!("https://a.example/{n}")),
+                published: None,
+                summary: "Body.".into(),
+                content: String::new(),
+                keys: vec![format!("id:{n}")],
+            })
+            .collect();
+        // More feeds than fit in the pane the mouse helpers render, so the
+        // feed list can actually scroll.
+        let feeds = (0..30)
+            .map(|n| Feed {
+                title: format!("Feed {n}"),
+                url: format!("https://feed{n}.example/f.xml"),
+                status: crate::feed::Status::Idle,
+                entries: if n == 0 { entries.clone() } else { Vec::new() },
+            })
+            .collect();
+        App::new(feeds, ReadState::default())
+    }
+
     fn themed(theme: crate::theme::Theme) -> App {
         App::new(
             vec![Feed {
@@ -1812,14 +1864,101 @@ mod tests {
     }
 
     #[test]
-    fn the_wheel_over_the_entries_pane_moves_through_entries() {
-        let mut app = clickable();
+    fn the_wheel_over_the_entries_pane_scrolls_without_moving_the_selection() {
+        // It used to drag the cursor: which wrapped at the end so a flick
+        // never stopped, marked every entry it passed as read, and swapped
+        // the article on every line.
+        let mut app = long_list(200);
         render_at(&mut app, 80, 24);
         let (row, _) = app.hits.entry_rows[0];
+        let selected = app.selected_entry;
+
         wheel_at(&mut app, 40, row, true);
-        assert_eq!(app.selected_entry, 1);
-        wheel_at(&mut app, 40, row, false);
-        assert_eq!(app.selected_entry, 0);
+        render_at(&mut app, 80, 24);
+        assert!(app.entries_offset > 0, "the view did not move");
+        assert_eq!(app.selected_entry, selected, "the selection was dragged");
+    }
+
+    #[test]
+    fn scrolling_stops_at_the_ends_rather_than_wrapping() {
+        // The reported bug: "when I scroll down it sometimes just keeps
+        // scrolling". Selection wraps by design; a view must not.
+        let mut app = long_list(40);
+        render_at(&mut app, 80, 24);
+        let (row, _) = app.hits.entry_rows[0];
+
+        for _ in 0..200 {
+            wheel_at(&mut app, 40, row, true);
+            render_at(&mut app, 80, 24);
+        }
+        let bottom = app.entries_offset;
+        assert!(bottom > 0, "it never scrolled at all");
+        assert_eq!(
+            bottom,
+            app.entries_view.rows - app.entries_view.height,
+            "scrolling past the end did not stop at the last screenful"
+        );
+
+        for _ in 0..200 {
+            wheel_at(&mut app, 40, row, false);
+            render_at(&mut app, 80, 24);
+        }
+        assert_eq!(app.entries_offset, 0, "scrolling up past the top wrapped");
+    }
+
+    #[test]
+    fn scrolling_the_list_marks_nothing_read() {
+        let mut app = long_list(200);
+        render_at(&mut app, 80, 24);
+        let (row, _) = app.hits.entry_rows[0];
+        let unread = app.unread(0);
+
+        for _ in 0..30 {
+            wheel_at(&mut app, 40, row, true);
+            render_at(&mut app, 80, 24);
+        }
+        assert_eq!(
+            app.unread(0),
+            unread,
+            "scrolling a list to look at it consumed it"
+        );
+    }
+
+    #[test]
+    fn moving_the_selection_off_screen_scrolls_it_back_into_view() {
+        // The other half: the view follows the cursor when the cursor moves,
+        // and only then.
+        let mut app = long_list(200);
+        app.focus = Pane::Entries;
+        render_at(&mut app, 80, 24);
+
+        let height = app.entries_view.height;
+        for _ in 0..height + 5 {
+            app.select_next();
+        }
+        // The next frame is what notices the selection moved.
+        render_at(&mut app, 80, 24);
+
+        let selected = app.entries_view.selected.expect("something is selected");
+        assert!(
+            (app.entries_offset..app.entries_offset + height).contains(&selected),
+            "the selection at row {selected} is outside rows {}..{}",
+            app.entries_offset,
+            app.entries_offset + height
+        );
+    }
+
+    #[test]
+    fn the_wheel_over_the_feed_list_scrolls_it_too() {
+        let mut app = long_list(10);
+        render_at(&mut app, 80, 24);
+        let (row, _) = app.hits.feed_rows[0];
+        let column = app.hits.feeds_pane.x + 1;
+
+        wheel_at(&mut app, column, row, true);
+        render_at(&mut app, 80, 24);
+        assert!(app.feeds_offset > 0, "the feed list did not scroll");
+        assert_eq!(app.selected_feed, 0, "the feed selection was dragged");
     }
 
     #[test]

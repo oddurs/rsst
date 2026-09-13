@@ -100,6 +100,33 @@ pub struct App {
     marked: Option<String>,
     /// Digits typed so far toward following a numbered link.
     pub following: Option<String>,
+    /// First visible row of the feed pane, moved by the wheel.
+    pub feeds_offset: usize,
+    /// First visible row of the entry pane, moved by the wheel.
+    pub entries_offset: usize,
+    /// What the renderer last drew in each list, so scrolling can be clamped
+    /// and the selection followed without a second copy of the tree logic.
+    pub feeds_view: ListView,
+    pub entries_view: ListView,
+    /// The selection as the view last followed it, so the view follows a
+    /// selection that moves and stays put when only the wheel moved.
+    followed: (usize, usize),
+    /// The feed selection as the feed list last followed it.
+    followed_feed: usize,
+}
+
+/// What a list pane looked like on the last frame.
+///
+/// Written back by the renderer, which is the only thing that knows how many
+/// rows a folded tree has or how many fit. The app does the arithmetic.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ListView {
+    /// Rows the list has in total.
+    pub rows: usize,
+    /// Rows that fit on screen.
+    pub height: usize,
+    /// Which row the selection is drawn on, if it is in the list at all.
+    pub selected: Option<usize>,
 }
 
 /// A marking action that affects more than one entry, so it is worth a prompt.
@@ -1093,6 +1120,58 @@ impl App {
         lines.saturating_sub(self.detail_viewport.1)
     }
 
+    /// Scrolls a list's view without disturbing the selection.
+    ///
+    /// The wheel scrolls what is on screen; it does not drag the cursor
+    /// through the list, which would mark entries read on the way past and
+    /// never stop, because selection wraps and a view does not.
+    pub fn scroll_list(&mut self, pane: Pane, delta: isize) {
+        let (offset, view) = match pane {
+            Pane::Feeds => (&mut self.feeds_offset, self.feeds_view),
+            Pane::Entries => (&mut self.entries_offset, self.entries_view),
+            Pane::Detail => return,
+        };
+        // Stops at both ends. Wrapping is right for `j`, which is a step
+        // through a list, and wrong for a wheel, which is a view moving.
+        let last = view.rows.saturating_sub(view.height);
+        let next = (*offset as isize + delta).clamp(0, last as isize);
+        *offset = next as usize;
+    }
+
+    /// Where the entry list should start, given what is being drawn now.
+    ///
+    /// Follows the selection only when the selection has moved: following it
+    /// every frame would undo the wheel, and never following it would let `j`
+    /// walk off the bottom of the screen.
+    ///
+    /// Called by the renderer, because only the renderer knows which row the
+    /// selection landed on once folders and filters have had their say. The
+    /// rule lives here; the facts come from there.
+    pub fn entries_start(&mut self, selected: Option<usize>, height: usize, rows: usize) -> usize {
+        let moved = (self.selected_feed, self.selected_entry) != self.followed;
+        self.followed = (self.selected_feed, self.selected_entry);
+        // The pane may have grown since the wheel last moved, stranding the
+        // offset past the last row that can be the first one.
+        let offset = self.entries_offset.min(rows.saturating_sub(height));
+        self.entries_offset = match moved {
+            true => scrolled_to_show(selected, offset, height),
+            false => offset,
+        };
+        self.entries_offset
+    }
+
+    /// The same for the feed list.
+    pub fn feeds_start(&mut self, selected: Option<usize>, height: usize, rows: usize) -> usize {
+        let moved = self.selected_feed != self.followed_feed;
+        self.followed_feed = self.selected_feed;
+        let offset = self.feeds_offset.min(rows.saturating_sub(height));
+        self.feeds_offset = match moved {
+            true => scrolled_to_show(selected, offset, height),
+            false => offset,
+        };
+        self.feeds_offset
+    }
+
     pub fn scroll_detail(&mut self, delta: i16) {
         let next = self.detail_scroll as i32 + delta as i32;
         self.detail_scroll = next.clamp(0, self.max_detail_scroll() as i32) as u16;
@@ -1199,6 +1278,20 @@ impl App {
 }
 
 /// Moves `current` by `delta` within `len`, wrapping at both ends.
+/// The smallest offset change that puts `row` inside a window of `height`.
+fn scrolled_to_show(row: Option<usize>, offset: usize, height: usize) -> usize {
+    let (Some(row), true) = (row, height > 0) else {
+        return offset;
+    };
+    if row < offset {
+        return row;
+    }
+    if row >= offset + height {
+        return row + 1 - height;
+    }
+    offset
+}
+
 fn step(current: usize, len: usize, delta: isize) -> usize {
     if len == 0 {
         return 0;
