@@ -681,10 +681,19 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
     app.detail_scroll = app.detail_scroll.min(max);
 
     let mut article_links: Vec<(usize, u16, u16, usize)> = Vec::new();
+    // Borrowed, not rebuilt: the rows were laid out by `max_detail_scroll`
+    // above and stay put until the article, the width or the measure changes.
+    //
+    // Only the rows in view are turned into lines. Styling all of a long
+    // article to show thirty rows of it made the cost of a frame depend on how
+    // much had been published rather than on how big the screen is.
+    let first = app.detail_scroll as usize;
     let lines: Vec<Line> = app
         .detail_rows()
-        .into_iter()
+        .iter()
         .enumerate()
+        .skip(first)
+        .take(inner.height as usize)
         .map(|(line, row)| {
             let mut found = Vec::new();
             let rendered = article_line(app, row, &mut found);
@@ -725,9 +734,9 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(
         // Already wrapped by `App::detail_lines`, so no Wrap here — the scroll
         // offset has to mean the same thing to the app and to the renderer.
-        Paragraph::new(lines)
-            .block(block(&title, app.focus == Pane::Detail, &app.theme))
-            .scroll((app.detail_scroll, 0)),
+        // No scroll offset: the lines handed over are already the ones in
+        // view, so the widget has nothing left to skip.
+        Paragraph::new(lines).block(block(&title, app.focus == Pane::Detail, &app.theme)),
         area,
     );
 
@@ -769,7 +778,7 @@ fn draw_detail(frame: &mut Frame, app: &mut App, area: Rect) {
 /// so the theme stays the only place colours are chosen.
 fn article_line<'a>(
     app: &App,
-    row: crate::article::Row,
+    row: &crate::article::Row,
     found: &mut Vec<(u16, u16, usize)>,
 ) -> Line<'a> {
     use crate::article::{Inline, Kind};
@@ -806,8 +815,8 @@ fn article_line<'a>(
         _ => Style::default(),
     };
 
-    for span in row.spans {
-        let style = match &span {
+    for span in &row.spans {
+        let style = match span {
             Inline::Strong(_) => base.add_modifier(Modifier::BOLD),
             Inline::Emphasis(_) => base.add_modifier(Modifier::ITALIC),
             Inline::Code(_) if row.kind != Kind::Code => app.theme.accent,
@@ -816,7 +825,7 @@ fn article_line<'a>(
         };
         let text = span.text().to_string();
         let width = text.chars().count();
-        if let Inline::Link(_, index) = &span
+        if let Inline::Link(_, index) = span
             && width > 0
         {
             found.push((column as u16, (column + width - 1) as u16, *index));

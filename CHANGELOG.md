@@ -48,6 +48,11 @@ still needs.
 
 ### Fixed
 
+- The detail pane laid the article out from scratch twice on every frame, and
+  styled every row of it to show the thirty in view. Idling on a long article
+  cost 23% of a core; it is now a tenth of that, and a frame costs what the
+  screen is worth rather than what the publisher wrote
+
 - A failed feed's `!` sat a column left of where every unread count sits, so the
   right edge of the sidebar was ragged
 - A click on the "add a feed" prompt or the move picker fell through to the pane

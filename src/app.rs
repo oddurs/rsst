@@ -113,6 +113,27 @@ pub struct App {
     followed: (usize, usize),
     /// The feed selection as the feed list last followed it.
     followed_feed: usize,
+    /// The article as last laid out, and what it was laid out from.
+    layout: Layout,
+}
+
+/// The detail pane's rows, kept until something that shaped them changes.
+///
+/// Laying an article out costs about ten milliseconds for a long one, and the
+/// pane used to do it twice per frame, ten frames a second, whether or not
+/// anything had moved — a quarter of a core to display a page that was not
+/// changing. The comparison that avoids it is a string compare of the source,
+/// which is three orders of magnitude cheaper than parsing it.
+#[derive(Debug, Default)]
+struct Layout {
+    /// What was laid out. Compared rather than hashed: an exact answer, and
+    /// cheap next to what it saves.
+    source: String,
+    title: String,
+    link: Option<String>,
+    width: u16,
+    measure: Option<crate::article::Measure>,
+    rows: Vec<crate::article::Row>,
 }
 
 /// What a list pane looked like on the last frame.
@@ -965,7 +986,7 @@ impl App {
     /// The entry's markup is parsed into a document and laid out, rather than
     /// stripped to a run of text — a code block whose line breaks are gone is
     /// not a code block.
-    pub fn detail_rows(&self) -> Vec<crate::article::Row> {
+    fn lay_out_detail(&self) -> Vec<crate::article::Row> {
         use crate::article::{Inline, Kind, Row};
         let width = self.detail_viewport.0 as usize;
         let Some(entry) = self.current_entry() else {
@@ -1084,10 +1105,51 @@ impl App {
         }
     }
 
+    /// Lays the article out again if anything that shapes it has changed.
+    ///
+    /// Called at the top of the frame and by anything that needs the rows.
+    /// Everything else reads [`Self::detail_rows`], which is a borrow.
+    /// Returns whether it actually laid anything out, which is what a test
+    /// needs to know and what every caller can ignore.
+    pub fn refresh_layout(&mut self) -> bool {
+        let width = self.detail_viewport.0;
+        let entry = self.current_entry();
+        let title = entry.map(|entry| entry.title.clone()).unwrap_or_default();
+        let link = entry.and_then(|entry| entry.link.clone());
+        let source = self.article_source().unwrap_or_default();
+
+        let same = self.layout.measure == Some(self.measure)
+            && self.layout.width == width
+            && self.layout.title == title
+            && self.layout.link == link
+            && self.layout.source == source;
+        if same {
+            return false;
+        }
+
+        let source = source.to_string();
+        let rows = self.lay_out_detail();
+        self.layout = Layout {
+            source,
+            title,
+            link,
+            width,
+            measure: Some(self.measure),
+            rows,
+        };
+        true
+    }
+
+    /// The rows the detail pane draws, as laid out by [`Self::refresh_layout`].
+    pub fn detail_rows(&self) -> &[crate::article::Row] {
+        &self.layout.rows
+    }
+
     /// The detail pane as plain text, for measuring and for tests.
-    pub fn detail_lines(&self) -> Vec<String> {
+    pub fn detail_lines(&mut self) -> Vec<String> {
+        self.refresh_layout();
         self.detail_rows()
-            .into_iter()
+            .iter()
             .map(|row| {
                 let body: String = row
                     .spans
@@ -1115,8 +1177,9 @@ impl App {
     /// The furthest the detail pane can scroll and still show text.
     ///
     /// Stopping here is what keeps the pane from scrolling off into blank space.
-    pub fn max_detail_scroll(&self) -> u16 {
-        let lines = self.detail_lines().len() as u16;
+    pub fn max_detail_scroll(&mut self) -> u16 {
+        self.refresh_layout();
+        let lines = self.layout.rows.len() as u16;
         lines.saturating_sub(self.detail_viewport.1)
     }
 
@@ -1799,7 +1862,8 @@ mod tests {
         let mut app = scrollable();
         app.focus = Pane::Detail;
         app.select_last();
-        assert_eq!(app.detail_scroll, app.max_detail_scroll());
+        let max = app.max_detail_scroll();
+        assert_eq!(app.detail_scroll, max);
         app.select_first();
         assert_eq!(app.detail_scroll, 0);
     }
@@ -2395,7 +2459,8 @@ mod tests {
         for _ in 0..50 {
             app.page(1);
         }
-        assert_eq!(app.detail_scroll, app.max_detail_scroll());
+        let max = app.max_detail_scroll();
+        assert_eq!(app.detail_scroll, max);
     }
 
     #[test]
@@ -2547,6 +2612,87 @@ mod tests {
                 .contains("no links"),
             "{:?}",
             app.status
+        );
+    }
+
+    #[test]
+    fn an_unchanged_article_is_laid_out_once() {
+        // It used to be laid out twice a frame, ten frames a second: a quarter
+        // of a core to show a page that was not changing.
+        let mut app = app();
+        app.detail_viewport = (80, 20);
+        app.article = Some("<p>Something to lay out.</p>".into());
+
+        assert!(app.refresh_layout(), "the first frame has to do the work");
+        for _ in 0..10 {
+            assert!(!app.refresh_layout(), "it laid the same article out again");
+        }
+    }
+
+    #[test]
+    fn everything_that_shapes_the_article_lays_it_out_again() {
+        let mut app = app();
+        app.detail_viewport = (80, 20);
+        app.article = Some("<p>One.</p>".into());
+        app.refresh_layout();
+
+        // A different article.
+        app.article = Some("<p>Two.</p>".into());
+        assert!(app.refresh_layout(), "new markup was not noticed");
+
+        // A different width: the wrap points move.
+        app.detail_viewport = (60, 20);
+        assert!(app.refresh_layout(), "a resize was not noticed");
+
+        // A different measure: so does the margin.
+        app.measure = crate::article::Measure {
+            columns: Some(40),
+            ascii: false,
+        };
+        assert!(app.refresh_layout(), "a new measure was not noticed");
+
+        // ASCII changes the glyphs, so it changes the rows.
+        app.measure = crate::article::Measure {
+            columns: Some(40),
+            ascii: true,
+        };
+        assert!(app.refresh_layout(), "the ASCII fallback was not noticed");
+
+        // A different entry, with its own title and link in the header.
+        app.focus = Pane::Entries;
+        app.select_next();
+        assert!(
+            app.refresh_layout(),
+            "moving to another entry was not noticed"
+        );
+    }
+
+    #[test]
+    fn an_article_of_the_same_length_is_still_noticed() {
+        // Length is the cheap half of the comparison; it must not be all of it.
+        let mut app = app();
+        app.detail_viewport = (80, 20);
+        app.article = Some("<p>aaaa</p>".into());
+        app.refresh_layout();
+        app.article = Some("<p>bbbb</p>".into());
+        assert!(app.refresh_layout(), "same length, different words, missed");
+        assert!(app.detail_lines().iter().any(|line| line.contains("bbbb")));
+    }
+
+    #[test]
+    fn a_refresh_that_changes_an_entry_relays_it_out() {
+        // The feed came back with a longer version of the same entry: same
+        // selection, same width, different text.
+        let mut app = app();
+        app.detail_viewport = (80, 20);
+        app.focus = Pane::Entries;
+        app.feeds[0].entries[0].content = "<p>Short.</p>".into();
+        app.refresh_layout();
+
+        app.feeds[0].entries[0].content = "<p>Rather longer, now.</p>".into();
+        assert!(
+            app.refresh_layout(),
+            "a refreshed entry kept the old layout"
         );
     }
 }
