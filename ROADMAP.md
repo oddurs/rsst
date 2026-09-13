@@ -157,11 +157,7 @@ with the alternate screen still active.
 
 ## v1.6
 
-`########··` 80% · 4 of 5 done
-
-### backlog
-
-- [ ] [`0073`](https://github.com/oddurs/rsst/blob/main/cairn/items/0073-a-feed-with-no-title-shows-a-truncated-url.md) A feed with no title shows a truncated URL <sup>bug · v1.6 · p2</sup>
+`##########` 100% · 5 of 5 done
 
 ### done
 
@@ -169,4 +165,5 @@ with the alternate screen still active.
 - [x] [`0070`](https://github.com/oddurs/rsst/blob/main/cairn/items/0070-a-click-passes-through-the-prompt-covering-it.md) A click passes through the prompt covering it <sup>bug · v1.6 · p1</sup>
 - [x] [`0071`](https://github.com/oddurs/rsst/blob/main/cairn/items/0071-middle-click-does-not-open-anything.md) Middle click does not open anything <sup>feature · v1.6 · p2</sup>
 - [x] [`0072`](https://github.com/oddurs/rsst/blob/main/cairn/items/0072-a-feed-s-marker-and-its-count-are-in-different-columns.md) A feed's marker and its count are in different columns <sup>bug · v1.6 · p2</sup>
+- [x] [`0073`](https://github.com/oddurs/rsst/blob/main/cairn/items/0073-a-feed-with-no-title-shows-a-truncated-url.md) A feed with no title shows a truncated URL <sup>bug · v1.6 · p2</sup>
 
