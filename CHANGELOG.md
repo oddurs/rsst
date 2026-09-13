@@ -48,6 +48,8 @@ still needs.
 
 ### Fixed
 
+- rsst drew a whole frame ten times a second whether or not anything had
+  changed. It draws when something happens now: sitting idle costs nothing
 - A refresh deleted every row for a feed and inserted them all again, whatever
   had changed — 654 ms for a five-thousand-entry feed, run between two frames.
   It writes only what changed now: an unchanged refresh writes nothing and costs

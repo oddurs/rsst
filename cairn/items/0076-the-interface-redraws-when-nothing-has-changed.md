@@ -2,7 +2,8 @@
 id: 76
 title: The interface redraws when nothing has changed
 type: bug
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-13
 updated: 2026-09-13
 priority: p2
@@ -27,6 +28,15 @@ Best done after `0074`, which removes most of what a wasted frame costs, so the 
 
 ## Acceptance criteria
 
-- [ ] An idle reader draws nothing
-- [ ] Every input and every arriving fetch still draws promptly
-- [ ] Nothing that used to appear on its own stops appearing
+- [x] An idle reader draws nothing
+- [x] Every input and every arriving fetch still draws promptly
+- [x] Nothing that used to appear on its own stops appearing
+
+Measured: **eight seconds idle costs 0.00 s of CPU and draws 0 bytes**, where it
+used to render ten frames a second forever. A keypress immediately after drew
+2,581 bytes, and feeds still appear as their fetches land.
+
+The flag is set deliberately generously — every terminal event marks the frame
+dirty, whether or not it turned out to change anything. An event that changes
+nothing costs one frame; an event that changes something and was missed would
+leave the screen lying, and no saving is worth that.
