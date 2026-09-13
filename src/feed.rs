@@ -531,6 +531,23 @@ async fn fetch_inner(
     }
 }
 
+/// The host part of a URL, for naming a feed that would not name itself.
+///
+/// Falls back to the whole string rather than to nothing: an address too odd
+/// to read is still better than a blank line in the sidebar.
+fn host_of(url: &str) -> String {
+    let rest = url.split_once("://").map(|(_, rest)| rest).unwrap_or(url);
+    let host = rest
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(rest)
+        .trim_start_matches("www.");
+    match host.is_empty() {
+        true => url.to_string(),
+        false => host.to_string(),
+    }
+}
+
 /// What kind of trouble a transport error is.
 fn trouble_for(err: &reqwest::Error) -> Trouble {
     if err.is_timeout() {
@@ -714,7 +731,10 @@ pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
                 .map(|t| decode_entities(&t.content))
                 .filter(|title| !title.trim().is_empty())
         })
-        .unwrap_or_else(|| source.url.clone());
+        // The host, not the whole address. A sidebar line reading
+        // `https://danluu.com/atom.…` is wider than every real name and
+        // truncated to no purpose; `danluu.com` is what a person calls it.
+        .unwrap_or_else(|| host_of(&source.url));
 
     let mut entries: Vec<Entry> = parsed
         .entries
@@ -1672,7 +1692,7 @@ mod tests {
 
         assert_eq!(
             feed.title,
-            source().url,
+            host_of(&source().url),
             "an empty feed title left a nameless line in the sidebar"
         );
         assert_eq!(
@@ -2097,5 +2117,33 @@ mod tests {
             "{}",
             failure.detail
         );
+    }
+
+    #[test]
+    fn a_feed_with_no_title_is_named_by_its_host() {
+        // danluu.com publishes `<title></title>`. Falling back to the whole
+        // address gave a sidebar line wider than every real name.
+        let xml = r#"<?xml version="1.0"?><rss version="2.0"><channel>
+            <title></title><link>https://danluu.com/</link>
+            <item><title>A post</title></item></channel></rss>"#;
+        let mut source = source();
+        source.url = "https://danluu.com/atom.xml".into();
+        source.title = None;
+        assert_eq!(
+            parse(xml.as_bytes(), &source).expect("parses").title,
+            "danluu.com"
+        );
+    }
+
+    #[test]
+    fn a_host_is_read_out_of_whatever_shape_the_address_is() {
+        assert_eq!(host_of("https://example.com/feed.xml"), "example.com");
+        assert_eq!(host_of("http://example.com"), "example.com");
+        assert_eq!(host_of("https://www.example.com/f"), "example.com");
+        assert_eq!(host_of("https://example.com:8443/f"), "example.com:8443");
+        assert_eq!(host_of("https://example.com/a?b=c#d"), "example.com");
+        // Not a URL at all: better the odd string than a blank line.
+        assert_eq!(host_of("not a url"), "not a url");
+        assert_eq!(host_of("https://"), "https://");
     }
 }

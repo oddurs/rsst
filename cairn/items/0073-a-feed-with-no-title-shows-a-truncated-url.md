@@ -2,7 +2,8 @@
 id: 73
 title: A feed with no title shows a truncated URL
 type: bug
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-13
 updated: 2026-09-13
 priority: p2
@@ -21,5 +22,5 @@ Fall back to the host, which is what a person would call the feed anyway. `danlu
 
 ## Acceptance criteria
 
-- [ ] A feed with no title is named by its host
-- [ ] A URL that cannot be read as one still falls back to something
+- [x] A feed with no title is named by its host
+- [x] A URL that cannot be read as one still falls back to something
