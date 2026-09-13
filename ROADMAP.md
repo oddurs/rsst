@@ -157,11 +157,10 @@ with the alternate screen still active.
 
 ## v1.6
 
-`########··` 75% · 6 of 8 done
+`#########·` 88% · 7 of 8 done
 
 ### backlog
 
-- [ ] [`0075`](https://github.com/oddurs/rsst/blob/main/cairn/items/0075-a-refresh-rewrites-every-row-and-blocks-the-interface.md) A refresh rewrites every row and blocks the interface <sup>bug · v1.6 · p1</sup>
 - [ ] [`0076`](https://github.com/oddurs/rsst/blob/main/cairn/items/0076-the-interface-redraws-when-nothing-has-changed.md) The interface redraws when nothing has changed <sup>bug · v1.6 · p2</sup>
 
 ### done
@@ -172,4 +171,5 @@ with the alternate screen still active.
 - [x] [`0072`](https://github.com/oddurs/rsst/blob/main/cairn/items/0072-a-feed-s-marker-and-its-count-are-in-different-columns.md) A feed's marker and its count are in different columns <sup>bug · v1.6 · p2</sup>
 - [x] [`0073`](https://github.com/oddurs/rsst/blob/main/cairn/items/0073-a-feed-with-no-title-shows-a-truncated-url.md) A feed with no title shows a truncated URL <sup>bug · v1.6 · p2</sup>
 - [x] [`0074`](https://github.com/oddurs/rsst/blob/main/cairn/items/0074-the-article-is-laid-out-again-on-every-frame.md) The article is laid out again on every frame <sup>bug · v1.6 · p1</sup>
+- [x] [`0075`](https://github.com/oddurs/rsst/blob/main/cairn/items/0075-a-refresh-rewrites-every-row-and-blocks-the-interface.md) A refresh rewrites every row and blocks the interface <sup>bug · v1.6 · p1</sup>
 

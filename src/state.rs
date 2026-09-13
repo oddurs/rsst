@@ -211,7 +211,7 @@ impl ReadState {
     ///
     /// A delta rather than the whole set: this is the cost the TOML version
     /// could not avoid, and the reason it grew forever.
-    pub fn persist(&mut self, db: &crate::db::Db) -> Result<()> {
+    pub fn persist(&mut self, db: &mut crate::db::Db) -> Result<()> {
         db.save_state(
             &self.read_added,
             &self.read_removed,

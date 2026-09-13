@@ -168,7 +168,7 @@ async fn main() -> Result<()> {
 
     // Save even when the loop failed: the user still read those entries, and
     // losing that is more annoying than whatever went wrong.
-    if let Err(err) = app.read.persist(&session.db) {
+    if let Err(err) = app.read.persist(&mut session.db) {
         eprintln!("rsst: could not save read state: {err:#}");
     }
     if let Err(err) = session.db.retain_configured(&session.config.feeds) {
@@ -460,7 +460,7 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
             match key.code {
                 KeyCode::Char('y') | KeyCode::Char('Y') => {
                     let marked = app.confirm_bulk();
-                    let _ = app.read.persist(&session.db);
+                    let _ = app.read.persist(&mut session.db);
                     app.status = Some(format!(" Marked {marked} entries read. "));
                 }
                 _ => {
@@ -744,17 +744,17 @@ fn dispatch(action: keys::Action, app: &mut App, session: &mut Session) -> Resul
         Action::Search => app.start_search(),
         Action::ToggleRead => {
             app.toggle_current_read();
-            let _ = app.read.persist(&session.db);
+            let _ = app.read.persist(&mut session.db);
         }
         Action::MarkFeedRead => app.request_bulk(app::Bulk::Feed),
         Action::MarkAllRead => app.request_bulk(app::Bulk::Everything),
         Action::ToggleUnreadOnly => {
             app.toggle_unread_only();
-            let _ = app.read.persist(&session.db);
+            let _ = app.read.persist(&mut session.db);
         }
         Action::ToggleStar => {
             let starred = app.toggle_star();
-            let _ = app.read.persist(&session.db);
+            let _ = app.read.persist(&mut session.db);
             app.status = Some(if starred {
                 " Starred. ".into()
             } else {
@@ -777,7 +777,7 @@ fn dispatch(action: keys::Action, app: &mut App, session: &mut Session) -> Resul
         },
         Action::ToggleSort => {
             app.toggle_sort();
-            let _ = app.read.persist(&session.db);
+            let _ = app.read.persist(&mut session.db);
             app.status = Some(if app.read.oldest_first {
                 " Oldest first. ".into()
             } else {
@@ -793,7 +793,7 @@ fn dispatch(action: keys::Action, app: &mut App, session: &mut Session) -> Resul
         Action::Open => open_selected(app),
         Action::CopyLink => copy_selected(app),
         Action::Refresh => {
-            let _ = app.read.persist(&session.db);
+            let _ = app.read.persist(&mut session.db);
             let starting = app.begin_refresh();
             app.status = Some(if starting.is_empty() {
                 " Already refreshing… ".into()
