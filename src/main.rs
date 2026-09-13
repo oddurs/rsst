@@ -187,10 +187,20 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
     // Checked immediately on the first pass, so a feed that was due while the
     // reader was closed is fetched on launch rather than twenty seconds in.
     let mut last_due_check = std::time::Instant::now() - DUE_CHECK;
+    // Nothing draws unless something has changed. The reader used to render a
+    // whole frame ten times a second whether or not anything had moved, which
+    // on a laptop is a background drain with nothing to show for it.
+    //
+    // Set wherever something arrives or the reader does something, and
+    // deliberately generous: an event that turns out to change nothing costs
+    // one frame, while an event that changes something and is missed would
+    // leave the screen lying.
+    let mut dirty = true;
     while !app.should_quit {
         // Take whatever has arrived since the last frame. Never blocks, so a
         // slow feed cannot hold up the redraw.
         while let Ok((index, result)) = session.rx.try_recv() {
+            dirty = true;
             let Some(slot) = app.feeds.get_mut(index) else {
                 continue;
             };
@@ -282,6 +292,8 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
         // the interface never waits for the network.
         if last_due_check.elapsed() >= DUE_CHECK {
             last_due_check = std::time::Instant::now();
+            // Marks a feed as fetching, which is a change worth showing.
+            dirty = true;
             let now = chrono::Utc::now();
             let due: Vec<usize> = session
                 .config
@@ -321,6 +333,7 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
 
         // A checked feed coming back, ready to be written to the config.
         while let Ok(result) = session.added_rx.try_recv() {
+            dirty = true;
             app.status = Some(
                 match result.and_then(|(url, title)| {
                     config::add_feed(&session.config_path, &url, Some(&title))?;
@@ -344,6 +357,7 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
 
         // A fetched article arriving is the only other thing worth a redraw.
         while let Ok((keys, result)) = session.articles_rx.try_recv() {
+            dirty = true;
             let current = app.current_entry().map(|entry| entry.keys.clone());
             match result {
                 Ok(html) => {
@@ -370,12 +384,19 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
         }
 
         app.keep_place();
-        terminal.draw(|frame| ui::draw(frame, app, &session.keymap))?;
+        if dirty {
+            terminal.draw(|frame| ui::draw(frame, app, &session.keymap))?;
+            dirty = false;
+        }
 
         if !event::poll(TICK)? {
             continue;
         }
         let event = event::read()?;
+        // Anything the terminal sends may have changed something — including a
+        // resize, which changes everything. Cheaper to draw one frame that was
+        // not needed than to work out which events matter and be wrong.
+        dirty = true;
         if let Event::Mouse(mouse) = event {
             let double = clicks.is_double(&mouse);
             let hit = rsst::mouse::resolve(&app.hits, mouse, double);
