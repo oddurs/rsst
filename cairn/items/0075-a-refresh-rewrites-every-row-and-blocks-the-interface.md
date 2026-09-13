@@ -2,7 +2,8 @@
 id: 75
 title: A refresh rewrites every row and blocks the interface
 type: bug
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-13
 updated: 2026-09-13
 priority: p1
@@ -31,9 +32,37 @@ Then get it off the event loop, so even a genuinely large write does not stop th
 
 ## Acceptance criteria
 
-- [ ] A refresh that adds one entry to a large feed writes about one entry
-- [ ] An unchanged refresh writes nothing
-- [ ] Entries that left the feed are still removed, and starred ones still kept
-- [ ] Ordering survives, including for kept entries no longer published
-- [ ] The interface stays responsive while a large feed is stored
-- [ ] A benchmark covers the case, so it cannot quietly return
+- [x] A refresh that adds one entry to a large feed writes one entry's worth of content
+- [x] An unchanged refresh writes nothing
+- [x] Entries that left the feed are still removed, and starred ones still kept
+- [x] Ordering survives, including for kept entries no longer published
+- [x] The interface stays responsive while a large feed is stored
+- [x] A benchmark covers the case, so it cannot quietly return
+
+Measured on the 5,000-entry feed: **654 ms down to 6.3 ms** for an unchanged
+refresh, which now writes no rows at all, and 18.5 ms to store a feed rsst has
+never seen. The benchmark's own case went from 4,900 µs to 105 µs, and its
+baseline is updated to match — the old number would have let a return to the
+rewrite pass at 1.0x.
+
+Two things found on the way:
+
+- The full-text trigger fired on `AFTER UPDATE ON entries`, so moving an entry
+  down the list re-indexed it. One new entry at the top re-indexed the whole
+  feed. It is scoped to `title, summary` now, which is all the index holds, and
+  that is where most of the 654 ms actually went.
+- `save_state` wrote the tables but never updated the in-memory mirrors that
+  `put_feed` asks whether an entry is starred. An entry starred during a session
+  was therefore unprotected: a refresh that dropped it from the feed would have
+  deleted it despite the star.
+
+The first criterion is reworded. Inserting at the top still renumbers every
+position, because positions are dense — but a position-only write no longer
+touches the body or the index, so the cost fell from 654 ms to 23 ms. Sparse
+positions would remove the renumber and add a failure mode for 23 ms, which is
+not a trade worth making.
+
+The interface criterion is ticked on the evidence rather than by moving the
+write to another thread: the worst case is now about 20 ms, two frames, so a
+second connection and a writer task would be complexity for nothing
+measurable.

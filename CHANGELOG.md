@@ -48,6 +48,11 @@ still needs.
 
 ### Fixed
 
+- A refresh deleted every row for a feed and inserted them all again, whatever
+  had changed — 654 ms for a five-thousand-entry feed, run between two frames.
+  It writes only what changed now: an unchanged refresh writes nothing and costs
+  6 ms. A starred entry the publisher drops is also no longer at risk of being
+  deleted if it was starred during the same session
 - The detail pane laid the article out from scratch twice on every frame, and
   styled every row of it to show the thirty in view. Idling on a long article
   cost 23% of a core; it is now a tenth of that, and a frame costs what the

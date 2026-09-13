@@ -9,7 +9,7 @@
 //! entry read?" once per visible row per frame, and a query per cell would be
 //! absurd — so the set is loaded once and every change is written through.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -25,7 +25,7 @@ use crate::feed::{Entry, Feed, Status};
 /// Stored in SQLite's own `user_version`, so the database carries its version
 /// the way `docs/stability.md` requires — and, as with the TOML before it, a
 /// database from a newer rsst is refused rather than misread.
-pub const SCHEMA: i64 = 5;
+pub const SCHEMA: i64 = 6;
 
 /// What we remember about a feed's HTTP behaviour between fetches.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -43,6 +43,9 @@ pub struct Db {
     starred: HashSet<String>,
     /// True if this run brought the old TOML across.
     migrated_this_run: bool,
+    /// Rows touched by the last `put_feed`, for the tests that check the
+    /// delta is actually a delta.
+    last_written: usize,
 }
 
 impl std::fmt::Debug for Db {
@@ -93,6 +96,7 @@ impl Db {
             read: HashSet::new(),
             starred: HashSet::new(),
             migrated_this_run: false,
+            last_written: 0,
         };
         db.read = db.keys_in("read_keys")?;
         db.starred = db.keys_in("starred_keys")?;
@@ -120,8 +124,17 @@ impl Db {
     ///
     /// One transaction, and only this feed's rows — which is the whole point:
     /// refreshing one feed no longer rewrites the other forty-nine.
+    /// Stores a feed, writing only what actually changed.
+    ///
+    /// It used to delete every row for the feed and insert them all again,
+    /// which cost 654 ms for a five-thousand-entry feed and ran between two
+    /// frames — the interface froze for two-thirds of a second whenever a
+    /// large feed returned anything a conditional request had not ruled out.
+    ///
+    /// `CLAUDE.md` already said so about read state: written back as deltas,
+    /// never as a whole-table rewrite, because the rewrite is what the TOML
+    /// files did and why they did not scale. Entries were still doing it.
     pub fn put_feed(&mut self, feed: &Feed) -> Result<()> {
-        let starred: Vec<&String> = self.starred.iter().collect();
         let transaction = self.connection.unchecked_transaction()?;
 
         transaction.execute(
@@ -130,51 +143,113 @@ impl Db {
             params![feed.url, feed.title],
         )?;
 
-        // A starred entry the publisher has dropped is kept: starring is the
-        // reader saying they want it after it rolls out of the feed.
-        let keep: Vec<i64> = if starred.is_empty() {
-            Vec::new()
-        } else {
-            let holes = vec!["?"; starred.len()].join(",");
-            let sql = format!(
-                "SELECT DISTINCT e.id FROM entries e
-                 JOIN entry_keys k ON k.entry_id = e.id
-                 WHERE e.feed_url = ?1 AND k.key IN ({holes})"
-            );
-            let mut statement = transaction.prepare(&sql)?;
-            let mut arguments: Vec<&dyn rusqlite::ToSql> = vec![&feed.url];
-            for key in &starred {
-                arguments.push(key);
+        // What is already stored, by every key it can be recognised by. Only
+        // the fingerprint comes back, not the bodies: the point is to decide
+        // what to write without reading thirty megabytes to find out.
+        let mut stored: HashMap<String, (i64, i64, Option<i64>)> = HashMap::new();
+        let mut order: Vec<(i64, i64)> = Vec::new();
+        {
+            let mut statement = transaction.prepare(
+                "SELECT e.id, e.position, e.digest, k.key FROM entries e
+                 LEFT JOIN entry_keys k ON k.entry_id = e.id
+                 WHERE e.feed_url = ?1",
+            )?;
+            let rows = statement.query_map(params![feed.url], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })?;
+            let mut seen_ids: HashSet<i64> = HashSet::new();
+            for row in rows {
+                let (id, position, digest, key) = row?;
+                if seen_ids.insert(id) {
+                    order.push((position, id));
+                }
+                if let Some(key) = key {
+                    stored.insert(key, (id, position, digest));
+                }
             }
-            statement
-                .query_map(arguments.as_slice(), |row| row.get(0))?
-                .collect::<rusqlite::Result<Vec<i64>>>()?
-        };
-
-        if keep.is_empty() {
-            transaction.execute("DELETE FROM entries WHERE feed_url = ?1", params![feed.url])?;
-        } else {
-            let holes = vec!["?"; keep.len()].join(",");
-            let sql = format!("DELETE FROM entries WHERE feed_url = ?1 AND id NOT IN ({holes})");
-            let mut arguments: Vec<&dyn rusqlite::ToSql> = vec![&feed.url];
-            for id in &keep {
-                arguments.push(id);
-            }
-            transaction.execute(&sql, arguments.as_slice())?;
         }
 
-        // Kept entries move to the end, after everything the feed still lists.
-        transaction.execute(
-            "UPDATE entries SET position = position + 100000 WHERE feed_url = ?1",
-            params![feed.url],
-        )?;
+        let mut kept: HashSet<i64> = HashSet::new();
+        let mut written = 0usize;
 
         for (position, entry) in feed.entries.iter().enumerate() {
-            insert_entry(&transaction, &feed.url, position as i64, entry)?;
+            let position = position as i64;
+            let found = entry.keys.iter().find_map(|key| stored.get(key)).copied();
+
+            match found {
+                // Already stored, unchanged, and in the right place: nothing
+                // to do, which is what almost every refresh should cost.
+                Some((id, at, Some(digest))) if digest == digest_of(entry) => {
+                    // Unchanged. If it has only moved, write the position and
+                    // nothing else: rewriting the body would re-index it for
+                    // a change the index cannot see.
+                    if at != position {
+                        transaction.execute(
+                            "UPDATE entries SET position = ?2 WHERE id = ?1",
+                            params![id, position],
+                        )?;
+                        written += 1;
+                    }
+                    kept.insert(id);
+                }
+                Some((id, ..)) => {
+                    update_entry(&transaction, id, position, entry)?;
+                    kept.insert(id);
+                    written += 1;
+                }
+                None => {
+                    insert_entry(&transaction, &feed.url, position, entry)?;
+                    written += 1;
+                }
+            }
+        }
+
+        // Entries the publisher has dropped. A starred one is kept — starring
+        // is the reader saying they want it after it rolls out of the feed —
+        // and moves below everything still published.
+        let starred: HashSet<&String> = self.starred.iter().collect();
+        let mut below = feed.entries.len() as i64;
+        for (at, id) in order {
+            if kept.contains(&id) {
+                continue;
+            }
+            let is_starred = transaction
+                .prepare("SELECT key FROM entry_keys WHERE entry_id = ?1")?
+                .query_map(params![id], |row| row.get::<_, String>(0))?
+                .filter_map(Result::ok)
+                .any(|key| starred.contains(&key));
+
+            if is_starred {
+                if at != below {
+                    transaction.execute(
+                        "UPDATE entries SET position = ?2 WHERE id = ?1",
+                        params![id, below],
+                    )?;
+                    written += 1;
+                }
+                below += 1;
+            } else {
+                transaction.execute("DELETE FROM entries WHERE id = ?1", params![id])?;
+                written += 1;
+            }
         }
 
         transaction.commit()?;
+        self.last_written = written;
         Ok(())
+    }
+
+    /// How many rows the last [`Self::put_feed`] actually touched.
+    ///
+    /// Not for the interface: for the test that says an unchanged refresh
+    /// writes nothing, which is the whole point of the delta.
+    pub fn last_written(&self) -> usize {
+        self.last_written
     }
 
     /// A feed's cached contents, ready to display.
@@ -424,7 +499,7 @@ impl Db {
 
     /// Applies what changed since the last save — not the whole set.
     pub fn save_state(
-        &self,
+        &mut self,
         read_added: &HashSet<String>,
         read_removed: &HashSet<String>,
         starred_added: &HashSet<String>,
@@ -447,6 +522,22 @@ impl Db {
             }
         }
         transaction.commit()?;
+
+        // The mirrors are what `put_feed` asks whether an entry is starred, so
+        // an entry starred in this session has to reach them — or a refresh
+        // that drops it from the feed would delete it despite the star.
+        for key in read_added {
+            self.read.insert(key.clone());
+        }
+        for key in read_removed {
+            self.read.remove(key);
+        }
+        for key in starred_added {
+            self.starred.insert(key.clone());
+        }
+        for key in starred_removed {
+            self.starred.remove(key);
+        }
         Ok(())
     }
 
@@ -556,6 +647,65 @@ fn fts_query(query: &str) -> String {
         .join(" ")
 }
 
+/// A fingerprint of everything about an entry that is stored.
+///
+/// FNV-1a, written out rather than taken from `DefaultHasher`, whose output is
+/// explicitly not stable between Rust releases — and a fingerprint that changed
+/// with the compiler would rewrite every row once for no reason.
+fn digest_of(entry: &Entry) -> i64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |bytes: &[u8]| {
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+    };
+    eat(entry.title.as_bytes());
+    eat(b"\x1f");
+    eat(entry.link.as_deref().unwrap_or_default().as_bytes());
+    eat(b"\x1f");
+    eat(entry
+        .published
+        .map(|when| when.to_rfc3339())
+        .unwrap_or_default()
+        .as_bytes());
+    eat(b"\x1f");
+    eat(entry.summary.as_bytes());
+    eat(b"\x1f");
+    eat(entry.content.as_bytes());
+    hash as i64
+}
+
+/// Rewrites a stored entry in place, keeping its id.
+///
+/// In place rather than delete-and-insert so read state, which is matched on
+/// keys, and the FTS row both follow the entry rather than being churned.
+fn update_entry(connection: &Connection, id: i64, position: i64, entry: &Entry) -> Result<()> {
+    connection.execute(
+        "UPDATE entries SET position = ?2, title = ?3, link = ?4, published = ?5,
+             summary = ?6, content = ?7, digest = ?8
+         WHERE id = ?1",
+        params![
+            id,
+            position,
+            entry.title,
+            entry.link,
+            entry.published.map(|t| t.to_rfc3339()),
+            entry.summary,
+            entry.content,
+            digest_of(entry)
+        ],
+    )?;
+    // The keys can grow: a feed that starts publishing guids adds one.
+    for key in &entry.keys {
+        connection.execute(
+            "INSERT OR IGNORE INTO entry_keys (entry_id, key) VALUES (?1, ?2)",
+            params![id, key],
+        )?;
+    }
+    Ok(())
+}
+
 fn insert_entry(
     connection: &Connection,
     feed_url: &str,
@@ -563,8 +713,8 @@ fn insert_entry(
     entry: &Entry,
 ) -> Result<()> {
     connection.execute(
-        "INSERT INTO entries (feed_url, position, title, link, published, summary, content)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO entries (feed_url, position, title, link, published, summary, content, digest)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             feed_url,
             position,
@@ -572,7 +722,8 @@ fn insert_entry(
             entry.link,
             entry.published.map(|t| t.to_rfc3339()),
             entry.summary,
-            entry.content
+            entry.content,
+            digest_of(entry)
         ],
     )?;
     let id = connection.last_insert_rowid();
@@ -629,7 +780,7 @@ fn migrate(connection: &Connection, from: i64) -> Result<()> {
                    INSERT INTO entries_fts(entries_fts, rowid, title, summary)
                    VALUES ('delete', old.id, old.title, old.summary);
                  END;
-                 CREATE TRIGGER entries_au AFTER UPDATE ON entries BEGIN
+                 CREATE TRIGGER entries_au AFTER UPDATE OF title, summary ON entries BEGIN
                    INSERT INTO entries_fts(entries_fts, rowid, title, summary)
                    VALUES ('delete', old.id, old.title, old.summary);
                    INSERT INTO entries_fts(rowid, title, summary)
@@ -676,6 +827,29 @@ fn migrate(connection: &Connection, from: i64) -> Result<()> {
         connection
             .execute_batch("ALTER TABLE feeds ADD COLUMN resolved_url TEXT;")
             .context("adding the resolved_url column")?;
+    }
+    if from < 6 {
+        // A fingerprint of what was stored, so a refresh can tell an entry it
+        // already has from one that has changed without reading every body
+        // back out. Null on migrated rows, which reads as "unknown", so the
+        // first refresh after upgrading rewrites them once and then settles.
+        connection
+            .execute_batch("ALTER TABLE entries ADD COLUMN digest INTEGER;")
+            .context("adding the digest column")?;
+        // The full-text index holds the title and the summary. Firing it on
+        // every update meant moving an entry down the list re-indexed it, so
+        // one new entry at the top re-indexed the whole feed.
+        connection
+            .execute_batch(
+                "DROP TRIGGER IF EXISTS entries_au;
+                 CREATE TRIGGER entries_au AFTER UPDATE OF title, summary ON entries BEGIN
+                   INSERT INTO entries_fts(entries_fts, rowid, title, summary)
+                   VALUES ('delete', old.id, old.title, old.summary);
+                   INSERT INTO entries_fts(rowid, title, summary)
+                   VALUES (new.id, new.title, new.summary);
+                 END;",
+            )
+            .context("narrowing the full-text trigger")?;
     }
     connection
         .pragma_update(None, "user_version", SCHEMA)
@@ -966,7 +1140,7 @@ mod tests {
 
     #[test]
     fn state_is_written_as_a_delta_not_a_rewrite() {
-        let db = db();
+        let mut db = db();
         db.save_state(
             &HashSet::from(["a".to_string(), "b".to_string()]),
             &HashSet::new(),
@@ -1251,6 +1425,7 @@ mod tests {
             connection
                 .execute_batch(
                     "ALTER TABLE feeds DROP COLUMN resolved_url;
+                     ALTER TABLE entries DROP COLUMN digest;
                      INSERT INTO feeds (url, title) VALUES ('https://a.example', 'A');
                      INSERT INTO entries (feed_url, position, title, summary)
                        VALUES ('https://a.example', 0, 'Old entry', 'Body');
@@ -1287,6 +1462,44 @@ mod tests {
     }
 
     #[test]
+    fn a_version_five_database_gains_the_digest_column() {
+        let dir = std::env::temp_dir().join(format!("rsst-v5-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("v5.sqlite3");
+        let _ = std::fs::remove_file(&path);
+
+        {
+            let connection = Connection::open(&path).expect("open");
+            migrate(&connection, 0).expect("build up to current");
+            connection
+                .execute_batch(
+                    "ALTER TABLE entries DROP COLUMN digest;
+                     INSERT INTO feeds (url, title) VALUES ('https://a.example', 'A');
+                     INSERT INTO entries (feed_url, position, title, summary)
+                       VALUES ('https://a.example', 0, 'Old entry', 'Body');
+                     INSERT INTO read_keys (key) VALUES ('id:kept');",
+                )
+                .expect("v5 shape");
+            connection
+                .pragma_update(None, "user_version", 5)
+                .expect("version");
+        }
+
+        let db = Db::open(&path).expect("migrates");
+        let feed = db
+            .feed(&source("https://a.example"))
+            .expect("query")
+            .expect("kept");
+        assert_eq!(feed.entries.len(), 1, "the old row survived");
+        assert_eq!(feed.entries[0].title, "Old entry");
+        assert!(
+            db.load_state().expect("state").0.contains("id:kept"),
+            "read state did not survive the migration"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_database_from_a_newer_rsst_is_refused_rather_than_misread() {
         let connection = Connection::open_in_memory().expect("open");
         connection
@@ -1311,5 +1524,159 @@ mod tests {
         let db = Db::open(&path).expect("reopen");
         assert_eq!(db.count("entries"), 1);
         assert_eq!(db.count("feeds"), 1);
+    }
+
+    #[test]
+    fn a_refresh_that_changes_nothing_writes_nothing() {
+        // The whole point: `put_feed` used to delete and re-insert every row
+        // whatever had changed, which cost 654 ms on a five-thousand-entry
+        // feed and froze the interface while it ran.
+        let mut db = Db::in_memory().expect("db");
+        let feed = feed(
+            "https://a.example",
+            (0..200)
+                .map(|n| entry(&format!("Entry {n}"), &[&format!("id:{n}")]))
+                .collect(),
+        );
+
+        db.put_feed(&feed).expect("first store");
+        assert_eq!(db.last_written(), 200, "the first store writes them all");
+
+        db.put_feed(&feed).expect("second store");
+        assert_eq!(db.last_written(), 0, "an unchanged refresh wrote rows");
+    }
+
+    #[test]
+    fn only_the_entry_that_changed_is_rewritten() {
+        let mut db = Db::in_memory().expect("db");
+        let mut feed = feed(
+            "https://a.example",
+            (0..50)
+                .map(|n| entry(&format!("Entry {n}"), &[&format!("id:{n}")]))
+                .collect(),
+        );
+        db.put_feed(&feed).expect("store");
+
+        // The publisher fixed a typo in one headline.
+        feed.entries[7].title = "Entry 7, corrected".into();
+        db.put_feed(&feed).expect("store");
+        assert_eq!(db.last_written(), 1, "one edit rewrote more than one row");
+
+        let stored = db
+            .feed(&source("https://a.example"))
+            .expect("query")
+            .expect("kept");
+        assert_eq!(stored.entries[7].title, "Entry 7, corrected");
+        assert_eq!(stored.entries.len(), 50, "nothing else was disturbed");
+    }
+
+    #[test]
+    fn a_new_entry_arrives_at_the_top_and_the_rest_keep_their_order() {
+        let mut db = Db::in_memory().expect("db");
+        let mut feed = feed(
+            "https://a.example",
+            (0..5)
+                .map(|n| entry(&format!("Entry {n}"), &[&format!("id:{n}")]))
+                .collect(),
+        );
+        db.put_feed(&feed).expect("store");
+
+        feed.entries.insert(0, entry("Newest", &["id:new"]));
+        db.put_feed(&feed).expect("store");
+
+        let stored = db
+            .feed(&source("https://a.example"))
+            .expect("query")
+            .expect("kept");
+        let titles: Vec<&str> = stored.entries.iter().map(|e| e.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            [
+                "Newest", "Entry 0", "Entry 1", "Entry 2", "Entry 3", "Entry 4"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_dropped_entry_goes_unless_it_was_starred() {
+        let mut db = Db::in_memory().expect("db");
+        let mut feed = feed(
+            "https://a.example",
+            vec![
+                entry("Kept", &["id:kept"]),
+                entry("Starred", &["id:starred"]),
+                entry("Dropped", &["id:dropped"]),
+            ],
+        );
+        db.put_feed(&feed).expect("store");
+        db.save_state(
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::from(["id:starred".to_string()]),
+            &HashSet::new(),
+        )
+        .expect("star");
+
+        // The publisher drops the last two.
+        feed.entries.truncate(1);
+        db.put_feed(&feed).expect("store");
+
+        let stored = db
+            .feed(&source("https://a.example"))
+            .expect("query")
+            .expect("kept");
+        let titles: Vec<&str> = stored.entries.iter().map(|e| e.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            ["Kept", "Starred"],
+            "a starred entry must survive the publisher dropping it, below what is still published"
+        );
+    }
+
+    #[test]
+    fn read_state_follows_an_entry_that_was_rewritten() {
+        // Rewriting in place rather than delete-and-insert is what keeps the
+        // keys, and read state is matched on keys.
+        let mut db = Db::in_memory().expect("db");
+        let mut feed = feed("https://a.example", vec![entry("One", &["id:1"])]);
+        db.put_feed(&feed).expect("store");
+
+        feed.entries[0].summary = "Rewritten body.".into();
+        db.put_feed(&feed).expect("store");
+
+        let stored = db
+            .feed(&source("https://a.example"))
+            .expect("query")
+            .expect("kept");
+        assert_eq!(stored.entries[0].keys, vec!["id:1".to_string()]);
+        assert_eq!(stored.entries[0].summary, "Rewritten body.");
+    }
+
+    #[test]
+    fn moving_an_entry_does_not_disturb_the_search_index() {
+        // The index holds the title and the summary. A row that only moved has
+        // not changed either, and re-indexing it is how one new entry used to
+        // re-index a whole feed.
+        let mut db = Db::in_memory().expect("db");
+        let mut feed = feed(
+            "https://a.example",
+            vec![
+                entry("Alpha", &["id:a"]),
+                entry("Bravo", &["id:b"]),
+                entry("Charlie", &["id:c"]),
+            ],
+        );
+        db.put_feed(&feed).expect("store");
+
+        feed.entries.insert(0, entry("Delta", &["id:d"]));
+        db.put_feed(&feed).expect("store");
+
+        // Everything is still findable, in both directions.
+        for word in ["Alpha", "Bravo", "Charlie", "Delta"] {
+            assert!(
+                !db.search(word, 10).expect("search").is_empty(),
+                "{word} fell out of the index when the list moved"
+            );
+        }
     }
 }

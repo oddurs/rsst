@@ -14,5 +14,9 @@ tolerance = 6.0
 parse_500_entries = 1920.0
 wrap_10k_chars = 48.0
 sort_5000_entries = 18.0
-refresh_one_of_50_feeds = 4900.0
+# Was 4900 when a refresh deleted every row for the feed and inserted them all
+# again. It writes only what changed now, and a refresh of an unchanged feed
+# writes nothing — so the old number would let a return to the rewrite pass
+# unnoticed at 1.0x.
+refresh_one_of_50_feeds = 105.0
 search_5000_entries = 540.0
