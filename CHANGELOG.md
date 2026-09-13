@@ -47,6 +47,9 @@ still needs.
 
 ### Fixed
 
+- A click on the "add a feed" prompt or the move picker fell through to the pane
+  behind it, selecting a feed or opening an entry under a prompt still waiting
+  for typing. Clicking away from a prompt now cancels it, as it does elsewhere
 - The mouse wheel scrolled by dragging the selection through the list, so a
   trackpad flick never reached an end — selection wraps by design — marked every
   entry it passed as read, and swapped the article on every line. It now scrolls

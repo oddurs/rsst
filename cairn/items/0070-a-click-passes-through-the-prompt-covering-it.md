@@ -2,7 +2,8 @@
 id: 70
 title: A click passes through the prompt covering it
 type: bug
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-13
 updated: 2026-09-13
 priority: p1
@@ -21,6 +22,6 @@ One flag for "an overlay owns the screen", set for all three. A click that lands
 
 ## Acceptance criteria
 
-- [ ] A click while the add prompt is open does not reach the panes
-- [ ] The same for the move picker
-- [ ] A test asserts it for each overlay, so a fourth one cannot quietly regress it
+- [x] A click while the add prompt is open does not reach the panes
+- [x] The same for the move picker
+- [x] A test asserts it for each overlay, so a fourth one cannot quietly regress it

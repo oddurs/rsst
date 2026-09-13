@@ -38,8 +38,10 @@ pub struct Hits {
     pub article_links: Vec<(u16, u16, u16, usize)>,
     /// Status-bar hints, as (first column, last column, what they do).
     pub buttons: Vec<(u16, u16, Action)>,
-    /// The overlay covers everything, so it takes every click.
-    pub help_open: bool,
+    /// An overlay is covering the screen, so it takes every click. True for
+    /// the key reference, the add-a-feed prompt and the move picker alike —
+    /// a click that lands on a prompt must not reach the pane behind it.
+    pub overlay: bool,
 }
 
 /// What a pointer event means.
@@ -64,7 +66,7 @@ pub enum Hit {
     },
     Focus(Pane),
     Run(Action),
-    CloseHelp,
+    CloseOverlay,
     Nothing,
 }
 
@@ -107,9 +109,9 @@ pub fn resolve(hits: &Hits, event: MouseEvent, double: bool) -> Hit {
     let (column, row) = (event.column, event.row);
 
     // The overlay is drawn over everything, so it answers first.
-    if hits.help_open {
+    if hits.overlay {
         return match event.kind {
-            MouseEventKind::Down(_) => Hit::CloseHelp,
+            MouseEventKind::Down(_) => Hit::CloseOverlay,
             MouseEventKind::ScrollDown => Hit::Scroll {
                 pane: Pane::Detail,
                 delta: WHEEL_LINES,
@@ -227,9 +229,13 @@ pub fn apply(app: &mut crate::app::App, hit: Hit) -> Option<Action> {
             Pane::Detail => app.scroll_detail(delta as i16),
             pane => app.scroll_list(pane, delta),
         },
-        Hit::CloseHelp => {
+        // Dismisses whichever overlay is up. A click outside a prompt is how
+        // every other interface cancels one.
+        Hit::CloseOverlay => {
             app.help_open = false;
             app.help_scroll = 0;
+            app.cancel_add();
+            app.cancel_move();
         }
         Hit::Run(action) => return Some(action),
         Hit::Nothing => {}
@@ -292,7 +298,7 @@ mod tests {
             // An inline link on row 15, columns 24..=31.
             article_links: vec![(15, 24, 31, 0)],
             buttons: vec![(0, 6, Action::Help), (8, 14, Action::Quit)],
-            help_open: false,
+            overlay: false,
         }
     }
 
@@ -427,15 +433,15 @@ mod tests {
     #[test]
     fn the_help_overlay_takes_every_click() {
         let mut hits = hits();
-        hits.help_open = true;
+        hits.overlay = true;
         // Even over a feed row, which would otherwise select a feed.
-        assert_eq!(resolve(&hits, down(5, 3), false), Hit::CloseHelp);
+        assert_eq!(resolve(&hits, down(5, 3), false), Hit::CloseOverlay);
     }
 
     #[test]
     fn the_help_overlay_scrolls_rather_than_closing_on_the_wheel() {
         let mut hits = hits();
-        hits.help_open = true;
+        hits.overlay = true;
         assert_eq!(
             resolve(&hits, at(MouseEventKind::ScrollDown, 5, 3), false),
             Hit::Scroll {

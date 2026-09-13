@@ -44,7 +44,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, keymap: &crate::keys::Keymap) {
         entries_pane: inner(panes[0]),
         detail_pane: inner(panes[1]),
         status_bar: rows[1],
-        help_open: app.help_open,
+        overlay: app.overlay_open(),
         ..Default::default()
     };
 
@@ -72,7 +72,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, keymap: &crate::keys::Keymap) {
 fn draw_reading(frame: &mut Frame, app: &mut App, area: Rect) {
     app.hits = crate::mouse::Hits {
         detail_pane: inner(area),
-        help_open: app.help_open,
+        overlay: app.overlay_open(),
         ..Default::default()
     };
     draw_detail(frame, app, area);
@@ -2179,5 +2179,60 @@ mod tests {
         for jargon in ["Trouble", "Gone", "NotAFeed", "Err("] {
             assert!(!screen.contains(jargon), "the interface leaked {jargon}");
         }
+    }
+
+    #[test]
+    fn no_click_reaches_the_panes_while_an_overlay_is_up() {
+        // All three are drawn last, over everything. The hit map has to agree,
+        // or a click lands on a list the person cannot see.
+        type Open = fn(&mut App);
+        let overlays: [(&str, Open); 3] = [
+            ("the key reference", |app: &mut App| app.help_open = true),
+            ("the add prompt", |app: &mut App| app.start_add()),
+            ("the move picker", |app: &mut App| app.start_move()),
+        ];
+
+        for (name, open) in overlays {
+            let mut app = long_list(50);
+            render_at(&mut app, 80, 24);
+            // Somewhere a click would otherwise do something.
+            let (row, _) = app.hits.entry_rows[2];
+            let column = app.hits.entries_pane.x + 4;
+            let before = (app.selected_feed, app.selected_entry);
+
+            open(&mut app);
+            render_at(&mut app, 80, 24);
+            assert!(
+                app.hits.overlay,
+                "{name} did not claim the screen in the hit map"
+            );
+
+            click_at(&mut app, column, row);
+            assert_eq!(
+                (app.selected_feed, app.selected_entry),
+                before,
+                "a click went through {name} and moved the selection"
+            );
+        }
+    }
+
+    #[test]
+    fn a_click_outside_a_prompt_cancels_it() {
+        // What clicking away from a dialogue does everywhere else.
+        let mut app = long_list(10);
+        app.start_add();
+        render_at(&mut app, 80, 24);
+        click_at(&mut app, 2, 2);
+        assert!(app.adding.is_none(), "the add prompt stayed open");
+
+        app.start_move();
+        render_at(&mut app, 80, 24);
+        click_at(&mut app, 2, 2);
+        assert!(app.moving.is_none(), "the move picker stayed open");
+
+        app.help_open = true;
+        render_at(&mut app, 80, 24);
+        click_at(&mut app, 2, 2);
+        assert!(!app.help_open, "the key reference stayed open");
     }
 }
