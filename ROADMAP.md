@@ -170,3 +170,30 @@ with the alternate screen still active.
 - [x] [`0075`](https://github.com/oddurs/rsst/blob/main/cairn/items/0075-a-refresh-rewrites-every-row-and-blocks-the-interface.md) A refresh rewrites every row and blocks the interface <sup>bug · v1.6 · p1</sup>
 - [x] [`0076`](https://github.com/oddurs/rsst/blob/main/cairn/items/0076-the-interface-redraws-when-nothing-has-changed.md) The interface redraws when nothing has changed <sup>bug · v1.6 · p2</sup>
 
+## No release
+
+`··········` 0% · 0 of 20 done
+
+### backlog
+
+- [ ] [`0077`](https://github.com/oddurs/rsst/blob/main/cairn/items/0077-unsubscribe-from-a-feed-without-editing-the-config.md) Unsubscribe from a feed without editing the config <sup>feature · p2</sup>
+- [ ] [`0078`](https://github.com/oddurs/rsst/blob/main/cairn/items/0078-rename-a-feed-and-correct-its-address-from-inside-the-reader.md) Rename a feed and correct its address from inside the reader <sup>feature · p2</sup>
+- [ ] [`0079`](https://github.com/oddurs/rsst/blob/main/cairn/items/0079-enclosures-are-dropped-so-podcasts-and-attachments-vanish.md) Enclosures are dropped, so podcasts and attachments vanish <sup>bug · p2</sup>
+- [ ] [`0080`](https://github.com/oddurs/rsst/blob/main/cairn/items/0080-sorting-is-one-boolean-where-it-should-be-a-choice.md) Sorting is one boolean where it should be a choice <sup>feature · p2</sup>
+- [ ] [`0081`](https://github.com/oddurs/rsst/blob/main/cairn/items/0081-group-the-entry-list-by-day.md) Group the entry list by day <sup>feature · p2</sup>
+- [ ] [`0082`](https://github.com/oddurs/rsst/blob/main/cairn/items/0082-say-how-much-is-unread-in-the-terminal-title.md) Say how much is unread in the terminal title <sup>feature · p2</sup>
+- [ ] [`0083`](https://github.com/oddurs/rsst/blob/main/cairn/items/0083-tell-the-reader-when-news-arrives.md) Tell the reader when news arrives <sup>feature · p2</sup>
+- [ ] [`0084`](https://github.com/oddurs/rsst/blob/main/cairn/items/0084-a-filter-query-for-the-entry-list.md) A filter query for the entry list <sup>feature · p2</sup>
+- [ ] [`0085`](https://github.com/oddurs/rsst/blob/main/cairn/items/0085-saved-searches-that-behave-like-folders.md) Saved searches that behave like folders <sup>feature · p2</sup>
+- [ ] [`0086`](https://github.com/oddurs/rsst/blob/main/cairn/items/0086-rules-that-act-on-entries-as-they-arrive.md) Rules that act on entries as they arrive <sup>feature · p2</sup>
+- [ ] [`0087`](https://github.com/oddurs/rsst/blob/main/cairn/items/0087-tag-an-entry-not-just-a-feed.md) Tag an entry, not just a feed <sup>feature · p2</sup>
+- [ ] [`0088`](https://github.com/oddurs/rsst/blob/main/cairn/items/0088-a-read-later-queue.md) A read-later queue <sup>feature · p2</sup>
+- [ ] [`0089`](https://github.com/oddurs/rsst/blob/main/cairn/items/0089-search-that-can-be-scoped-and-refined.md) Search that can be scoped and refined <sup>feature · p2</sup>
+- [ ] [`0090`](https://github.com/oddurs/rsst/blob/main/cairn/items/0090-keep-what-you-have-seen-not-only-what-the-feed-still-lists.md) Keep what you have seen, not only what the feed still lists <sup>feature · p2</sup>
+- [ ] [`0091`](https://github.com/oddurs/rsst/blob/main/cairn/items/0091-a-retention-policy-now-that-history-is-kept.md) A retention policy, now that history is kept <sup>feature · p2</sup>
+- [ ] [`0092`](https://github.com/oddurs/rsst/blob/main/cairn/items/0092-per-feed-settings-beyond-four-fields.md) Per-feed settings beyond four fields <sup>feature · p2</sup>
+- [ ] [`0093`](https://github.com/oddurs/rsst/blob/main/cairn/items/0093-feeds-that-need-a-password.md) Feeds that need a password <sup>feature · p2</sup>
+- [ ] [`0094`](https://github.com/oddurs/rsst/blob/main/cairn/items/0094-layout-and-density-options.md) Layout and density options <sup>feature · p2</sup>
+- [ ] [`0095`](https://github.com/oddurs/rsst/blob/main/cairn/items/0095-a-view-of-how-each-feed-is-behaving.md) A view of how each feed is behaving <sup>feature · p2</sup>
+- [ ] [`0096`](https://github.com/oddurs/rsst/blob/main/cairn/items/0096-sync-with-a-self-hosted-server.md) Sync with a self-hosted server <sup>feature · p2</sup>
+
