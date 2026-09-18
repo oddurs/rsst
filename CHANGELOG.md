@@ -48,6 +48,9 @@ still needs.
 
 ### Fixed
 
+- Updated `rustls` for RUSTSEC-2026-0285, a TLS 1.3 handshake flaw. Every feed
+  rsst fetches goes through it
+
 - rsst drew a whole frame ten times a second whether or not anything had
   changed. It draws when something happens now: sitting idle costs nothing
 - A refresh deleted every row for a feed and inserted them all again, whatever
