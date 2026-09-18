@@ -23,6 +23,9 @@ still needs.
   `Space`, and returns to each article where you left it
 - Following a link from inside an article: type its number, or click the link
   itself or its line in the reference list
+- `D` unsubscribes from a feed, after saying how many entries and how many
+  starred entries go with it. The config keeps its comments, and the feed leaves
+  the sidebar without a restart
 - **Mouse-first interaction** — click a feed, entry or group heading; middle
   click to open one without selecting it; wheel over
   any pane to scroll it; click a link to open it; the status hints are buttons.
