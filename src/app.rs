@@ -157,6 +157,8 @@ pub enum Bulk {
     Feed,
     /// Every entry in every feed.
     Everything,
+    /// The selected feed itself, and everything stored for it.
+    Unsubscribe,
 }
 
 /// A search over every entry in every feed.
@@ -715,8 +717,51 @@ impl App {
         match self.pending {
             Some(Bulk::Feed) => self.unread(self.selected_feed),
             Some(Bulk::Everything) => (0..self.feeds.len()).map(|f| self.unread(f)).sum(),
-            None => 0,
+            Some(Bulk::Unsubscribe) | None => 0,
         }
+    }
+
+    /// What the queued action is asking, in words.
+    ///
+    /// Here rather than in the renderer because deciding what a confirmation
+    /// says is deciding what it does — and an unsubscribe that did not say
+    /// what it was about to throw away would be a trap.
+    pub fn pending_prompt(&self) -> Option<String> {
+        let pending = self.pending?;
+        Some(match pending {
+            Bulk::Feed | Bulk::Everything => {
+                let what = match pending {
+                    Bulk::Feed => "this feed",
+                    _ => "every feed",
+                };
+                format!(
+                    " Mark {} unread entries in {what} as read?  y / n ",
+                    self.pending_count()
+                )
+            }
+            Bulk::Unsubscribe => {
+                let Some(feed) = self.current_feed() else {
+                    return Some(" No feed selected.  y / n ".into());
+                };
+                let entries = feed.entries.len();
+                let starred = feed
+                    .entries
+                    .iter()
+                    .filter(|entry| self.read.is_starred(entry))
+                    .count();
+                // Starred entries are the ones somebody chose to keep, so
+                // losing them is the part of this worth saying out loud.
+                let kept = match starred {
+                    0 => String::new(),
+                    1 => ", including 1 starred".into(),
+                    many => format!(", including {many} starred"),
+                };
+                format!(
+                    " Unsubscribe from {} and delete {entries} entries{kept}?  y / n ",
+                    feed.title
+                )
+            }
+        })
     }
 
     /// Carries out the queued action and reports how many it marked.
@@ -727,6 +772,9 @@ impl App {
         let feeds: Vec<usize> = match bulk {
             Bulk::Feed => vec![self.selected_feed],
             Bulk::Everything => (0..self.feeds.len()).collect(),
+            // Not this method's business: unsubscribing writes the config and
+            // reloads, which needs more than the app state.
+            Bulk::Unsubscribe => return 0,
         };
 
         let mut marked = 0;
@@ -2693,6 +2741,74 @@ mod tests {
         assert!(
             app.refresh_layout(),
             "a refreshed entry kept the old layout"
+        );
+    }
+
+    #[test]
+    fn the_unsubscribe_prompt_says_what_it_is_about_to_throw_away() {
+        let mut app = app();
+        app.read.toggle_star(&app.feeds[0].entries[0].clone());
+
+        app.request_bulk(Bulk::Unsubscribe);
+        let prompt = app.pending_prompt().expect("a prompt");
+        assert!(prompt.contains('A'), "it does not name the feed: {prompt}");
+        assert!(
+            prompt.contains('2'),
+            "it does not say how many entries: {prompt}"
+        );
+        assert!(
+            prompt.contains("1 starred"),
+            "it does not warn about the starred entry: {prompt}"
+        );
+        assert!(prompt.contains("y / n"), "it does not say how to answer");
+    }
+
+    #[test]
+    fn the_unsubscribe_prompt_stays_quiet_about_stars_when_there_are_none() {
+        let mut app = app();
+        app.request_bulk(Bulk::Unsubscribe);
+        let prompt = app.pending_prompt().expect("a prompt");
+        assert!(!prompt.contains("starred"), "{prompt}");
+    }
+
+    #[test]
+    fn cancelling_an_unsubscribe_changes_nothing() {
+        let mut app = app();
+        let before = app.feeds.len();
+        app.request_bulk(Bulk::Unsubscribe);
+        app.cancel_bulk();
+        assert!(app.pending_prompt().is_none());
+        assert_eq!(app.feeds.len(), before);
+    }
+
+    #[test]
+    fn confirming_an_unsubscribe_marks_nothing_read() {
+        // It shares the confirmation machinery with the bulk marks, and must
+        // not accidentally inherit what they do.
+        let mut app = app();
+        let unread = app.unread(0);
+        app.request_bulk(Bulk::Unsubscribe);
+        assert_eq!(app.confirm_bulk(), 0);
+        assert_eq!(app.unread(0), unread, "it marked entries read");
+    }
+
+    #[test]
+    fn dropping_a_feed_from_the_config_drops_it_from_the_reader() {
+        // What `reload` does after the config is written.
+        let mut app = two_feeds();
+        app.selected_feed = 1;
+        let sources: Vec<crate::config::FeedSource> = vec![crate::config::FeedSource {
+            url: app.feeds[0].url.clone(),
+            refresh_minutes: None,
+            title: None,
+            tags: Vec::new(),
+        }];
+
+        app.reconcile(&sources);
+        assert_eq!(app.feeds.len(), 1);
+        assert_eq!(
+            app.selected_feed, 0,
+            "the cursor was left pointing past the end"
         );
     }
 }

@@ -854,17 +854,10 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect) -> Vec<(u16, u16, crate
         .and_then(|feed| feed.status.error())
         .map(|message| (format!(" {message} "), app.theme.error));
 
-    if let Some(pending) = app.pending {
-        let what = match pending {
-            crate::app::Bulk::Feed => "this feed",
-            crate::app::Bulk::Everything => "every feed",
-        };
+    // What the question says is the app's to decide; the bar only shows it.
+    if let Some(prompt) = app.pending_prompt() {
         frame.render_widget(
-            Paragraph::new(format!(
-                " Mark {} unread entries in {what} as read?  y / n ",
-                app.pending_count()
-            ))
-            .style(app.theme.status(app.theme.warning)),
+            Paragraph::new(prompt).style(app.theme.status(app.theme.warning)),
             area,
         );
         return buttons;
@@ -1522,7 +1515,9 @@ mod tests {
     fn a_roomy_terminal_also_gets_the_section_headings() {
         let mut app = App::new(Vec::new(), ReadState::default());
         app.help_open = true;
-        let screen = render_at(&mut app, 100, 40);
+        // Thirty actions in five sections need forty-odd rows in one column.
+        // `0097` is to lay it out in two, after which this can come back down.
+        let screen = render_at(&mut app, 100, 44);
 
         let keymap = crate::keys::Keymap::default();
         for (name, rows) in keymap.sections() {

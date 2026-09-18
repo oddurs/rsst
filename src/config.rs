@@ -190,6 +190,35 @@ pub fn config_path_or(override_path: Option<PathBuf>) -> Result<PathBuf> {
 /// config is hand-written and commented, and a round-trip through a plain
 /// serialiser would return it stripped of every comment and reordered. Someone
 /// moving a feed between folders has not asked for that.
+/// Removes a feed from the config.
+///
+/// Comments and formatting survive, like every other edit rsst makes — a
+/// config someone has annotated should not be rewritten because they
+/// unsubscribed from one thing.
+pub fn remove_feed(path: &Path, url: &str) -> Result<()> {
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("reading config at {}", path.display()))?;
+    let mut document = raw
+        .parse::<toml_edit::DocumentMut>()
+        .with_context(|| format!("parsing config at {}", path.display()))?;
+
+    let feeds = document
+        .get_mut("feeds")
+        .and_then(|feeds| feeds.as_array_of_tables_mut())
+        .context("the config has no [[feeds]] to edit")?;
+
+    let before = feeds.len();
+    feeds.retain(|table| table.get("url").and_then(|u| u.as_str()) != Some(url));
+    if feeds.len() == before {
+        anyhow::bail!("no feed in the config has the url {url}");
+    }
+
+    let temporary = path.with_extension("toml.tmp");
+    fs::write(&temporary, document.to_string())
+        .with_context(|| format!("writing {}", temporary.display()))?;
+    fs::rename(&temporary, path).with_context(|| format!("replacing {}", path.display()))
+}
+
 /// Points a feed at where it has permanently moved to.
 ///
 /// A 301 means the old address is wrong. Leaving it in the config means paying
@@ -707,6 +736,77 @@ tags = ["Old"]
         std::fs::write(&path, "[[feeds]]\nurl = \"https://a.example/f.xml\"\n").expect("write");
 
         assert!(set_feed_url(&path, "https://missing.example/f.xml", "https://x.example").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unsubscribing_removes_one_feed_and_leaves_the_file_alone() {
+        let dir = std::env::temp_dir().join(format!("rsst-unsub-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            "# My feeds. Keep this comment.\n\
+             measure = 72\n\n\
+             [[feeds]]\n\
+             url = \"https://one.example/f.xml\"\n\
+             title = \"One\"\n\n\
+             [[feeds]]\n\
+             url = \"https://two.example/f.xml\"\n\
+             tags = [\"News\"]        # and this one\n\n\
+             [[feeds]]\n\
+             url = \"https://three.example/f.xml\"\n",
+        )
+        .expect("write");
+
+        remove_feed(&path, "https://two.example/f.xml").expect("removes");
+
+        let raw = std::fs::read_to_string(&path).expect("read");
+        assert!(
+            !raw.contains("two.example"),
+            "the feed is still there: {raw}"
+        );
+        assert!(raw.contains("one.example") && raw.contains("three.example"));
+        assert!(
+            raw.contains("Keep this comment"),
+            "comments were lost: {raw}"
+        );
+
+        let config: Config = toml::from_str(&raw).expect("parses");
+        assert_eq!(config.feeds.len(), 2);
+        assert_eq!(config.measure, Some(72), "the rest of the config survived");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unsubscribing_from_something_not_subscribed_to_is_an_error() {
+        let dir = std::env::temp_dir().join(format!("rsst-unsub2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "[[feeds]]\nurl = \"https://a.example/f.xml\"\n").expect("write");
+
+        assert!(remove_feed(&path, "https://gone.example/f.xml").is_err());
+        // And the file is untouched, rather than rewritten identically.
+        let raw = std::fs::read_to_string(&path).expect("read");
+        assert!(raw.contains("a.example"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unsubscribing_from_the_last_feed_leaves_a_config_that_still_parses() {
+        let dir = std::env::temp_dir().join(format!("rsst-unsub3-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            "measure = 72\n\n[[feeds]]\nurl = \"https://only.example/f.xml\"\n",
+        )
+        .expect("write");
+
+        remove_feed(&path, "https://only.example/f.xml").expect("removes");
+        let config: Config = toml::from_str(&std::fs::read_to_string(&path).expect("read"))
+            .expect("an empty feed list is still a valid config");
+        assert!(config.feeds.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

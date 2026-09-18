@@ -145,6 +145,7 @@ time, set `mouse = false`.
 | `r` / `R`      | Refresh all feeds / re-read the config |
 | `Enter`        | Fold a folder shut (feed pane) |
 | `M`            | Move this feed to a folder |
+| `D`            | Unsubscribe from this feed (asks first) |
 | `+`            | Add a feed by URL         |
 | `?`            | Show every key            |
 | `q` / `Esc`    | Quit (`Esc` leaves reading mode or a search first) |

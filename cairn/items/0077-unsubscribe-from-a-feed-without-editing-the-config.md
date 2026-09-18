@@ -2,9 +2,10 @@
 id: 77
 title: Unsubscribe from a feed without editing the config
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-13
-updated: 2026-09-13
+updated: 2026-09-17
 priority: p1
 release: v1.7
 effort: m
@@ -25,9 +26,14 @@ What happens to the entries is the real question. Deleting them loses read and s
 
 ## Acceptance criteria
 
-- [ ] An action removes the selected feed from the config, after confirming
-- [ ] The confirmation says how many entries and how many starred entries go with it
-- [ ] Comments and formatting in the config survive, like every other edit rsst makes
-- [ ] The feed disappears from the sidebar without a restart
-- [ ] Removing the last feed in a folder removes the folder from the tree
-- [ ] Cancelling changes nothing at all
+- [x] An action removes the selected feed from the config, after confirming
+- [x] The confirmation says how many entries and how many starred entries go with it
+- [x] Comments and formatting in the config survive, like every other edit rsst makes
+- [x] The feed disappears from the sidebar without a restart
+- [x] Removing the last feed in a folder removes the folder from the tree
+- [x] Cancelling changes nothing at all
+
+`M` and `+` turned out to be missing from the key reference as well — bound but
+undiscoverable and unconfigurable, the same gap `f` and `z` had. All three feed
+actions are in the reference now, under a Feeds section. That pushed the
+one-column overlay one row past a forty-row terminal, which is `0097`.

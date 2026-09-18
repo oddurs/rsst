@@ -479,6 +479,15 @@ async fn run(terminal: &mut Tui, app: &mut App, session: &mut Session) -> Result
         // A queued bulk mark owns the keyboard until it is answered.
         if app.pending.is_some() {
             match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y')
+                    if app.pending == Some(app::Bulk::Unsubscribe) =>
+                {
+                    app.cancel_bulk();
+                    app.status = Some(match unsubscribe(app, session) {
+                        Ok(title) => format!(" Unsubscribed from {title}. "),
+                        Err(err) => format!(" Could not unsubscribe: {err:#} "),
+                    });
+                }
                 KeyCode::Char('y') | KeyCode::Char('Y') => {
                     let marked = app.confirm_bulk();
                     let _ = app.read.persist(&mut session.db);
@@ -751,6 +760,10 @@ fn dispatch(action: keys::Action, app: &mut App, session: &mut Session) -> Resul
         Action::ToggleGroup if app.focus == app::Pane::Feeds => app.toggle_group(),
         Action::ToggleGroup => {}
         Action::MoveFeed => app.start_move(),
+        Action::Unsubscribe => match app.current_feed() {
+            Some(_) => app.request_bulk(app::Bulk::Unsubscribe),
+            None => app.status = Some(" No feed to unsubscribe from. ".into()),
+        },
         Action::AddFeed => app.start_add(),
         Action::NextUnread => {
             if !app.next_unread(true) {
@@ -977,6 +990,26 @@ fn handles(kind: KeyEventKind) -> bool {
 ///
 /// Everything is validated before anything is changed, so a config that fails
 /// to parse — or names an unknown action or colour — leaves the session alone.
+/// Removes the selected feed from the config and from the database.
+///
+/// Writes the config and then reloads, which is the path `R` already takes —
+/// `reconcile` drops the feed from the list, fixes the cursor and rebuilds the
+/// folder tree, so unsubscribing needs no second implementation of any of it.
+fn unsubscribe(app: &mut App, session: &mut Session) -> Result<String> {
+    let feed = app.current_feed().context("no feed is selected")?;
+    let (url, title) = (feed.url.clone(), feed.title.clone());
+
+    config::remove_feed(&session.config_path, &url)?;
+    reload(app, session)?;
+
+    // The rows go with the subscription. `retain_configured` is what decides
+    // that, and it is already the rule for a feed removed from the config by
+    // hand — the confirmation says so before any of it happens.
+    let _ = session.db.retain_configured(&session.config.feeds);
+    let _ = session.db.prune();
+    Ok(title)
+}
+
 fn reload(app: &mut App, session: &mut Session) -> Result<usize> {
     let config = Config::load_from(&session.config_path)?;
     let keymap = keys::Keymap::from_config(&config.keys)?;
