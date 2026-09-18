@@ -25,7 +25,7 @@ use crate::feed::{Entry, Feed, Status};
 /// Stored in SQLite's own `user_version`, so the database carries its version
 /// the way `docs/stability.md` requires — and, as with the TOML before it, a
 /// database from a newer rsst is refused rather than misread.
-pub const SCHEMA: i64 = 6;
+pub const SCHEMA: i64 = 7;
 
 /// What we remember about a feed's HTTP behaviour between fetches.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -282,6 +282,7 @@ impl Db {
                         .map(|t| t.with_timezone(&Utc)),
                     summary: row.get(4)?,
                     content: row.get(5)?,
+                    enclosures: Vec::new(),
                     keys: Vec::new(),
                 },
             ))
@@ -291,6 +292,7 @@ impl Db {
         for row in rows {
             let (id, mut entry) = row?;
             entry.keys = self.keys_of(id)?;
+            entry.enclosures = self.enclosures_of(id)?;
             entries.push(entry);
         }
 
@@ -312,6 +314,23 @@ impl Db {
             .query_map(params![entry], |row| row.get(0))?
             .collect::<rusqlite::Result<Vec<String>>>()?;
         Ok(keys)
+    }
+
+    fn enclosures_of(&self, entry: i64) -> Result<Vec<crate::feed::Enclosure>> {
+        let mut statement = self.connection.prepare(
+            "SELECT url, media_type, size FROM entry_enclosures
+             WHERE entry_id = ?1 ORDER BY position",
+        )?;
+        let found = statement
+            .query_map(params![entry], |row| {
+                Ok(crate::feed::Enclosure {
+                    url: row.get(0)?,
+                    media_type: row.get(1)?,
+                    size: row.get::<_, Option<i64>>(2)?.map(|size| size as u64),
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(found)
     }
 
     /// Drops feeds that are no longer configured, and prunes what they held.
@@ -647,6 +666,31 @@ fn fts_query(query: &str) -> String {
         .join(" ")
 }
 
+/// Replaces an entry's enclosure rows with what it carries now.
+///
+/// Replaced wholesale rather than diffed: a handful of rows per entry, and
+/// only when the entry itself is being written.
+fn put_enclosures(connection: &Connection, id: i64, entry: &Entry) -> Result<()> {
+    connection.execute(
+        "DELETE FROM entry_enclosures WHERE entry_id = ?1",
+        params![id],
+    )?;
+    for (position, enclosure) in entry.enclosures.iter().enumerate() {
+        connection.execute(
+            "INSERT INTO entry_enclosures (entry_id, position, url, media_type, size)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                id,
+                position as i64,
+                enclosure.url,
+                enclosure.media_type,
+                enclosure.size.map(|size| size as i64)
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 /// A fingerprint of everything about an entry that is stored.
 ///
 /// FNV-1a, written out rather than taken from `DefaultHasher`, whose output is
@@ -673,6 +717,12 @@ fn digest_of(entry: &Entry) -> i64 {
     eat(entry.summary.as_bytes());
     eat(b"\x1f");
     eat(entry.content.as_bytes());
+    // Included, or a feed that only changed an episode's URL would look
+    // unchanged and never be written.
+    for enclosure in &entry.enclosures {
+        eat(b"\x1f");
+        eat(enclosure.url.as_bytes());
+    }
     hash as i64
 }
 
@@ -696,6 +746,7 @@ fn update_entry(connection: &Connection, id: i64, position: i64, entry: &Entry) 
             digest_of(entry)
         ],
     )?;
+    put_enclosures(connection, id, entry)?;
     // The keys can grow: a feed that starts publishing guids adds one.
     for key in &entry.keys {
         connection.execute(
@@ -713,7 +764,8 @@ fn insert_entry(
     entry: &Entry,
 ) -> Result<()> {
     connection.execute(
-        "INSERT INTO entries (feed_url, position, title, link, published, summary, content, digest)
+        "INSERT INTO entries (feed_url, position, title, link, published, summary, content,
+             digest)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             feed_url,
@@ -727,6 +779,7 @@ fn insert_entry(
         ],
     )?;
     let id = connection.last_insert_rowid();
+    put_enclosures(connection, id, entry)?;
     for key in &entry.keys {
         connection.execute(
             "INSERT OR IGNORE INTO entry_keys (entry_id, key) VALUES (?1, ?2)",
@@ -851,6 +904,23 @@ fn migrate(connection: &Connection, from: i64) -> Result<()> {
             )
             .context("narrowing the full-text trigger")?;
     }
+    if from < 7 {
+        // The files an entry carries. A table rather than a JSON column,
+        // which would have meant a new dependency for the sake of one field —
+        // and `0084` will want to ask which entries have audio.
+        connection
+            .execute_batch(
+                "CREATE TABLE entry_enclosures (
+                   entry_id   INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+                   position   INTEGER NOT NULL,
+                   url        TEXT NOT NULL,
+                   media_type TEXT,
+                   size       INTEGER,
+                   PRIMARY KEY (entry_id, position)
+                 );",
+            )
+            .context("adding the enclosures table")?;
+    }
     connection
         .pragma_update(None, "user_version", SCHEMA)
         .context("recording the schema version")?;
@@ -910,6 +980,7 @@ mod tests {
             published: None,
             summary: format!("The body of {title}, with words in it."),
             content: String::new(),
+            enclosures: Vec::new(),
             keys: keys.iter().map(|k| (*k).to_string()).collect(),
         }
     }
@@ -1426,6 +1497,7 @@ mod tests {
                 .execute_batch(
                     "ALTER TABLE feeds DROP COLUMN resolved_url;
                      ALTER TABLE entries DROP COLUMN digest;
+                     DROP TABLE entry_enclosures;
                      INSERT INTO feeds (url, title) VALUES ('https://a.example', 'A');
                      INSERT INTO entries (feed_url, position, title, summary)
                        VALUES ('https://a.example', 0, 'Old entry', 'Body');
@@ -1474,6 +1546,7 @@ mod tests {
             connection
                 .execute_batch(
                     "ALTER TABLE entries DROP COLUMN digest;
+                     DROP TABLE entry_enclosures;
                      INSERT INTO feeds (url, title) VALUES ('https://a.example', 'A');
                      INSERT INTO entries (feed_url, position, title, summary)
                        VALUES ('https://a.example', 0, 'Old entry', 'Body');
@@ -1496,6 +1569,58 @@ mod tests {
             db.load_state().expect("state").0.contains("id:kept"),
             "read state did not survive the migration"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_version_six_database_gains_the_enclosures_table() {
+        let dir = std::env::temp_dir().join(format!("rsst-v6-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("v6.sqlite3");
+        let _ = std::fs::remove_file(&path);
+
+        {
+            let connection = Connection::open(&path).expect("open");
+            migrate(&connection, 0).expect("build up to current");
+            connection
+                .execute_batch(
+                    "DROP TABLE entry_enclosures;
+                     INSERT INTO feeds (url, title) VALUES ('https://a.example', 'A');
+                     INSERT INTO entries (feed_url, position, title, summary)
+                       VALUES ('https://a.example', 0, 'Old entry', 'Body');
+                     INSERT INTO read_keys (key) VALUES ('id:kept');",
+                )
+                .expect("v6 shape");
+            connection
+                .pragma_update(None, "user_version", 6)
+                .expect("version");
+        }
+
+        let mut db = Db::open(&path).expect("migrates");
+        let stored = db
+            .feed(&source("https://a.example"))
+            .expect("query")
+            .expect("kept");
+        assert_eq!(stored.entries.len(), 1, "the old row survived");
+        assert!(
+            stored.entries[0].enclosures.is_empty(),
+            "an entry from before the table carries nothing, rather than failing"
+        );
+        assert!(db.load_state().expect("state").0.contains("id:kept"));
+
+        // And the new table works once it is there.
+        let mut feed = feed("https://a.example", vec![entry("One", &["id:1"])]);
+        feed.entries[0].enclosures = vec![crate::feed::Enclosure {
+            url: "https://a.example/ep1.mp3".into(),
+            media_type: Some("audio/mpeg".into()),
+            size: Some(1024),
+        }];
+        db.put_feed(&feed).expect("store");
+        let stored = db
+            .feed(&source("https://a.example"))
+            .expect("query")
+            .expect("kept");
+        assert_eq!(stored.entries[0].enclosures.len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -51,6 +51,11 @@ still needs.
 
 ### Fixed
 
+- Enclosures were dropped entirely: `feed-rs` parses them and nothing read the
+  field, so every podcast episode, video and attachment vanished silently. They
+  are listed at the foot of the article with their type and size, and open with
+  the same numbers the article's links use
+
 - Updated `rustls` for RUSTSEC-2026-0285, a TLS 1.3 handshake flaw. Every feed
   rsst fetches goes through it
 

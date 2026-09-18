@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A podcast: the thing rsst used to show as a list of titles with the
+     episodes missing, because nothing read the enclosures. -->
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>The Enclosure Hour</title>
+    <link>http://example.invalid/show</link>
+    <description>Episodes, with files attached to them.</description>
+
+    <item>
+      <title>Episode 412: what a reader drops</title>
+      <link>http://example.invalid/show/412</link>
+      <pubDate>Wed, 16 Sep 2026 09:00:00 GMT</pubDate>
+      <description>&lt;p&gt;Show notes, and an episode attached.&lt;/p&gt;</description>
+      <enclosure url="http://example.invalid/show/412.mp3" length="50331648" type="audio/mpeg"/>
+    </item>
+
+    <item>
+      <title>Episode 411: with a transcript as well</title>
+      <link>http://example.invalid/show/411</link>
+      <pubDate>Wed, 09 Sep 2026 09:00:00 GMT</pubDate>
+      <description>&lt;p&gt;Two files on one entry.&lt;/p&gt;</description>
+      <enclosure url="http://example.invalid/show/411.mp3" length="47185920" type="audio/mpeg"/>
+      <enclosure url="http://example.invalid/show/411.pdf" length="184320" type="application/pdf"/>
+    </item>
+
+    <item>
+      <title>A note with nothing attached</title>
+      <link>http://example.invalid/show/note</link>
+      <pubDate>Tue, 08 Sep 2026 09:00:00 GMT</pubDate>
+      <description>&lt;p&gt;Not every item in a podcast feed is an episode.&lt;/p&gt;</description>
+    </item>
+  </channel>
+</rss>

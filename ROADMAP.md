@@ -172,12 +172,11 @@ with the alternate screen still active.
 
 ## v1.7
 
-`###·······` 22% · 2 of 9 done
+`####······` 33% · 3 of 9 done
 
 ### backlog
 
 - [ ] [`0078`](https://github.com/oddurs/rsst/blob/main/cairn/items/0078-rename-a-feed-and-correct-its-address-from-inside-the-reader.md) Rename a feed and correct its address from inside the reader <sup>feature · v1.7 · p2</sup>
-- [ ] [`0079`](https://github.com/oddurs/rsst/blob/main/cairn/items/0079-enclosures-are-dropped-so-podcasts-and-attachments-vanish.md) Enclosures are dropped, so podcasts and attachments vanish <sup>bug · v1.7 · p1</sup>
 - [ ] [`0080`](https://github.com/oddurs/rsst/blob/main/cairn/items/0080-sorting-is-one-boolean-where-it-should-be-a-choice.md) Sorting is one boolean where it should be a choice <sup>feature · v1.7 · p1</sup>
 - [ ] [`0081`](https://github.com/oddurs/rsst/blob/main/cairn/items/0081-group-the-entry-list-by-day.md) Group the entry list by day <sup>feature · v1.7 · p2</sup>
 - [ ] [`0082`](https://github.com/oddurs/rsst/blob/main/cairn/items/0082-say-how-much-is-unread-in-the-terminal-title.md) Say how much is unread in the terminal title <sup>feature · v1.7 · p2</sup>
@@ -187,6 +186,7 @@ with the alternate screen still active.
 ### done
 
 - [x] [`0077`](https://github.com/oddurs/rsst/blob/main/cairn/items/0077-unsubscribe-from-a-feed-without-editing-the-config.md) Unsubscribe from a feed without editing the config <sup>feature · v1.7 · p1</sup>
+- [x] [`0079`](https://github.com/oddurs/rsst/blob/main/cairn/items/0079-enclosures-are-dropped-so-podcasts-and-attachments-vanish.md) Enclosures are dropped, so podcasts and attachments vanish <sup>bug · v1.7 · p1</sup>
 - [x] [`0098`](https://github.com/oddurs/rsst/blob/main/cairn/items/0098-rustls-has-a-tls-1-3-handshake-vulnerability.md) rustls has a TLS 1.3 handshake vulnerability <sup>bug · v1.7 · p0</sup>
 
 ## v1.8
