@@ -83,6 +83,7 @@ fn sources(port: u16) -> Vec<FeedSource> {
         feed("not-a-feed.xml", "Not A Feed", &["Reading", "Hostile"]),
         feed("gone.xml", "Gone (404)", &["Broken"]),
         feed("broken.xml", "Broken (500)", &["Broken"]),
+        feed("podcast.xml", "The Enclosure Hour", &["Reading"]),
         feed("empty.xml", "Nothing Yet", &[]),
         feed("medium.xml", "A Hundred Things", &["Scale"]),
         feed("huge.xml", "Ten Thousand Things", &["Scale"]),

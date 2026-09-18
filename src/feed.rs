@@ -148,6 +148,52 @@ pub struct Entry {
     /// Every identifier this entry could reasonably be recognised by, best
     /// first. Read state matches on any of them — see [`crate::state`].
     pub keys: Vec<String>,
+    /// Files the entry carries: a podcast episode, a video, a PDF.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub enclosures: Vec<Enclosure>,
+}
+
+/// A file attached to an entry.
+///
+/// `feed-rs` calls these media objects and RSS calls them enclosures. The
+/// reader only needs three things about one: where it is, what it is, and how
+/// big — which between them answer "can I play this on a train".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Enclosure {
+    pub url: String,
+    /// A MIME type, when the feed gave one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<String>,
+    /// Bytes, when the feed gave a length.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+}
+
+impl Enclosure {
+    /// How this reads in the article: "audio/mpeg, 48 MB".
+    pub fn label(&self) -> String {
+        let kind = self.media_type.clone().unwrap_or_else(|| "file".into());
+        match self.size.map(human_size) {
+            Some(size) => format!("{kind}, {size}"),
+            None => kind,
+        }
+    }
+}
+
+/// Bytes in the units a person thinks in.
+fn human_size(bytes: u64) -> String {
+    const UNITS: [(u64, &str); 3] = [(1 << 30, "GB"), (1 << 20, "MB"), (1 << 10, "kB")];
+    for (scale, name) in UNITS {
+        if bytes >= scale {
+            // One decimal below ten, none above: 1.4 MB, then 48 MB.
+            let value = bytes as f64 / scale as f64;
+            return match value < 10.0 {
+                true => format!("{value:.1} {name}"),
+                false => format!("{} {name}", value.round() as u64),
+            };
+        }
+    }
+    format!("{bytes} bytes")
 }
 
 impl Entry {
@@ -745,7 +791,39 @@ pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
                 .map(|t| decode_entities(&t.content))
                 .filter(|title| !title.trim().is_empty())
                 .unwrap_or_else(|| "(untitled)".into());
-            let link = entry.links.into_iter().next().map(|l| l.href);
+            // The first link is the entry's own page. Anything else with a
+            // media type that is not a web page is a file it carries — which
+            // is how RSS enclosures reach feed-rs when a feed uses `<link>`
+            // rather than `<enclosure>`.
+            let mut links = entry.links.into_iter();
+            let link = links.next().map(|l| l.href);
+            let mut enclosures: Vec<Enclosure> = links
+                .filter(|l| l.rel.as_deref() == Some("enclosure"))
+                .map(|l| Enclosure {
+                    url: l.href,
+                    media_type: l.media_type,
+                    size: l.length,
+                })
+                .collect();
+
+            // And the media objects, which is where feed-rs puts `<enclosure>`
+            // and the whole `media:` namespace.
+            for object in entry.media {
+                for content in object.content {
+                    let Some(url) = content.url else {
+                        continue;
+                    };
+                    enclosures.push(Enclosure {
+                        url: url.to_string(),
+                        media_type: content.content_type.map(|kind| kind.to_string()),
+                        size: content.size,
+                    });
+                }
+            }
+
+            // A feed that lists the same file twice should not show it twice.
+            enclosures.dedup_by(|a, b| a.url == b.url);
+            enclosures.retain(|enclosure| Some(&enclosure.url) != link.as_ref());
             let published = entry.published.or(entry.updated);
             // Prefer the full content over the summary: it is what the article
             // renderer has to work with, and a feed that publishes both means
@@ -756,6 +834,7 @@ pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
                 .or_else(|| entry.summary.map(|summary| summary.content))
                 .unwrap_or_default();
             Entry {
+                enclosures,
                 keys: entry_keys(&entry.id, link.as_deref(), &title, published),
                 title,
                 link,
@@ -1138,6 +1217,7 @@ mod tests {
             published: None,
             summary: String::new(),
             content: String::new(),
+            enclosures: Vec::new(),
             keys: Vec::new(),
         };
         assert_eq!(entry.date_label(), "—");
@@ -2145,5 +2225,101 @@ mod tests {
         // Not a URL at all: better the odd string than a blank line.
         assert_eq!(host_of("not a url"), "not a url");
         assert_eq!(host_of("https://"), "https://");
+    }
+
+    #[test]
+    fn a_podcast_episode_is_carried_on_the_entry() {
+        // The shape a real podcast feed publishes.
+        let xml = r#"<?xml version="1.0"?><rss version="2.0"><channel>
+            <title>A Show</title>
+            <item>
+              <title>Episode 412</title>
+              <link>https://show.example/412</link>
+              <enclosure url="https://show.example/412.mp3"
+                         length="50331648" type="audio/mpeg"/>
+            </item></channel></rss>"#;
+        let feed = parse(xml.as_bytes(), &source()).expect("parses");
+        let carried = &feed.entries[0].enclosures;
+
+        assert_eq!(carried.len(), 1, "{carried:?}");
+        assert_eq!(carried[0].url, "https://show.example/412.mp3");
+        assert_eq!(carried[0].media_type.as_deref(), Some("audio/mpeg"));
+        assert_eq!(carried[0].size, Some(50_331_648));
+        assert_eq!(carried[0].label(), "audio/mpeg, 48 MB");
+    }
+
+    #[test]
+    fn an_entry_with_nothing_attached_carries_nothing() {
+        let xml = r#"<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
+            <title>F</title><id>u</id>
+            <entry><id>e</id><title>Just words</title>
+              <link href="https://example.com/a"/></entry></feed>"#;
+        let feed = parse(xml.as_bytes(), &source()).expect("parses");
+        assert!(feed.entries[0].enclosures.is_empty());
+    }
+
+    #[test]
+    fn the_entrys_own_page_is_not_mistaken_for_a_file_it_carries() {
+        let xml = r#"<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
+            <title>F</title><id>u</id>
+            <entry><id>e</id><title>One</title>
+              <link href="https://example.com/a"/>
+              <link rel="enclosure" href="https://example.com/a"
+                    type="audio/mpeg" length="100"/>
+            </entry></feed>"#;
+        let feed = parse(xml.as_bytes(), &source()).expect("parses");
+        assert!(
+            feed.entries[0].enclosures.is_empty(),
+            "the page itself was listed as an attachment"
+        );
+    }
+
+    #[test]
+    fn a_feed_that_lists_the_same_file_twice_shows_it_once() {
+        let xml = r#"<?xml version="1.0"?><rss version="2.0"><channel><title>S</title>
+            <item><title>E</title><link>https://s.example/1</link>
+              <enclosure url="https://s.example/1.mp3" type="audio/mpeg" length="10"/>
+              <enclosure url="https://s.example/1.mp3" type="audio/mpeg" length="10"/>
+            </item></channel></rss>"#;
+        let feed = parse(xml.as_bytes(), &source()).expect("parses");
+        assert_eq!(feed.entries[0].enclosures.len(), 1);
+    }
+
+    #[test]
+    fn a_size_reads_the_way_a_person_would_say_it() {
+        let label = |size: u64| {
+            Enclosure {
+                url: "x".into(),
+                media_type: Some("audio/mpeg".into()),
+                size: Some(size),
+            }
+            .label()
+        };
+        assert_eq!(label(512), "audio/mpeg, 512 bytes");
+        assert_eq!(label(2048), "audio/mpeg, 2.0 kB");
+        assert_eq!(label(1_500_000), "audio/mpeg, 1.4 MB");
+        assert_eq!(label(50_331_648), "audio/mpeg, 48 MB");
+        assert_eq!(label(3_221_225_472), "audio/mpeg, 3.0 GB");
+
+        // A feed that gives no length says only what it is.
+        assert_eq!(
+            Enclosure {
+                url: "x".into(),
+                media_type: Some("video/mp4".into()),
+                size: None
+            }
+            .label(),
+            "video/mp4"
+        );
+        // And one that gives neither still says something.
+        assert_eq!(
+            Enclosure {
+                url: "x".into(),
+                media_type: None,
+                size: None
+            }
+            .label(),
+            "file"
+        );
     }
 }

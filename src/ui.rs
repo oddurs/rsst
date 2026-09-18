@@ -1140,6 +1140,7 @@ mod tests {
                         published: None,
                         summary: "A summary body.".into(),
                         content: String::new(),
+                        enclosures: Vec::new(),
                         keys: vec!["id:one".into()],
                     },
                     Entry {
@@ -1148,6 +1149,7 @@ mod tests {
                         published: None,
                         summary: String::new(),
                         content: String::new(),
+                        enclosures: Vec::new(),
                         keys: vec!["id:two".into()],
                     },
                 ],
@@ -1183,6 +1185,7 @@ mod tests {
                         published: None,
                         summary: String::new(),
                         content: String::new(),
+                        enclosures: Vec::new(),
                         keys: vec!["id:one".into()],
                     },
                     Entry {
@@ -1191,6 +1194,7 @@ mod tests {
                         published: None,
                         summary: String::new(),
                         content: String::new(),
+                        enclosures: Vec::new(),
                         keys: vec!["id:two".into()],
                     },
                 ],
@@ -1217,6 +1221,7 @@ mod tests {
                     published: None,
                     summary: String::new(),
                     content: String::new(),
+                    enclosures: Vec::new(),
                     keys: vec!["id:one".into()],
                 }],
             }],
@@ -1291,6 +1296,7 @@ mod tests {
                         .collect::<Vec<_>>()
                         .join(" "),
                     content: String::new(),
+                    enclosures: Vec::new(),
                     keys: vec!["id:x".into()],
                 }],
             }],
@@ -1361,6 +1367,7 @@ mod tests {
             published: None,
             summary: String::new(),
             content: String::new(),
+            enclosures: Vec::new(),
             keys: vec!["id:a".into()],
         }];
 
@@ -1436,6 +1443,7 @@ mod tests {
                     published: None,
                     summary: String::new(),
                     content: String::new(),
+                    enclosures: Vec::new(),
                     keys: vec!["id:c".into()],
                 }],
             }],
@@ -1567,6 +1575,7 @@ mod tests {
                 published: None,
                 summary: "Body.".into(),
                 content: String::new(),
+                enclosures: Vec::new(),
                 keys: vec![format!("id:{n}")],
             })
             .collect();
@@ -1595,6 +1604,7 @@ mod tests {
                     published: None,
                     summary: "Body.".into(),
                     content: String::new(),
+                    enclosures: Vec::new(),
                     keys: vec!["id:x".into()],
                 }],
             }],
@@ -1738,6 +1748,7 @@ mod tests {
             published: None,
             summary: "Body text.".into(),
             content: String::new(),
+            enclosures: Vec::new(),
             keys: vec![format!("id:{title}")],
         };
         let feed = |name: &str, titles: &[&str]| Feed {

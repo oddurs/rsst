@@ -135,6 +135,7 @@ mod tests {
                     published: None,
                     summary: "Today we are very proud to announce the 1.0 release.".into(),
                     content: String::new(),
+                    enclosures: Vec::new(),
                     keys: vec!["id:a".into()],
                 }],
             }],

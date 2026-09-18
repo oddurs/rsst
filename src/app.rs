@@ -1077,12 +1077,38 @@ impl App {
             spans: Vec::new(),
         });
 
+        let mut numbered = 0usize;
         if let Some(source) = self.article_source() {
-            rows.extend(crate::article::layout(
-                &crate::article::parse(source),
-                width,
-                self.measure,
-            ));
+            let article = crate::article::parse(source);
+            numbered = article.links.len();
+            rows.extend(crate::article::layout(&article, width, self.measure));
+        }
+
+        // The files the entry carries, numbered on from the article's links so
+        // there is one list of things a number can open rather than two.
+        let enclosures = entry.enclosures.clone();
+        if !enclosures.is_empty() {
+            rows.push(Row {
+                kind: Kind::Blank,
+                indent: 0,
+                spans: Vec::new(),
+            });
+            for (offset, enclosure) in enclosures.iter().enumerate() {
+                let label = format!("[{}] ", numbered + offset + 1);
+                rows.push(Row {
+                    kind: Kind::Reference,
+                    indent: margin,
+                    spans: vec![
+                        Inline::Text(label),
+                        Inline::Link(enclosure.url.clone(), numbered + offset),
+                    ],
+                });
+                rows.push(Row {
+                    kind: Kind::Image,
+                    indent: margin + 4,
+                    spans: vec![Inline::Text(enclosure.label())],
+                });
+            }
         }
         rows
     }
@@ -1101,11 +1127,17 @@ impl App {
         })
     }
 
-    /// The article's links, in the order the reference list numbers them.
+    /// Everything in the detail pane a number can open, in the order it is
+    /// numbered: the article's links, then the files the entry carries.
     pub fn article_links(&self) -> Vec<String> {
-        self.article_source()
+        let mut links = self
+            .article_source()
             .map(|source| crate::article::parse(source).links)
-            .unwrap_or_default()
+            .unwrap_or_default();
+        if let Some(entry) = self.current_entry() {
+            links.extend(entry.enclosures.iter().map(|e| e.url.clone()));
+        }
+        links
     }
 
     /// Takes a digit toward a link number, returning the link once no further
@@ -1430,6 +1462,7 @@ mod tests {
             published: None,
             summary: String::new(),
             content: String::new(),
+            enclosures: Vec::new(),
             keys: vec![format!("id:{title}")],
         }
     }
@@ -2015,6 +2048,7 @@ mod tests {
             published: year.map(at),
             summary: String::new(),
             content: String::new(),
+            enclosures: Vec::new(),
             keys: vec![format!("id:{title}")],
         };
         App::new(
@@ -2292,6 +2326,7 @@ mod tests {
                     published: None,
                     summary: "A short teaser.".into(),
                     content: "<p>A short teaser.</p>".into(),
+                    enclosures: Vec::new(),
                     keys: vec!["id:post".into()],
                 }],
             }],
@@ -2390,6 +2425,7 @@ mod tests {
                     published: None,
                     summary: "one two three four five six seven eight nine ten".into(),
                     content: String::new(),
+                    enclosures: Vec::new(),
                     keys: vec!["id:x".into()],
                 }],
             }],

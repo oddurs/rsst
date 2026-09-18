@@ -101,7 +101,13 @@ fn the_fixtures_are_the_ones_the_seeder_asks_for() {
     // The seeder names files; the files have to exist, or the environment is
     // quietly four feeds smaller than it looks.
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/feeds");
-    for name in ["handbook.xml", "unicode.xml", "awkward.xml", "empty.xml"] {
+    for name in [
+        "handbook.xml",
+        "unicode.xml",
+        "awkward.xml",
+        "empty.xml",
+        "podcast.xml",
+    ] {
         assert!(root.join(name).is_file(), "missing fixture {name}");
     }
 }
