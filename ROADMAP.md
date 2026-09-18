@@ -172,7 +172,7 @@ with the alternate screen still active.
 
 ## v1.7
 
-`··········` 0% · 0 of 7 done
+`##········` 13% · 1 of 8 done
 
 ### backlog
 
@@ -183,6 +183,10 @@ with the alternate screen still active.
 - [ ] [`0081`](https://github.com/oddurs/rsst/blob/main/cairn/items/0081-group-the-entry-list-by-day.md) Group the entry list by day <sup>feature · v1.7 · p2</sup>
 - [ ] [`0082`](https://github.com/oddurs/rsst/blob/main/cairn/items/0082-say-how-much-is-unread-in-the-terminal-title.md) Say how much is unread in the terminal title <sup>feature · v1.7 · p2</sup>
 - [ ] [`0083`](https://github.com/oddurs/rsst/blob/main/cairn/items/0083-tell-the-reader-when-news-arrives.md) Tell the reader when news arrives <sup>feature · v1.7 · p3</sup>
+
+### done
+
+- [x] [`0098`](https://github.com/oddurs/rsst/blob/main/cairn/items/0098-rustls-has-a-tls-1-3-handshake-vulnerability.md) rustls has a TLS 1.3 handshake vulnerability <sup>bug · v1.7 · p0</sup>
 
 ## v1.8
 
