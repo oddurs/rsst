@@ -352,12 +352,17 @@ fn draw_entries(frame: &mut Frame, app: &mut App, area: Rect) {
     *state.offset_mut() = offset;
     state.select(selected.filter(|row| (offset..offset + body.height as usize).contains(row)));
 
-    let title = if app.read.unread_only {
-        let separator = if app.theme.ascii { "  - " } else { "  · " };
-        format!("{title}{separator}unread only")
-    } else {
-        title
-    };
+    // What the list is ordered by, said rather than left to be worked out.
+    // A feed with an order of its own says so, since that is easy to forget.
+    let separator = if app.theme.ascii { "  - " } else { "  · " };
+    let mut title = title;
+    if app.read.unread_only {
+        title = format!("{title}{separator}unread only");
+    }
+    title = format!("{title}{separator}{}", app.sort_description());
+    if app.has_own_sort(app.selected_feed) {
+        title = format!("{title} (this feed)");
+    }
     let empty = items.is_empty();
     let items = if empty {
         vec![ListItem::new(Line::from(Span::styled(
@@ -1140,6 +1145,7 @@ mod tests {
                         published: None,
                         summary: "A summary body.".into(),
                         content: String::new(),
+                        first_seen: None,
                         enclosures: Vec::new(),
                         keys: vec!["id:one".into()],
                     },
@@ -1149,6 +1155,7 @@ mod tests {
                         published: None,
                         summary: String::new(),
                         content: String::new(),
+                        first_seen: None,
                         enclosures: Vec::new(),
                         keys: vec!["id:two".into()],
                     },
@@ -1185,6 +1192,7 @@ mod tests {
                         published: None,
                         summary: String::new(),
                         content: String::new(),
+                        first_seen: None,
                         enclosures: Vec::new(),
                         keys: vec!["id:one".into()],
                     },
@@ -1194,6 +1202,7 @@ mod tests {
                         published: None,
                         summary: String::new(),
                         content: String::new(),
+                        first_seen: None,
                         enclosures: Vec::new(),
                         keys: vec!["id:two".into()],
                     },
@@ -1221,6 +1230,7 @@ mod tests {
                     published: None,
                     summary: String::new(),
                     content: String::new(),
+                    first_seen: None,
                     enclosures: Vec::new(),
                     keys: vec!["id:one".into()],
                 }],
@@ -1296,6 +1306,7 @@ mod tests {
                         .collect::<Vec<_>>()
                         .join(" "),
                     content: String::new(),
+                    first_seen: None,
                     enclosures: Vec::new(),
                     keys: vec!["id:x".into()],
                 }],
@@ -1367,6 +1378,7 @@ mod tests {
             published: None,
             summary: String::new(),
             content: String::new(),
+            first_seen: None,
             enclosures: Vec::new(),
             keys: vec!["id:a".into()],
         }];
@@ -1443,6 +1455,7 @@ mod tests {
                     published: None,
                     summary: String::new(),
                     content: String::new(),
+                    first_seen: None,
                     enclosures: Vec::new(),
                     keys: vec!["id:c".into()],
                 }],
@@ -1575,6 +1588,7 @@ mod tests {
                 published: None,
                 summary: "Body.".into(),
                 content: String::new(),
+                first_seen: None,
                 enclosures: Vec::new(),
                 keys: vec![format!("id:{n}")],
             })
@@ -1604,6 +1618,7 @@ mod tests {
                     published: None,
                     summary: "Body.".into(),
                     content: String::new(),
+                    first_seen: None,
                     enclosures: Vec::new(),
                     keys: vec!["id:x".into()],
                 }],
@@ -1748,6 +1763,7 @@ mod tests {
             published: None,
             summary: "Body text.".into(),
             content: String::new(),
+            first_seen: None,
             enclosures: Vec::new(),
             keys: vec![format!("id:{title}")],
         };

@@ -24,13 +24,68 @@ pub struct ReadState {
     /// the same kind of thing — what the reader remembers between runs.
     pub unread_only: bool,
     /// Whether entry lists run oldest-first.
+    ///
+    /// Kept as the persisted name for what is now `reverse` on a published
+    /// sort, so a reader upgrading finds their list the way they left it.
     pub oldest_first: bool,
+    /// What entry lists are ordered by.
+    pub sort: SortBy,
+    /// Whether that order runs backwards from its natural direction.
+    pub reverse: bool,
+    /// Feeds that sort differently from the rest, by URL.
+    pub feed_sort: std::collections::HashMap<String, SortBy>,
     /// Keys changed since the last save, so persisting writes a delta rather
     /// than the whole set.
     read_added: HashSet<String>,
     read_removed: HashSet<String>,
     starred_added: HashSet<String>,
     starred_removed: HashSet<String>,
+}
+
+/// What an entry list is ordered by.
+///
+/// The natural direction differs by field, which is why `reverse` is a
+/// separate thing rather than an ascending/descending flag: newest first is
+/// the obvious order for a date and A–Z is the obvious one for a name, so one
+/// "reverse" means the sensible opposite of whichever is in force.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SortBy {
+    /// When the publisher says it was published.
+    #[default]
+    Published,
+    /// When rsst first saw it, which is not the same thing — a feed that
+    /// backfills its archive publishes old entries today.
+    Received,
+    /// The headline, A–Z.
+    Title,
+    /// The feed's name, for a list drawn from several.
+    Feed,
+}
+
+impl SortBy {
+    /// Every field, in the order `T` cycles through them.
+    pub const ALL: [Self; 4] = [Self::Published, Self::Received, Self::Title, Self::Feed];
+
+    /// How this reads in the pane title.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Published => "published",
+            Self::Received => "received",
+            Self::Title => "title",
+            Self::Feed => "feed",
+        }
+    }
+
+    /// The next field, wrapping.
+    pub fn next(self) -> Self {
+        let at = Self::ALL.iter().position(|f| *f == self).unwrap_or(0);
+        Self::ALL[(at + 1) % Self::ALL.len()]
+    }
+
+    /// The name written to the database, and read back from it.
+    pub fn from_label(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|f| f.label() == name)
+    }
 }
 
 /// The format version written to the state file.
@@ -203,6 +258,21 @@ impl ReadState {
             starred,
             unread_only: db.flag("unread_only"),
             oldest_first: db.flag("oldest_first"),
+            sort: db
+                .pref("sort")
+                .and_then(|name| SortBy::from_label(&name))
+                .unwrap_or_default(),
+            // A reader upgrading from the boolean finds their list as they
+            // left it: oldest-first was a reversed publication order.
+            reverse: db
+                .pref("sort_reverse")
+                .map(|value| value == "true")
+                .unwrap_or_else(|| db.flag("oldest_first")),
+            feed_sort: db
+                .prefs_under("sort:")
+                .into_iter()
+                .filter_map(|(url, name)| Some((url, SortBy::from_label(&name)?)))
+                .collect(),
             ..Default::default()
         })
     }
@@ -224,6 +294,11 @@ impl ReadState {
         self.starred_removed.clear();
         db.set_flag("unread_only", self.unread_only);
         db.set_flag("oldest_first", self.oldest_first);
+        db.set_pref("sort", self.sort.label());
+        db.set_pref("sort_reverse", if self.reverse { "true" } else { "false" });
+        for (url, sort) in &self.feed_sort {
+            db.set_pref(&format!("sort:{url}"), sort.label());
+        }
         Ok(())
     }
 
@@ -258,6 +333,7 @@ mod tests {
             published: None,
             summary: String::new(),
             content: String::new(),
+            first_seen: None,
             enclosures: Vec::new(),
             keys: keys.iter().map(|k| (*k).to_string()).collect(),
         }

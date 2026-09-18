@@ -26,6 +26,10 @@ still needs.
 - `D` unsubscribes from a feed, after saying how many entries and how many
   starred entries go with it. The config keeps its comments, and the feed leaves
   the sidebar without a restart
+- Sorting is a choice rather than a boolean: by published date, by the date rsst
+  first saw the entry, by title or by feed, with the direction chosen separately
+  and a per-feed override. A single feed's list is sorted too — the old setting
+  only ever reached the all-feeds view — and the pane says what it is sorted by
 - **Mouse-first interaction** — click a feed, entry or group heading; middle
   click to open one without selecting it; wheel over
   any pane to scroll it; click a link to open it; the status hints are buttons.

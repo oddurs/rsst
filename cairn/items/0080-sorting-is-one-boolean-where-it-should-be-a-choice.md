@@ -2,9 +2,10 @@
 id: 80
 title: Sorting is one boolean where it should be a choice
 type: feature
-status: backlog
+status: done
+assignee: Oddur Sigurdsson
 created: 2026-09-13
-updated: 2026-09-13
+updated: 2026-09-17
 priority: p1
 release: v1.7
 effort: m
@@ -27,9 +28,23 @@ A sort field and a direction, each chosen separately, with the field remembered 
 
 ## Acceptance criteria
 
-- [ ] Sort by published date, received date, title, and feed name
-- [ ] Direction is chosen separately from the field
-- [ ] An entry with no published date sorts predictably rather than randomly
-- [ ] A feed can override the global sort, and the override is remembered
-- [ ] The current `t` binding still does the obvious thing
-- [ ] The entry pane says what it is sorted by, so it is never a mystery
+- [x] Sort by published date, received date, title, and feed name
+- [x] Direction is chosen separately from the field
+- [x] An entry with no published date sorts predictably rather than randomly
+- [x] A feed can override the global sort, and the override is remembered
+- [x] The current `t` binding still does the obvious thing
+- [x] The entry pane says what it is sorted by, so it is never a mystery
+
+Two things turned up that the item did not know about:
+
+- **A single feed was never sorted at all.** `oldest_first` only reached
+  `all_entries`, which is the all-feeds view; `visible_indices` returned the
+  publisher's order whatever the setting said. Both go through one comparison
+  now.
+- **`received` needed the column the item predicted**, added as schema 8. Rows
+  that predate it have no first-seen date and fall back to their published one,
+  because there is no honest value to invent for them.
+
+`t` still reverses, `T` cycles the field, and `Ctrl-t` gives the selected feed
+an order of its own. The old `oldest_first` flag is still written, so a reader
+who opens the same database with an older rsst finds their list as they left it.

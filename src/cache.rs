@@ -219,6 +219,7 @@ mod tests {
             published: None,
             summary: String::new(),
             content: String::new(),
+            first_seen: None,
             enclosures: Vec::new(),
             keys: vec![format!("id:{title}")],
         }
