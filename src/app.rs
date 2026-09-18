@@ -497,29 +497,85 @@ impl App {
             .flat_map(|(f, feed)| (0..feed.entries.len()).map(move |e| (f, e)))
             .collect();
 
-        let oldest_first = self.read.oldest_first;
-        rows.sort_by(|a, b| {
-            let published = |(f, e): &(usize, usize)| {
-                self.feeds
-                    .get(*f)
-                    .and_then(|feed| feed.entries.get(*e))
-                    .and_then(|entry| entry.published)
-            };
-            match (published(a), published(b)) {
-                (Some(x), Some(y)) => {
-                    if oldest_first {
-                        x.cmp(&y)
-                    } else {
-                        y.cmp(&x)
-                    }
-                }
-                // Undated last, in both directions.
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            }
-        });
+        let sort = self.read.sort;
+        let reverse = self.read.reverse;
+        // Stable, so entries the field cannot separate keep the order the
+        // publisher put them in rather than an arbitrary one.
+        rows.sort_by(|a, b| self.compare(*a, *b, sort, reverse));
         rows
+    }
+
+    /// Orders two entries by the field in force.
+    ///
+    /// Undated and untitled entries go last whichever way the order runs: a
+    /// feed that omits dates should not colonise the top of the list, and
+    /// reversing is not a reason for it to colonise the bottom either.
+    fn compare(
+        &self,
+        a: (usize, usize),
+        b: (usize, usize),
+        sort: crate::state::SortBy,
+        reverse: bool,
+    ) -> std::cmp::Ordering {
+        use crate::state::SortBy;
+        use std::cmp::Ordering;
+
+        let entry = |(f, e): (usize, usize)| self.feeds.get(f).and_then(|fd| fd.entries.get(e));
+        let (Some(x), Some(y)) = (entry(a), entry(b)) else {
+            return Ordering::Equal;
+        };
+
+        // Missing values sort last, before the direction is applied, so that
+        // `reverse` does not drag them to the top.
+        match sort {
+            SortBy::Published | SortBy::Received => {
+                let when = |e: &crate::feed::Entry| match sort {
+                    SortBy::Received => e.first_seen.or(e.published),
+                    _ => e.published,
+                };
+                match (when(x), when(y)) {
+                    // Newest first is the natural direction for a date.
+                    (Some(x), Some(y)) => flip(y.cmp(&x), reverse),
+                    (Some(_), None) => Ordering::Less,
+                    (None, Some(_)) => Ordering::Greater,
+                    (None, None) => Ordering::Equal,
+                }
+            }
+            SortBy::Title => flip(x.title.to_lowercase().cmp(&y.title.to_lowercase()), reverse),
+            SortBy::Feed => {
+                let name =
+                    |(f, _): (usize, usize)| self.feeds.get(f).map(|fd| fd.title.to_lowercase());
+                flip(name(a).cmp(&name(b)), reverse)
+            }
+        }
+    }
+
+    /// How the current order reads in a sentence: "published, oldest first".
+    pub fn sort_description(&self) -> String {
+        let sort = self.sort_for(self.selected_feed);
+        let direction = match (sort, self.read.reverse) {
+            (crate::state::SortBy::Title | crate::state::SortBy::Feed, false) => "A–Z",
+            (crate::state::SortBy::Title | crate::state::SortBy::Feed, true) => "Z–A",
+            (_, false) => "newest first",
+            (_, true) => "oldest first",
+        };
+        format!("{}, {direction}", sort.label())
+    }
+
+    /// Whether this feed has an order of its own.
+    pub fn has_own_sort(&self, feed: usize) -> bool {
+        self.feeds
+            .get(feed)
+            .is_some_and(|feed| self.read.feed_sort.contains_key(&feed.url))
+    }
+
+    /// What this feed's list is ordered by: its own choice, or the global one.
+    pub fn sort_for(&self, feed: usize) -> crate::state::SortBy {
+        self.feeds
+            .get(feed)
+            .and_then(|feed| self.read.feed_sort.get(&feed.url))
+            .copied()
+            .unwrap_or(self.read.sort)
     }
 
     /// Shows or hides the combined all-feeds list.
@@ -536,7 +592,41 @@ impl App {
 
     /// Flips between newest-first and oldest-first.
     pub fn toggle_sort(&mut self) {
-        self.read.oldest_first = !self.read.oldest_first;
+        self.read.reverse = !self.read.reverse;
+        // Kept in step so an older rsst opening the same database still finds
+        // the order the reader chose.
+        self.read.oldest_first =
+            self.read.sort == crate::state::SortBy::Published && self.read.reverse;
+    }
+
+    /// Moves the selected feed's list on to the next field.
+    ///
+    /// Sets it for this feed alone when the feed already has its own, and
+    /// globally otherwise — so overriding one feed is deliberate rather than
+    /// something that happens by pressing a key twice.
+    pub fn cycle_sort(&mut self) -> crate::state::SortBy {
+        let next = self.sort_for(self.selected_feed).next();
+        let url = self.feeds.get(self.selected_feed).map(|f| f.url.clone());
+        match url.filter(|url| self.read.feed_sort.contains_key(url)) {
+            Some(url) => {
+                self.read.feed_sort.insert(url, next);
+            }
+            None => self.read.sort = next,
+        }
+        next
+    }
+
+    /// Gives this feed its own order, or takes it away again.
+    pub fn toggle_feed_sort(&mut self) -> Option<crate::state::SortBy> {
+        let url = self.feeds.get(self.selected_feed)?.url.clone();
+        match self.read.feed_sort.remove(&url) {
+            Some(_) => None,
+            None => {
+                let sort = self.read.sort;
+                self.read.feed_sort.insert(url, sort);
+                Some(sort)
+            }
+        }
     }
 
     /// Opens the prompt for adding a feed.
@@ -967,9 +1057,16 @@ impl App {
         let Some(feed) = self.feeds.get(feed_index) else {
             return Vec::new();
         };
-        (0..feed.entries.len())
+        let mut visible: Vec<usize> = (0..feed.entries.len())
             .filter(|index| self.is_visible(feed_index, *index))
-            .collect()
+            .collect();
+
+        // A single feed's list used to be whatever order the publisher chose,
+        // whatever the sort said — the setting only reached the all-feeds view.
+        let sort = self.sort_for(feed_index);
+        let reverse = self.read.reverse;
+        visible.sort_by(|a, b| self.compare((feed_index, *a), (feed_index, *b), sort, reverse));
+        visible
     }
 
     /// Turns the unread-only filter on or off.
@@ -1429,6 +1526,14 @@ impl App {
 }
 
 /// Moves `current` by `delta` within `len`, wrapping at both ends.
+/// Reverses an ordering when asked.
+fn flip(ordering: std::cmp::Ordering, reverse: bool) -> std::cmp::Ordering {
+    match reverse {
+        true => ordering.reverse(),
+        false => ordering,
+    }
+}
+
 /// The smallest offset change that puts `row` inside a window of `height`.
 fn scrolled_to_show(row: Option<usize>, offset: usize, height: usize) -> usize {
     let (Some(row), true) = (row, height > 0) else {
@@ -1462,6 +1567,7 @@ mod tests {
             published: None,
             summary: String::new(),
             content: String::new(),
+            first_seen: None,
             enclosures: Vec::new(),
             keys: vec![format!("id:{title}")],
         }
@@ -2048,6 +2154,7 @@ mod tests {
             published: year.map(at),
             summary: String::new(),
             content: String::new(),
+            first_seen: None,
             enclosures: Vec::new(),
             keys: vec![format!("id:{title}")],
         };
@@ -2326,6 +2433,7 @@ mod tests {
                     published: None,
                     summary: "A short teaser.".into(),
                     content: "<p>A short teaser.</p>".into(),
+                    first_seen: None,
                     enclosures: Vec::new(),
                     keys: vec!["id:post".into()],
                 }],
@@ -2425,6 +2533,7 @@ mod tests {
                     published: None,
                     summary: "one two three four five six seven eight nine ten".into(),
                     content: String::new(),
+                    first_seen: None,
                     enclosures: Vec::new(),
                     keys: vec!["id:x".into()],
                 }],
@@ -2846,5 +2955,207 @@ mod tests {
             app.selected_feed, 0,
             "the cursor was left pointing past the end"
         );
+    }
+
+    /// One feed whose entries disagree about every field, so each sort gives a
+    /// different answer and a wrong one is obvious.
+    fn sortable() -> App {
+        let at = |y: i32, m: u32, d: u32| {
+            chrono::DateTime::parse_from_rfc3339(&format!("{y}-{m:02}-{d:02}T00:00:00Z"))
+                .expect("a date")
+                .with_timezone(&chrono::Utc)
+        };
+        let make = |title: &str, published: (i32, u32, u32), seen: (i32, u32, u32)| Entry {
+            title: title.into(),
+            link: None,
+            published: Some(at(published.0, published.1, published.2)),
+            first_seen: Some(at(seen.0, seen.1, seen.2)),
+            summary: String::new(),
+            content: String::new(),
+            enclosures: Vec::new(),
+            keys: vec![format!("id:{title}")],
+        };
+        App::new(
+            vec![Feed {
+                title: "Feed".into(),
+                url: "https://a.example".into(),
+                status: crate::feed::Status::Idle,
+                entries: vec![
+                    // Published old, seen today: a backfilled archive entry.
+                    make("Charlie", (2020, 1, 1), (2026, 9, 17)),
+                    make("Alpha", (2026, 9, 1), (2026, 9, 1)),
+                    make("Bravo", (2026, 9, 10), (2026, 9, 10)),
+                ],
+            }],
+            ReadState::default(),
+        )
+    }
+
+    fn order(app: &App) -> Vec<String> {
+        app.visible_indices(0)
+            .into_iter()
+            .map(|i| app.feeds[0].entries[i].title.clone())
+            .collect()
+    }
+
+    #[test]
+    fn a_single_feed_is_sorted_too() {
+        // It used to be shown in whatever order the publisher chose, whatever
+        // the sort said: the setting only reached the all-feeds view.
+        let mut app = sortable();
+        app.read.sort = crate::state::SortBy::Published;
+        assert_eq!(order(&app), ["Bravo", "Alpha", "Charlie"]);
+    }
+
+    #[test]
+    fn published_and_received_are_not_the_same_order() {
+        // The case that makes two date fields worth having: an entry
+        // published in 2020 and first seen today.
+        let mut app = sortable();
+        app.read.sort = crate::state::SortBy::Published;
+        assert_eq!(order(&app), ["Bravo", "Alpha", "Charlie"]);
+
+        app.read.sort = crate::state::SortBy::Received;
+        assert_eq!(
+            order(&app),
+            ["Charlie", "Bravo", "Alpha"],
+            "the backfilled entry is the newest thing to arrive"
+        );
+    }
+
+    #[test]
+    fn sorting_by_title_is_alphabetical_and_reverses() {
+        let mut app = sortable();
+        app.read.sort = crate::state::SortBy::Title;
+        assert_eq!(order(&app), ["Alpha", "Bravo", "Charlie"]);
+        app.read.reverse = true;
+        assert_eq!(order(&app), ["Charlie", "Bravo", "Alpha"]);
+    }
+
+    #[test]
+    fn direction_is_separate_from_the_field() {
+        let mut app = sortable();
+        // Not `Feed`: every entry here is from the same feed, so that field
+        // ties for all of them and reversing a tie is rightly a no-op.
+        for sort in [
+            crate::state::SortBy::Published,
+            crate::state::SortBy::Received,
+            crate::state::SortBy::Title,
+        ] {
+            app.read.sort = sort;
+            app.read.reverse = false;
+            let forwards = order(&app);
+            app.read.reverse = true;
+            let backwards = order(&app);
+            assert_eq!(
+                backwards,
+                forwards.iter().rev().cloned().collect::<Vec<_>>(),
+                "{sort:?} does not reverse cleanly"
+            );
+        }
+    }
+
+    #[test]
+    fn sorting_by_feed_orders_a_list_drawn_from_several() {
+        let mut app = two_feeds();
+        app.all_feeds_view = true;
+        app.read.sort = crate::state::SortBy::Feed;
+
+        let names = |app: &App| -> Vec<String> {
+            app.all_entries()
+                .into_iter()
+                .map(|(f, _)| app.feeds[f].title.clone())
+                .collect()
+        };
+        let forwards = names(&app);
+        assert!(
+            forwards.windows(2).all(|pair| pair[0] <= pair[1]),
+            "not grouped by feed: {forwards:?}"
+        );
+
+        app.read.reverse = true;
+        let backwards = names(&app);
+        assert!(
+            backwards.windows(2).all(|pair| pair[0] >= pair[1]),
+            "reversing did not flip the feed order: {backwards:?}"
+        );
+    }
+
+    #[test]
+    fn sorting_within_one_feed_by_feed_name_leaves_it_alone() {
+        // A tie, and a stable sort, so the publisher's order stands.
+        let mut app = sortable();
+        app.read.sort = crate::state::SortBy::Feed;
+        assert_eq!(order(&app), ["Charlie", "Alpha", "Bravo"]);
+    }
+
+    #[test]
+    fn an_entry_with_no_date_goes_last_whichever_way_the_list_runs() {
+        let mut app = sortable();
+        app.feeds[0].entries.push(Entry {
+            title: "Undated".into(),
+            link: None,
+            published: None,
+            first_seen: None,
+            summary: String::new(),
+            content: String::new(),
+            enclosures: Vec::new(),
+            keys: vec!["id:undated".into()],
+        });
+        app.read.sort = crate::state::SortBy::Published;
+
+        assert_eq!(order(&app).last().map(String::as_str), Some("Undated"));
+        app.read.reverse = true;
+        assert_eq!(
+            order(&app).last().map(String::as_str),
+            Some("Undated"),
+            "reversing dragged the undated entry to the top"
+        );
+    }
+
+    #[test]
+    fn a_feed_can_have_an_order_of_its_own() {
+        let mut app = sortable();
+        app.read.sort = crate::state::SortBy::Published;
+        assert!(!app.has_own_sort(0));
+
+        app.toggle_feed_sort();
+        assert!(app.has_own_sort(0));
+        app.cycle_sort();
+        assert_eq!(app.sort_for(0), crate::state::SortBy::Received);
+        assert_eq!(
+            app.read.sort,
+            crate::state::SortBy::Published,
+            "overriding one feed changed the order for every feed"
+        );
+
+        app.toggle_feed_sort();
+        assert!(!app.has_own_sort(0));
+        assert_eq!(app.sort_for(0), crate::state::SortBy::Published);
+    }
+
+    #[test]
+    fn the_sort_key_still_does_the_obvious_thing() {
+        // `t` was oldest-first / newest-first, and still reverses the order.
+        let mut app = sortable();
+        assert_eq!(app.read.sort, crate::state::SortBy::Published);
+        let before = order(&app);
+        app.toggle_sort();
+        assert_eq!(
+            order(&app),
+            before.iter().rev().cloned().collect::<Vec<_>>()
+        );
+        assert!(app.read.oldest_first, "the old flag was left behind");
+    }
+
+    #[test]
+    fn the_list_says_what_it_is_sorted_by() {
+        let mut app = sortable();
+        assert_eq!(app.sort_description(), "published, newest first");
+        app.toggle_sort();
+        assert_eq!(app.sort_description(), "published, oldest first");
+        app.read.reverse = false;
+        app.read.sort = crate::state::SortBy::Title;
+        assert_eq!(app.sort_description(), "title, A–Z");
     }
 }

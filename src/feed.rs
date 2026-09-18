@@ -148,6 +148,10 @@ pub struct Entry {
     /// Every identifier this entry could reasonably be recognised by, best
     /// first. Read state matches on any of them — see [`crate::state`].
     pub keys: Vec<String>,
+    /// When rsst first stored this entry. Set by the database, not the feed —
+    /// a publisher cannot tell you when you first saw something.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_seen: Option<DateTime<Utc>>,
     /// Files the entry carries: a podcast episode, a video, a PDF.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub enclosures: Vec<Enclosure>,
@@ -834,6 +838,7 @@ pub fn parse(body: &[u8], source: &FeedSource) -> Result<Feed> {
                 .or_else(|| entry.summary.map(|summary| summary.content))
                 .unwrap_or_default();
             Entry {
+                first_seen: None,
                 enclosures,
                 keys: entry_keys(&entry.id, link.as_deref(), &title, published),
                 title,
@@ -1217,6 +1222,7 @@ mod tests {
             published: None,
             summary: String::new(),
             content: String::new(),
+            first_seen: None,
             enclosures: Vec::new(),
             keys: Vec::new(),
         };

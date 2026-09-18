@@ -812,10 +812,29 @@ fn dispatch(action: keys::Action, app: &mut App, session: &mut Session) -> Resul
         Action::ToggleSort => {
             app.toggle_sort();
             let _ = app.read.persist(&mut session.db);
-            app.status = Some(if app.read.oldest_first {
-                " Oldest first. ".into()
-            } else {
-                " Newest first. ".into()
+            app.status = Some(format!(" Sorted by {}. ", app.sort_description()));
+        }
+        Action::CycleSort => {
+            app.cycle_sort();
+            let _ = app.read.persist(&mut session.db);
+            app.status = Some(format!(" Sorted by {}. ", app.sort_description()));
+        }
+        Action::ToggleFeedSort => {
+            let own = app.toggle_feed_sort();
+            // A feed with its own order needs its pref removed when it gives
+            // it back, or the old choice would return on the next launch.
+            if own.is_none()
+                && let Some(feed) = app.current_feed()
+            {
+                session.db.clear_pref(&format!("sort:{}", feed.url));
+            }
+            let _ = app.read.persist(&mut session.db);
+            app.status = Some(match own {
+                Some(_) => format!(
+                    " This feed sorts by {} on its own. ",
+                    app.sort_description()
+                ),
+                None => " This feed follows the usual order again. ".into(),
             });
         }
         Action::FetchArticle => {

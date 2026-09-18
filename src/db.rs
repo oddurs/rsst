@@ -25,7 +25,7 @@ use crate::feed::{Entry, Feed, Status};
 /// Stored in SQLite's own `user_version`, so the database carries its version
 /// the way `docs/stability.md` requires — and, as with the TOML before it, a
 /// database from a newer rsst is refused rather than misread.
-pub const SCHEMA: i64 = 7;
+pub const SCHEMA: i64 = 8;
 
 /// What we remember about a feed's HTTP behaviour between fetches.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -267,7 +267,7 @@ impl Db {
         };
 
         let mut statement = self.connection.prepare(
-            "SELECT id, title, link, published, summary, content FROM entries
+            "SELECT id, title, link, published, summary, content, first_seen FROM entries
              WHERE feed_url = ?1 ORDER BY position",
         )?;
         let rows = statement.query_map(params![source.url], |row| {
@@ -282,6 +282,10 @@ impl Db {
                         .map(|t| t.with_timezone(&Utc)),
                     summary: row.get(4)?,
                     content: row.get(5)?,
+                    first_seen: row
+                        .get::<_, Option<String>>(6)?
+                        .and_then(|t| DateTime::parse_from_rfc3339(&t).ok())
+                        .map(|t| t.with_timezone(&Utc)),
                     enclosures: Vec::new(),
                     keys: Vec::new(),
                 },
@@ -583,6 +587,57 @@ impl Db {
         );
     }
 
+    /// A named string preference, if one was ever written.
+    pub fn pref(&self, name: &str) -> Option<String> {
+        self.connection
+            .query_row(
+                "SELECT value FROM prefs WHERE name = ?1",
+                params![name],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+    }
+
+    pub fn set_pref(&self, name: &str, value: &str) {
+        let _ = self.connection.execute(
+            "INSERT INTO prefs (name, value) VALUES (?1, ?2)
+             ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+            params![name, value],
+        );
+    }
+
+    /// Every preference whose name begins with `prefix`, keyed by the rest of
+    /// the name — for the per-feed settings stored as `sort:<url>`.
+    pub fn prefs_under(&self, prefix: &str) -> Vec<(String, String)> {
+        let Ok(mut statement) = self
+            .connection
+            .prepare("SELECT name, value FROM prefs WHERE name LIKE ?1")
+        else {
+            return Vec::new();
+        };
+        let pattern = format!("{prefix}%");
+        statement
+            .query_map(params![pattern], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map(|rows| {
+                rows.filter_map(Result::ok)
+                    .filter_map(|(name, value)| {
+                        Some((name.strip_prefix(prefix)?.to_string(), value))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn clear_pref(&self, name: &str) {
+        let _ = self
+            .connection
+            .execute("DELETE FROM prefs WHERE name = ?1", params![name]);
+    }
+
     // ─── Fetched articles ────────────────────────────────────────────────
 
     /// The full article fetched for this entry, if one ever was.
@@ -765,8 +820,8 @@ fn insert_entry(
 ) -> Result<()> {
     connection.execute(
         "INSERT INTO entries (feed_url, position, title, link, published, summary, content,
-             digest)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             digest, first_seen)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             feed_url,
             position,
@@ -775,7 +830,10 @@ fn insert_entry(
             entry.published.map(|t| t.to_rfc3339()),
             entry.summary,
             entry.content,
-            digest_of(entry)
+            digest_of(entry),
+            // Set here and nowhere else: an entry is first seen once, and a
+            // later refresh that rewrites it has not seen it again.
+            entry.first_seen.unwrap_or_else(Utc::now).to_rfc3339()
         ],
     )?;
     let id = connection.last_insert_rowid();
@@ -921,6 +979,17 @@ fn migrate(connection: &Connection, from: i64) -> Result<()> {
             )
             .context("adding the enclosures table")?;
     }
+    if from < 8 {
+        // When rsst first saw an entry, which is not when it was published —
+        // a feed that backfills its archive publishes old entries today, and
+        // sorting by one gives a different list from sorting by the other.
+        //
+        // Null on rows that predate the column, which sort by their published
+        // date instead; there is no honest value to invent for them.
+        connection
+            .execute_batch("ALTER TABLE entries ADD COLUMN first_seen TEXT;")
+            .context("adding the first_seen column")?;
+    }
     connection
         .pragma_update(None, "user_version", SCHEMA)
         .context("recording the schema version")?;
@@ -980,6 +1049,7 @@ mod tests {
             published: None,
             summary: format!("The body of {title}, with words in it."),
             content: String::new(),
+            first_seen: None,
             enclosures: Vec::new(),
             keys: keys.iter().map(|k| (*k).to_string()).collect(),
         }
@@ -1498,6 +1568,7 @@ mod tests {
                     "ALTER TABLE feeds DROP COLUMN resolved_url;
                      ALTER TABLE entries DROP COLUMN digest;
                      DROP TABLE entry_enclosures;
+                     ALTER TABLE entries DROP COLUMN first_seen;
                      INSERT INTO feeds (url, title) VALUES ('https://a.example', 'A');
                      INSERT INTO entries (feed_url, position, title, summary)
                        VALUES ('https://a.example', 0, 'Old entry', 'Body');
@@ -1547,6 +1618,7 @@ mod tests {
                 .execute_batch(
                     "ALTER TABLE entries DROP COLUMN digest;
                      DROP TABLE entry_enclosures;
+                     ALTER TABLE entries DROP COLUMN first_seen;
                      INSERT INTO feeds (url, title) VALUES ('https://a.example', 'A');
                      INSERT INTO entries (feed_url, position, title, summary)
                        VALUES ('https://a.example', 0, 'Old entry', 'Body');
@@ -1585,6 +1657,7 @@ mod tests {
             connection
                 .execute_batch(
                     "DROP TABLE entry_enclosures;
+                     ALTER TABLE entries DROP COLUMN first_seen;
                      INSERT INTO feeds (url, title) VALUES ('https://a.example', 'A');
                      INSERT INTO entries (feed_url, position, title, summary)
                        VALUES ('https://a.example', 0, 'Old entry', 'Body');
@@ -1621,6 +1694,56 @@ mod tests {
             .expect("query")
             .expect("kept");
         assert_eq!(stored.entries[0].enclosures.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_version_seven_database_gains_the_first_seen_column() {
+        let dir = std::env::temp_dir().join(format!("rsst-v7-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("v7.sqlite3");
+        let _ = std::fs::remove_file(&path);
+
+        {
+            let connection = Connection::open(&path).expect("open");
+            migrate(&connection, 0).expect("build up to current");
+            connection
+                .execute_batch(
+                    "ALTER TABLE entries DROP COLUMN first_seen;
+                     INSERT INTO feeds (url, title) VALUES ('https://a.example', 'A');
+                     INSERT INTO entries (feed_url, position, title, summary, published)
+                       VALUES ('https://a.example', 0, 'Old', 'Body', '2020-01-01T00:00:00Z');
+                     INSERT INTO read_keys (key) VALUES ('id:kept');",
+                )
+                .expect("v7 shape");
+            connection
+                .pragma_update(None, "user_version", 7)
+                .expect("version");
+        }
+
+        let mut db = Db::open(&path).expect("migrates");
+        let stored = db
+            .feed(&source("https://a.example"))
+            .expect("query")
+            .expect("kept");
+        assert_eq!(stored.entries.len(), 1, "the old row survived");
+        assert_eq!(
+            stored.entries[0].first_seen, None,
+            "there is no honest first-seen date for a row that predates the column"
+        );
+        assert!(db.load_state().expect("state").0.contains("id:kept"));
+
+        // Anything stored from here on is stamped.
+        let feed = feed("https://a.example", vec![entry("New", &["id:new"])]);
+        db.put_feed(&feed).expect("store");
+        let stored = db
+            .feed(&source("https://a.example"))
+            .expect("query")
+            .expect("kept");
+        assert!(
+            stored.entries.iter().any(|e| e.first_seen.is_some()),
+            "a newly stored entry was not stamped"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

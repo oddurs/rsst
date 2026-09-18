@@ -138,7 +138,9 @@ time, set `mouse = false`.
 | `m`            | Toggle read on the selected entry |
 | `a` / `A`      | Mark this feed / every feed read (asks first) |
 | `v`            | Show every feed as one list |
-| `t`            | Oldest first / newest first |
+| `t`            | Reverse the order         |
+| `T`            | Sort by published / received / title / feed |
+| `Ctrl-t`       | Give this feed an order of its own |
 | `u`            | Show only unread entries  |
 | `o`            | Open the entry in your browser |
 | `y`            | Copy its link to the clipboard |
