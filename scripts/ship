@@ -101,13 +101,12 @@ $(commit_type "$type")$([ -n "$area" ] && printf '(%s)' "$area"): $title
 Closes cairn $(printf '%04d' "$id").
 
 $ATTRIBUTION
-Claude-Session: ${CLAUDE_SESSION_URL:-https://claude.ai/code}
 EOF
 
     git push -q -u origin "$branch"
 
     # shellcheck disable=SC2016  # the backticks are literal Markdown, not expansion
-    body="$(printf '## What\n\n%s\n\n---\n\nCloses cairn `%04d` (%s%s). Shipped by `scripts/ship`; auto-merges when CI is green.\n' \
+    body="$(printf '## What\n\n%s\n\n---\n\nCloses cairn `%04d` (%s%s). Shipped by `scripts/ship`; auto-merges when CI is green.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n' \
         "$(field "$json" .body)" "$id" "$type" "$([ -n "$priority" ] && printf ' · %s' "$priority")")"
 
     local args=(--title "$(commit_type "$type")$([ -n "$area" ] && printf '(%s)' "$area"): $title" --body "$body" --label agent --label "$type")
