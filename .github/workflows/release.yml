@@ -20,7 +20,7 @@ jobs:
     # failing, so tagging still produces binaries for anyone not publishing.
     if: vars.PUBLISH_TO_CRATES_IO == 'true'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: The tag and Cargo.toml must agree
@@ -47,7 +47,7 @@ jobs:
           - { os: macos-latest,   target: aarch64-apple-darwin }
           - { os: windows-latest, target: x86_64-pc-windows-msvc }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -93,7 +93,7 @@ jobs:
             cp "target/${{ matrix.target }}/release/rsst" "$name/"
             tar czf "$name.tar.gz" "$name"
           fi
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             *.tar.gz
@@ -108,7 +108,7 @@ jobs:
     # Needs HOMEBREW_TAP_TOKEN, a PAT with write access to the tap repository.
     if: vars.UPDATE_HOMEBREW_TAP == 'true'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Render the formula
         run: |
           version="${GITHUB_REF_NAME#v}"
