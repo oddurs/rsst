@@ -22,7 +22,7 @@ feed-rs = "2"
 # Default features add the calendar widget and ratatui-macros, neither of which
 # we use. `crossterm` selects the backend; the other two are rendering quality.
 # Already in the tree via feed-rs, so depending on it directly costs nothing.
-quick-xml = "0.41"
+quick-xml = "0.42"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm", "layout-cache", "underline-color"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "gzip", "http2", "charset"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
