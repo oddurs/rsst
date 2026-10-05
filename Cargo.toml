@@ -18,7 +18,7 @@ anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 crossterm = "0.29"
 directories = "6"
-feed-rs = "2"
+feed-rs = "3"
 # Default features add the calendar widget and ratatui-macros, neither of which
 # we use. `crossterm` selects the backend; the other two are rendering quality.
 # Already in the tree via feed-rs, so depending on it directly costs nothing.
